@@ -1,0 +1,327 @@
+Prompt para Cursor AI - Sistema de Delivery Backend
+Crie um projeto backend completo em NestJS para um sistema de delivery de restaurantes/hamburguerias com as seguintes especificações:
+
+1. Inicialização do Projeto
+   bash# Criar projeto NestJS
+   nest new delivery-backend --package-manager npm
+
+# Dependências principais
+
+npm install @prisma/client @nestjs/config @nestjs/jwt @nestjs/passport passport passport-jwt bcrypt class-validator class-transformer
+
+# Dependências de desenvolvimento
+
+npm install -D prisma @types/passport-jwt @types/bcrypt
+
+# Inicializar Prisma
+
+npx prisma init
+
+```
+
+## 2. Estrutura de Pastas
+```
+
+src/
+├── config/
+│ ├── database.config.ts
+│ ├── jwt.config.ts
+│ └── kong.config.ts
+├── common/
+│ ├── decorators/
+│ ├── guards/
+│ ├── interceptors/
+│ └── filters/
+├── modules/
+│ ├── auth/
+│ ├── users/
+│ ├── companies/
+│ ├── branches/
+│ ├── products/
+│ ├── orders/
+│ └── delivery/
+├── prisma/
+│ ├── prisma.service.ts
+│ └── prisma.module.ts
+└── main.ts 3. Configuração do Prisma
+Arquivo: prisma/schema.prisma
+prisma// Cole aqui o schema.prisma completo fornecido no documento
+Variáveis de ambiente (.env):
+envDATABASE_URL="postgresql://user:password@ep-xxx.neon.tech/delivery_db?sslmode=require"
+JWT_SECRET="seu-secret-super-seguro-aqui"
+JWT_EXPIRES_IN="7d"
+PORT=3000
+NODE_ENV="development"
+
+# Kong Gateway
+
+KONG_ADMIN_URL="http://localhost:8001"
+KONG_GATEWAY_URL="http://localhost:8000" 4. Configuração do Kong Gateway
+Crie um arquivo kong.yml para configuração declarativa:
+yaml_format_version: "3.0"
+
+services:
+
+- name: delivery-api
+  url: http://host.docker.internal:3000
+  routes:
+  - name: delivery-routes
+    paths: - /api
+    strip_path: false
+    plugins:
+  - name: cors
+    config:
+    origins: - "\*"
+    methods: - GET - POST - PUT - PATCH - DELETE
+    headers: - Accept - Authorization - Content-Type
+    exposed_headers: - X-Auth-Token
+    credentials: true
+    max_age: 3600
+
+  - name: rate-limiting
+    config:
+    minute: 100
+    hour: 1000
+    policy: local
+
+  - name: request-size-limiting
+    config:
+    allowed_payload_size: 10
+
+  - name: jwt
+    config:
+    key_claim_name: kid
+    secret_is_base64: false
+
+consumers:
+
+- username: delivery-app
+  jwt_secrets: - key: delivery-jwt-key
+  secret: "seu-secret-super-seguro-aqui"
+  Docker Compose para Kong:
+  yamlversion: '3.9'
+
+services:
+kong-database:
+image: postgres:15-alpine
+environment:
+POSTGRES_USER: kong
+POSTGRES_DB: kong
+POSTGRES_PASSWORD: kong
+ports: - "5432:5432"
+volumes: - kong-data:/var/lib/postgresql/data
+
+kong-migration:
+image: kong:3.4
+command: kong migrations bootstrap
+environment:
+KONG_DATABASE: postgres
+KONG_PG_HOST: kong-database
+KONG_PG_USER: kong
+KONG_PG_PASSWORD: kong
+depends_on: - kong-database
+
+kong:
+image: kong:3.4
+environment:
+KONG_DATABASE: postgres
+KONG_PG_HOST: kong-database
+KONG_PG_USER: kong
+KONG_PG_PASSWORD: kong
+KONG_PROXY_ACCESS_LOG: /dev/stdout
+KONG_ADMIN_ACCESS_LOG: /dev/stdout
+KONG_PROXY_ERROR_LOG: /dev/stderr
+KONG_ADMIN_ERROR_LOG: /dev/stderr
+KONG_ADMIN_LISTEN: 0.0.0.0:8001
+KONG_DECLARATIVE_CONFIG: /etc/kong/kong.yml
+ports: - "8000:8000" # Proxy - "8001:8001" # Admin API
+volumes: - ./kong.yml:/etc/kong/kong.yml:ro
+depends_on: - kong-database - kong-migration
+
+volumes:
+kong-data: 5. Módulos Principais
+PrismaService e PrismaModule
+prisma/prisma.service.ts:
+typescriptimport { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { PrismaClient } from '@prisma/client';
+
+@Injectable()
+export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+async onModuleInit() {
+await this.$connect();
+}
+
+async onModuleDestroy() {
+await this.$disconnect();
+}
+}
+prisma/prisma.module.ts:
+typescriptimport { Global, Module } from '@nestjs/common';
+import { PrismaService } from './prisma.service';
+
+@Global()
+@Module({
+providers: [PrismaService],
+exports: [PrismaService],
+})
+export class PrismaModule {}
+AuthModule
+typescript// auth/auth.module.ts
+import { Module } from '@nestjs/common';
+import { JwtModule } from '@nestjs/jwt';
+import { PassportModule } from '@nestjs/passport';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { AuthService } from './auth.service';
+import { AuthController } from './auth.controller';
+import { JwtStrategy } from './strategies/jwt.strategy';
+import { UsersModule } from '../users/users.module';
+
+@Module({
+imports: [
+PassportModule.register({ defaultStrategy: 'jwt' }),
+JwtModule.registerAsync({
+imports: [ConfigModule],
+useFactory: async (configService: ConfigService) => ({
+secret: configService.get('JWT_SECRET'),
+signOptions: {
+expiresIn: configService.get('JWT_EXPIRES_IN'),
+},
+}),
+inject: [ConfigService],
+}),
+UsersModule,
+],
+providers: [AuthService, JwtStrategy],
+controllers: [AuthController],
+exports: [AuthService, JwtStrategy, PassportModule],
+})
+export class AuthModule {}
+Guards e Decorators
+common/guards/jwt-auth.guard.ts:
+typescriptimport { Injectable, ExecutionContext } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
+import { Reflector } from '@nestjs/core';
+
+@Injectable()
+export class JwtAuthGuard extends AuthGuard('jwt') {
+constructor(private reflector: Reflector) {
+super();
+}
+
+canActivate(context: ExecutionContext) {
+const isPublic = this.reflector.get<boolean>('isPublic', context.getHandler());
+if (isPublic) {
+return true;
+}
+return super.canActivate(context);
+}
+}
+common/decorators/public.decorator.ts:
+typescriptimport { SetMetadata } from '@nestjs/common';
+
+export const IS_PUBLIC_KEY = 'isPublic';
+export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
+common/decorators/roles.decorator.ts:
+typescriptimport { SetMetadata } from '@nestjs/common';
+
+export const ROLES_KEY = 'roles';
+export const Roles = (...roles: string[]) => SetMetadata(ROLES_KEY, roles); 6. Main.ts
+typescriptimport { NestFactory } from '@nestjs/core';
+import { ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { AppModule } from './app.module';
+
+async function bootstrap() {
+const app = await NestFactory.create(AppModule);
+
+const configService = app.get(ConfigService);
+
+// Global prefix
+app.setGlobalPrefix('api');
+
+// Validation pipe
+app.useGlobalPipes(
+new ValidationPipe({
+whitelist: true,
+forbidNonWhitelisted: true,
+transform: true,
+}),
+);
+
+// CORS
+app.enableCors({
+origin: true,
+credentials: true,
+});
+
+const port = configService.get('PORT') || 3000;
+await app.listen(port);
+
+console.log(`🚀 Application is running on: http://localhost:${port}/api`);
+}
+bootstrap(); 7. AppModule
+typescriptimport { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
+import { PrismaModule } from './prisma/prisma.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { UsersModule } from './modules/users/users.module';
+import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+
+@Module({
+imports: [
+ConfigModule.forRoot({
+isGlobal: true,
+envFilePath: '.env',
+}),
+PrismaModule,
+AuthModule,
+UsersModule,
+// Adicionar outros módulos conforme necessário
+],
+providers: [
+{
+provide: APP_GUARD,
+useClass: JwtAuthGuard,
+},
+],
+})
+export class AppModule {} 8. Comandos para Executar
+bash# Gerar Prisma Client
+npx prisma generate
+
+# Criar migration
+
+npx prisma migrate dev --name init
+
+# Iniciar Kong
+
+docker-compose up -d
+
+# Iniciar aplicação
+
+npm run start:dev
+
+# Acessar Prisma Studio
+
+npx prisma studio 9. Requisitos de Segurança
+
+Todas as rotas devem passar pelo Kong Gateway
+JWT com expiração configurável
+Rate limiting configurado no Kong
+Validação de dados com class-validator
+Bcrypt para hash de senhas (rounds: 10)
+CORS configurado adequadamente
+Headers de segurança
+
+10. Próximos Passos
+    Após configurar a base:
+
+Implementar CRUDs para cada entidade (Companies, Branches, Products, Orders, etc.)
+Adicionar middlewares de logging
+Implementar tratamento de erros global
+Adicionar Swagger/OpenAPI documentation
+Implementar testes unitários e e2e
+Configurar CI/CD
+
+Implemente esta estrutura base primeiro, garantindo que o Prisma esteja conectado ao Neon PostgreSQL e o Kong Gateway esteja funcionando corretamente.
