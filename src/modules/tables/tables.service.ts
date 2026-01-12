@@ -21,7 +21,7 @@ import {
 } from '../orders/dto/create-order-item.dto';
 import { TableStatus } from './types';
 import { OrdersService } from '../orders/orders.service';
-import { money } from 'src/utils/money';
+import { money } from '../../utils/money';
 @Injectable()
 export class TablesService {
   constructor(private readonly ordersService: OrdersService) {}

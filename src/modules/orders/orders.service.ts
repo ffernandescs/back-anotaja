@@ -13,7 +13,7 @@ import { prisma } from '../../../lib/prisma';
 import { DeliveryTypeDto, OrderStatusDto } from './dto/create-order-item.dto';
 import { Prisma } from 'generated/prisma';
 import { CreatePaymentDto } from './dto/create-payment.dto';
-import { money } from 'src/utils/money';
+import { money } from '../../utils/money';
 
 @Injectable()
 export class OrdersService {
