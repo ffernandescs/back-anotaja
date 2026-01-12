@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { CreateBranchDto } from './dto/create-branch.dto';
 import { UpdateBranchDto } from './dto/update-branch.dto';
-import { prisma } from 'lib/prisma';
+import { prisma } from '../../../lib/prisma';
 
 @Injectable()
 export class BranchesService {

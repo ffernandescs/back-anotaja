@@ -9,7 +9,7 @@ import { UpdateOrderDto, UpdateOrderItemDto } from './dto/update-order.dto';
 import { PaginatedResponseDto } from '../../common/dto/paginated-response.dto';
 import { QueryOrdersDto } from './dto/query-orders.dto';
 import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
-import { prisma } from 'lib/prisma';
+import { prisma } from '../../../lib/prisma';
 import { DeliveryTypeDto, OrderStatusDto } from './dto/create-order-item.dto';
 import { Prisma } from 'generated/prisma';
 import { CreatePaymentDto } from './dto/create-payment.dto';

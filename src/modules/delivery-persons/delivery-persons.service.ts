@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { CreateDeliveryPersonDto } from './dto/create-delivery-person.dto';
 import { UpdateDeliveryPersonDto } from './dto/update-delivery-person.dto';
-import { prisma } from 'lib/prisma';
+import { prisma } from '../../../lib/prisma';
 import { Prisma } from 'generated/prisma';
 
 @Injectable()

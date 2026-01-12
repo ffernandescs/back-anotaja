@@ -11,7 +11,7 @@ import { RegisterDto } from './dto/register.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
-import { prisma } from 'lib/prisma';
+import { prisma } from '../../../lib/prisma';
 
 @Injectable()
 export class AuthService {

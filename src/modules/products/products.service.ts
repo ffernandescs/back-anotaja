@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
-import { prisma } from 'lib/prisma';
+import { prisma } from '../../../lib/prisma';
 import { Prisma } from 'generated/prisma';
 
 @Injectable()

@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { CreateComplementOptionDto } from './dto/create-complement-option.dto';
 import { UpdateComplementOptionDto } from './dto/update-complement-option.dto';
-import { prisma } from 'lib/prisma';
+import { prisma } from '../../../lib/prisma';
 import { ComplementOption, Prisma, ProductComplement } from 'generated/prisma';
 
 @Injectable()

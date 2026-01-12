@@ -9,7 +9,7 @@ import { UpdateComplementDto } from './dto/update-complement.dto';
 import { CreateComplementOptionDto } from './dto/create-complement-option.dto';
 import { UpdateComplementOptionDto } from './dto/update-complement-option.dto';
 import { AssociateComplementsDto } from './dto/associate-complements.dto';
-import { prisma } from 'lib/prisma';
+import { prisma } from '../../../lib/prisma';
 import { Prisma } from 'generated/prisma';
 
 @Injectable()

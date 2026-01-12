@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Company, Prisma, StockMovement } from 'generated/prisma';
-import { prisma } from 'lib/prisma';
+import { prisma } from '../../../lib/prisma';
 import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
 import { CalculateDeliveryFeeDto } from './dto/calculate-delivery-fee.dto';
 import { CreateCustomerAddressDto } from './dto/create-customer-address.dto';

@@ -10,7 +10,7 @@ import { Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { JwtPayload } from './types';
-import { prisma } from 'lib/prisma';
+import { prisma } from '../../../lib/prisma';
 
 interface AuthenticatedSocket extends Socket {
   user?: {

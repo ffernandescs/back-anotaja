@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
-import { prisma } from 'lib/prisma';
+import { prisma } from '../../../lib/prisma';
 import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
 import { UpdateOrderItemDto } from './dto/update-order-item.dto';
 

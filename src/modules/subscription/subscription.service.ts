@@ -9,7 +9,7 @@ import {
   CreateSubscriptionDto,
   SubscriptionStatusDto,
 } from './dto/create-subscription.dto';
-import { prisma } from 'lib/prisma';
+import { prisma } from '../../../lib/prisma';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 import { UpdateSubscriptionInput } from './types';
 

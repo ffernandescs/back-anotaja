@@ -3,7 +3,7 @@ import {
   MarkNotificationReadDto,
   NotificationEntityType,
 } from './dto/mark-notification-read.dto';
-import { prisma } from 'lib/prisma';
+import { prisma } from '../../../lib/prisma';
 import { Prisma } from 'generated/prisma';
 
 @Injectable()

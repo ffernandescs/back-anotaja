@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { CreatePlanDto } from './dto/create-plan.dto';
 import { UpdatePlanDto } from './dto/update-plan.dto';
-import { prisma } from 'lib/prisma';
+import { prisma } from '../../../lib/prisma';
 
 @Injectable()
 export class PlansService {
