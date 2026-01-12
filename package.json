@@ -10,7 +10,7 @@
     "prebuild": "npm run prisma:generate",
     "build": "prisma generate && nest build",
     "postinstall": "prisma generate",
-    "start": "nest start",
+    "start": "node -r tsconfig-paths/register dist/src/main.js",
     "start:prod": "node dist/src/main.js",
     "start:dev": "nodemon dist/src/main.js",
     "start:debug": "nest start --debug --watch",
