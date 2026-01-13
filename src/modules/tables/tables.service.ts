@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Order, Prisma } from 'generated/prisma';
-import { prisma } from 'lib/prisma';
+import { prisma } from '../../../lib/prisma';
 import {
   BulkCreateTablesDto,
   CreateTableDto,
