@@ -21,10 +21,10 @@ interface RequestWithUser extends Request {
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-  @Post('login')
   @Public()
-  login(@Body() loginDto: LoginDto) {
-    return this.authService.login(loginDto);
+  @Post('login')
+  login(@Body() dto: LoginDto) {
+    return this.authService.login(dto);
   }
 
   @Post('register')

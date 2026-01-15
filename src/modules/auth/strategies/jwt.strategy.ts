@@ -1,39 +1,32 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { PassportStrategy } from '@nestjs/passport';
-import { ExtractJwt, Strategy } from 'passport-jwt';
-import { ConfigService } from '@nestjs/config';
-import { UsersService } from '../../users/users.service';
+import { ExecutionContext, Injectable } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { AuthGuard } from '@nestjs/passport';
+import { IS_PUBLIC_KEY } from 'src/common/decorators/public.decorator';
 
 @Injectable()
-export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(
-    private configService: ConfigService,
-    private usersService: UsersService,
-  ) {
-    super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-      ignoreExpiration: false,
-      secretOrKey: configService.get<string>('JWT_SECRET') || '12346',
-    });
+export class JwtAuthGuard extends AuthGuard('jwt') {
+  constructor(private reflector: Reflector) {
+    super();
   }
 
-  async validate(payload: {
-    sub?: string;
-    userId?: string;
-    email?: string;
-    role?: string;
-    phone?: string;
-  }) {
-    // Usar sub ou userId (compatibilidade com tokens de store e admin)
-    const userId = payload.sub || payload.userId;
-    if (!userId) {
-      throw new UnauthorizedException('Token inválido: userId não encontrado');
+  canActivate(context: ExecutionContext) {
+    const request = context.switchToHttp().getRequest();
+
+    // ✅ LIBERA PREFLIGHT OPTIONS
+    if (request.method === 'OPTIONS') {
+      return true;
     }
 
-    const user = await this.usersService.findOne(userId);
-    if (!user) {
-      throw new UnauthorizedException('Usuário não encontrado');
+    // ✅ LIBERA ROTAS @Public()
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
+    if (isPublic) {
+      return true;
     }
-    return { userId: user.id, email: user.email, role: user.role };
+
+    return super.canActivate(context);
   }
 }
