@@ -14,6 +14,9 @@ import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { prisma } from '../../../lib/prisma';
 import { MailService } from '../mail/mail.service';
+import { securityConfig } from 'src/config/security.config';
+
+const OTP_EXPIRES_IN_MINUTES = Number(process.env.OTP_EXPIRES_IN_MINUTES ?? 10);
 
 @Injectable()
 export class AuthService {
@@ -129,7 +132,10 @@ export class AuthService {
       throw new UnauthorizedException('Código inválido ou expirado');
     }
 
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const hashedPassword = await bcrypt.hash(
+      newPassword,
+      securityConfig.bcryptSaltRounds,
+    );
 
     await prisma.user.update({
       where: { email },
@@ -168,7 +174,7 @@ export class AuthService {
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
     const expiresAt = new Date();
-    expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+    expiresAt.setMinutes(expiresAt.getMinutes() + OTP_EXPIRES_IN_MINUTES);
 
     await prisma.passwordResetToken.create({
       data: {

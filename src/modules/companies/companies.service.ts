@@ -120,7 +120,7 @@ export class CompaniesService {
           password: hashedPassword,
           companyId: createdCompany.id,
           branchId: createdBranch.id,
-          role: 'ADMIN',
+          role: 'admin',
         },
       });
 
