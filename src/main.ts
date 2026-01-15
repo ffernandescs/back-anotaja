@@ -31,7 +31,20 @@ async function bootstrap() {
 
   // CORS
   app.enableCors({
-    origin: true,
+    origin: (origin, callback) => {
+      // Permite chamadas sem origin (ex: Postman, mobile apps)
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      const allowedDomainRegex = /^https?:\/\/([a-z0-9-]+\.)*anotaja\.shop$/i;
+
+      if (allowedDomainRegex.test(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error('Not allowed by CORS'), false);
+    },
     credentials: true,
   });
 
