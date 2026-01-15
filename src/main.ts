@@ -9,26 +9,13 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
 
   /**
-   * 🌐 CORS — Configuração simplificada e funcional para Vercel
+   * 🌐 CORS — Totalmente aberto (permite qualquer origem)
    */
   app.enableCors({
-    origin: [
-      'https://www.anotaja.shop',
-      'https://anotaja.shop',
-      /^https:\/\/.*\.anotaja\.shop$/,
-      /^https:\/\/.*\.vercel\.app$/,
-      'http://localhost:3000',
-      'http://localhost:3001',
-    ],
+    origin: true, // Aceita qualquer origem
     credentials: true,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: [
-      'Content-Type',
-      'Authorization',
-      'Accept',
-      'Origin',
-      'X-Requested-With',
-    ],
+    allowedHeaders: '*', // Aceita qualquer header
     preflightContinue: false,
     optionsSuccessStatus: 204,
   });
