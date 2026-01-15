@@ -119,8 +119,6 @@ export class BillSplitsService {
             id: true,
             name: true,
             address: true,
-            city: true,
-            state: true,
           },
         },
         user: {

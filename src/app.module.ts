@@ -23,6 +23,7 @@ import { CustomersModule } from './modules/customers/customers.module';
 import { PaymentMethodsModule } from './modules/payment-methods/payment-methods.module';
 import { BillsplitsModule } from './modules/billsplits/billsplits.module';
 import { CashRegisterModule } from './modules/cash-register/cash-register.module';
+import { CompaniesModule } from './modules/companies/companies.module';
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { CashRegisterModule } from './modules/cash-register/cash-register.module
     PaymentMethodsModule,
     BillsplitsModule,
     CashRegisterModule,
+    CompaniesModule,
     // Adicionar outros módulos conforme necessário
   ],
   providers: [

@@ -24,8 +24,8 @@ model Company {
   id        String   @id @default(cuid())
   name      String
   document  String   @unique
-  email     String
-  phone     String
+  email     String   @unique
+  phone     String   @unique
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -33,18 +33,47 @@ model Company {
   branches     Branch[]
   users        User[]
   subscription Subscription?
+  address      CompanyAddress? @relation("CompanyAddress")
+}
+
+model CompanyAddress {
+  id           String  @id @default(cuid())
+  street       String
+  number       String?
+  complement   String?
+  neighborhood String?
+  city         String
+  state        String
+  zipCode      String
+  reference    String?
+  lat          Float?
+  lng          Float?
+  isDefault    Boolean @default(true)
+
+  companyId String?  @unique
+  company   Company? @relation("CompanyAddress", fields: [companyId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  email     String
+  otp       String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([email])
 }
 
 model Branch {
   id              String   @id @default(cuid())
   name            String
-  address         String
-  city            String
-  state           String
-  zipCode         String
-  phone           String
-  document        String
-  email           String?
+  phone           String   @unique
+  document        String   @unique
+  email           String?  @unique
   subdomain       String?  @unique
   logoUrl         String?
   bannerUrl       String?
@@ -57,7 +86,6 @@ model Branch {
   socialMedia     String?
   // Formas de pagamento aceitas (JSON: ["CASH", "CREDIT_CARD", "DEBIT_CARD", "PIX", "ONLINE"])
   // CNPJ da filial
-  cnpj            String?
   // Descrição da filial
   description     String?
   // Instagram da filial
@@ -101,6 +129,29 @@ model Branch {
   tables                 Table[]
   paymentMethods         PaymentMethod[]
   billSplits             BillSplit[]
+  address                BranchAddress?          @relation(fields: [addressId], references: [id], onDelete: Restrict)
+  addressId              String?
+}
+
+model BranchAddress {
+  id           String  @id @default(cuid())
+  street       String
+  number       String?
+  complement   String?
+  neighborhood String?
+  city         String
+  state        String
+  zipCode      String
+  reference    String?
+  lat          Float?
+  lng          Float?
+  isDefault    Boolean @default(true)
+
+  branchId String? @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  branches  Branch[]
 }
 
 enum PaymentMethodType {

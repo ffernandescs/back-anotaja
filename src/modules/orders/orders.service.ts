@@ -127,8 +127,6 @@ export class OrdersService {
             id: true,
             name: true,
             address: true,
-            city: true,
-            state: true,
           },
         },
         customer: true,
@@ -424,8 +422,6 @@ export class OrdersService {
             id: true,
             name: true,
             address: true,
-            city: true,
-            state: true,
           },
         },
         user: {

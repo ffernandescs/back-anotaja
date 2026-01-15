@@ -9,19 +9,23 @@ async function bootstrap() {
 
   const configService = app.get(ConfigService);
 
-  // IMPORTANTE: Configurar WebSocket adapter ANTES do setGlobalPrefix
-  // O WebSocket não usas o globalPrefix, então deve ser configurado primeiro
+  // IMPORTANTE:
+  // Configurar o WebSocket adapter ANTES do setGlobalPrefix
+  // WebSocket NÃO usa globalPrefix
   app.useWebSocketAdapter(new IoAdapter(app));
 
-  // Global prefix (só afesta rotas HTTP, não WebSocket)
+  // Global prefix (afeta apenas rotas HTTP)
   app.setGlobalPrefix('api');
 
-  // Validation pipe
+  // Validation pipe global
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
+      transformOptions: {
+        enableImplicitConversion: true,
+      },
     }),
   );
 
@@ -31,9 +35,11 @@ async function bootstrap() {
     credentials: true,
   });
 
-  const port: number = Number(configService.get('PORT')) || 3001;
+  const port = configService.get<number>('PORT') ?? 3001;
+
   await app.listen(port);
 
   console.log(`🚀 Application is running on: http://localhost:${port}/api`);
 }
+
 bootstrap();

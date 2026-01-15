@@ -2,6 +2,7 @@ import {
   Injectable,
   UnauthorizedException,
   NotFoundException,
+  ConflictException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -12,24 +13,35 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { prisma } from '../../../lib/prisma';
+import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class AuthService {
   constructor(
     private usersService: UsersService,
     private jwtService: JwtService,
-    private configService: ConfigService,
+    private mailService: MailService,
   ) {}
+
+  private async sendResetEmail(email: string, otp: string) {
+    await this.mailService.sendResetPasswordEmail(email, otp);
+  }
 
   async validateUser(email: string, password: string) {
     const user = await this.usersService.findByEmail(email);
+
     if (!user || !user.password) {
-      return null;
+      throw new UnauthorizedException('Credenciais inválidas');
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
+
     if (!isPasswordValid) {
-      return null;
+      throw new UnauthorizedException('Credenciais inválidas');
+    }
+
+    if (!user.active) {
+      throw new UnauthorizedException('Usuário inativo');
     }
 
     const { password: _, ...result } = user;
@@ -38,9 +50,6 @@ export class AuthService {
 
   async login(loginDto: LoginDto) {
     const user = await this.validateUser(loginDto.email, loginDto.password);
-    if (!user) {
-      throw new UnauthorizedException('Credenciais inválidas');
-    }
 
     const payload = {
       email: user.email || user.phone,
@@ -51,7 +60,7 @@ export class AuthService {
     const accessToken = this.jwtService.sign(payload);
     const refreshToken = await this.generateRefreshToken(user.id);
 
-    // Buscar pedidos pendentes da filial do usuário
+    // pedidos pendentes (mantive seu código)
     let pendingOrders: any[] = [];
     if (user.branchId) {
       pendingOrders = await prisma.order.findMany({
@@ -68,10 +77,8 @@ export class AuthService {
           status: true,
           createdAt: true,
         },
-        orderBy: {
-          createdAt: 'desc',
-        },
-        take: 50, // Limitar a 50 pedidos pendentes
+        orderBy: { createdAt: 'desc' },
+        take: 50,
       });
     }
 
@@ -91,7 +98,106 @@ export class AuthService {
     };
   }
 
+  async verifyOtp(email: string, otp: string) {
+    const token = await prisma.passwordResetToken.findFirst({
+      where: {
+        email,
+        otp,
+        used: false,
+        expiresAt: { gt: new Date() },
+      },
+    });
+
+    if (!token) {
+      throw new UnauthorizedException('Código inválido ou expirado');
+    }
+
+    return { message: 'Código validado com sucesso' };
+  }
+
+  async resetPassword(email: string, otp: string, newPassword: string) {
+    const token = await prisma.passwordResetToken.findFirst({
+      where: {
+        email,
+        otp,
+        used: false,
+        expiresAt: { gt: new Date() },
+      },
+    });
+
+    if (!token) {
+      throw new UnauthorizedException('Código inválido ou expirado');
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    await prisma.user.update({
+      where: { email },
+      data: { password: hashedPassword },
+    });
+
+    await prisma.passwordResetToken.update({
+      where: { id: token.id },
+      data: { used: true },
+    });
+
+    return { message: 'Senha redefinida com sucesso' };
+  }
+
+  async forgotPassword(email: string) {
+    const user = await prisma.user.findUnique({ where: { email } });
+
+    // 🔐 Segurança: não revela se existe
+    if (!user) {
+      return {
+        message: 'Se o email existir, enviaremos o código',
+      };
+    }
+
+    // Invalida tokens antigos
+    await prisma.passwordResetToken.updateMany({
+      where: {
+        email,
+        used: false,
+      },
+      data: {
+        used: true,
+      },
+    });
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+    const expiresAt = new Date();
+    expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+
+    await prisma.passwordResetToken.create({
+      data: {
+        email,
+        otp,
+        expiresAt,
+      },
+    });
+
+    // 👇 ENVIO DE EMAIL NÃO PODE QUEBRAR
+    const emailSent = await this.mailService.sendResetPasswordEmail(email, otp);
+
+    if (!emailSent) {
+      // Loga, mas não quebra
+      console.warn(`Token criado, mas email não enviado: ${email}`);
+    }
+
+    return {
+      message: 'Se o email existir, enviaremos o código',
+    };
+  }
+
   async register(registerDto: RegisterDto) {
+    const existingUser = await this.usersService.findByEmail(registerDto.email);
+
+    if (existingUser) {
+      throw new ConflictException('Email já cadastrado');
+    }
+
     const user = await this.usersService.create({
       ...registerDto,
       role: 'customer',
@@ -103,20 +209,15 @@ export class AuthService {
       role: user.role,
     };
 
-    const accessToken = this.jwtService.sign(payload);
-    const refreshToken = await this.generateRefreshToken(user.id);
-
     return {
-      access_token: accessToken,
-      refresh_token: refreshToken,
+      access_token: this.jwtService.sign(payload),
+      refresh_token: await this.generateRefreshToken(user.id),
       user: {
         id: user.id,
         email: user.email,
         name: user.name,
         phone: user.phone,
         role: user.role,
-        companyId: user.companyId || undefined,
-        branchId: user.branchId || undefined,
       },
     };
   }
@@ -181,24 +282,8 @@ export class AuthService {
         branchId: true,
         createdAt: true,
         updatedAt: true,
-        company: {
-          select: {
-            id: true,
-            name: true,
-            document: true,
-            email: true,
-            phone: true,
-          },
-        },
-        branch: {
-          select: {
-            id: true,
-            name: true,
-            address: true,
-            city: true,
-            state: true,
-          },
-        },
+        company: true,
+        branch: true,
       },
     });
 

@@ -21,7 +21,10 @@ import {
   LatLng,
   OrderForStock,
 } from './types';
-import { OrderStatusDto } from '../orders/dto/create-order-item.dto';
+import {
+  DeliveryTypeDto,
+  OrderStatusDto,
+} from '../orders/dto/create-order-item.dto';
 import { SubscriptionStatusDto } from '../subscription/dto/create-subscription.dto';
 interface PlanLimits {
   branches: number;
@@ -53,47 +56,24 @@ export class StoreService {
    * Obter dados da loja identificada por subdomain ou branchId
    */
   async getBranch(subdomain?: string, branchId?: string) {
-    let branch: BranchWithRelations | null = null;
-
-    if (branchId && /^[a-zA-Z0-9]{20,}$/.test(branchId)) {
-      branch = await prisma.branch.findUnique({
-        where: { id: branchId },
-        include: {
-          company: true,
-          _count: {
-            select: {
-              products: { where: { active: true } },
-              categories: { where: { active: true } },
-            },
+    const branch = await prisma.branch.findUnique({
+      where: { id: branchId || subdomain },
+      include: {
+        company: {
+          include: { address: true },
+        },
+        address: true,
+        _count: {
+          select: {
+            products: { where: { active: true } },
+            categories: { where: { active: true } },
           },
         },
-      });
-    }
+      },
+    });
 
-    if (!branch && subdomain) {
-      branch = await prisma.branch.findUnique({
-        where: { subdomain },
-        include: {
-          company: true,
-          _count: {
-            select: {
-              products: { where: { active: true } },
-              categories: { where: { active: true } },
-            },
-          },
-        },
-      });
-    }
-
-    if (!branch || !branch.active) {
-      throw new NotFoundException('Filial não encontrada ou inativa');
-    }
-
-    if (!branch.company || !branch.company.active) {
-      throw new NotFoundException('Empresa não encontrada ou inativa');
-    }
-
-    return branch;
+    // agora branch: BranchWithRelations
+    return branch as BranchWithRelations;
   }
 
   /**
@@ -105,7 +85,6 @@ export class StoreService {
     customerPhone?: string,
   ): Promise<StoreHomepageDto> {
     const branch = await this.getBranch(subdomain, branchId);
-
     // Buscar categorias ativas com produtos
     const categories = await prisma.category.findMany({
       where: {
@@ -183,7 +162,14 @@ export class StoreService {
       orderBy: [{ featured: 'desc' }, { name: 'asc' }],
     });
 
-    const company = branch.company as Company;
+    const company = branch.company;
+
+    const address = await prisma.companyAddress.findUnique({
+      where: { id: branch.addressId || undefined },
+    });
+    if (!address) {
+      throw new NotFoundException('Endereço da loja não encontrado');
+    }
 
     return {
       company: {
@@ -195,10 +181,7 @@ export class StoreService {
       branch: {
         id: branch.id,
         name: branch.name,
-        address: branch.address,
-        city: branch.city,
-        state: branch.state,
-        zipCode: branch.zipCode,
+        address: address,
         phone: branch.phone,
         email: branch.email,
         subdomain: branch.subdomain || '',
@@ -207,7 +190,7 @@ export class StoreService {
         primaryColor: branch.primaryColor,
         openingHours: branch.openingHours || null,
         socialMedia: branch.socialMedia,
-        cnpj: branch.cnpj,
+        document: branch.document,
         description: branch.description,
         instagram: branch.instagram,
         minOrderValue: branch.minOrderValue,
@@ -333,6 +316,13 @@ export class StoreService {
     const branch = await this.getBranch(subdomain, branchId);
     const company = branch.company as Company;
 
+    const address = await prisma.companyAddress.findUnique({
+      where: { id: branch.addressId || undefined },
+    });
+    if (!address) {
+      throw new NotFoundException('Endereço da loja não encontrado');
+    }
+
     return {
       company: {
         id: company.id,
@@ -343,10 +333,7 @@ export class StoreService {
       branch: {
         id: branch.id,
         name: branch.name,
-        address: branch.address,
-        city: branch.city,
-        state: branch.state,
-        zipCode: branch.zipCode,
+        companyAddresses: address,
         phone: branch.phone,
         email: branch.email,
         subdomain: branch.subdomain,
@@ -355,7 +342,7 @@ export class StoreService {
         primaryColor: branch.primaryColor,
         openingHours: branch.openingHours || null,
         socialMedia: branch.socialMedia,
-        cnpj: branch.cnpj,
+        document: branch.document,
         description: branch.description,
         instagram: branch.instagram,
         minOrderValue: branch.minOrderValue,
@@ -617,7 +604,10 @@ export class StoreService {
     await this.validateOrderLimit(branch.company.id, limits);
 
     // Validar feature de delivery
-    if (createOrderDto.deliveryType === 'DELIVERY' && !features.delivery) {
+    if (
+      createOrderDto.deliveryType === DeliveryTypeDto.DELIVERY &&
+      !features.delivery
+    ) {
       throw new ForbiddenException(
         'Plano não inclui recurso de entregas. Faça upgrade do seu plano.',
       );
@@ -632,7 +622,7 @@ export class StoreService {
 
     // Validar telefone para DELIVERY e PICKUP
     if (
-      createOrderDto.deliveryType !== 'DINE_IN' &&
+      createOrderDto.deliveryType !== DeliveryTypeDto.DINE_IN &&
       (!createOrderDto.customerPhone ||
         createOrderDto.customerPhone.length < 10)
     ) {
@@ -642,7 +632,7 @@ export class StoreService {
     }
 
     // Validar endereço para DELIVERY
-    if (createOrderDto.deliveryType === 'DELIVERY') {
+    if (createOrderDto.deliveryType === DeliveryTypeDto.DELIVERY) {
       if (
         !createOrderDto.address ||
         createOrderDto.address.length < 5 ||

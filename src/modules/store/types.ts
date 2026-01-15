@@ -1,7 +1,9 @@
-import { Branch } from 'generated/prisma';
+import { Branch, Company, CompanyAddress } from 'generated/prisma';
 
 export type BranchWithRelations = Branch & {
-  company: { id: string; active: boolean };
+  company: Company & {
+    address: CompanyAddress;
+  };
   _count: {
     products: number;
     categories: number;

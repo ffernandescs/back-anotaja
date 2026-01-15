@@ -51,13 +51,7 @@ export class DeliveryPersonsService {
         isOnline: createDeliveryPersonDto.isOnline ?? false,
       },
       include: {
-        branch: {
-          select: {
-            id: true,
-            name: true,
-            address: true,
-          },
-        },
+        branch: true,
         _count: {
           select: {
             deliveryOrders: true,
@@ -144,15 +138,7 @@ export class DeliveryPersonsService {
         branchId: user.branchId, // Sempre filtrar por branchId do usuário
       },
       include: {
-        branch: {
-          select: {
-            id: true,
-            name: true,
-            address: true,
-            city: true,
-            state: true,
-          },
-        },
+        branch: true,
         deliveryOrders: {
           where: {
             status: {

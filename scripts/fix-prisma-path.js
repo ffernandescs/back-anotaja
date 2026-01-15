@@ -1,7 +1,15 @@
 const fs = require('fs');
 const path = require('path');
 
-const filePath = path.join(__dirname, '../dist/../../../lib/prisma.js');
+const filePath = path.join(__dirname, '../dist/lib/prisma.js');
+
+if (!fs.existsSync(filePath)) {
+  console.error(
+    '❌ Arquivo não encontrado, verifique se o build foi feito:',
+    filePath,
+  );
+  process.exit(1);
+}
 
 try {
   let content = fs.readFileSync(filePath, 'utf8');
@@ -13,7 +21,7 @@ try {
   );
 
   fs.writeFileSync(filePath, content, 'utf8');
-  console.log('✅ Caminho do Prisma corrigido em dist/../../../lib/prisma.js');
+  console.log('✅ Caminho do Prisma corrigido em dist/lib/prisma.js');
 } catch (error) {
   console.error('❌ Erro ao corrigir caminho do Prisma:', error.message);
 }

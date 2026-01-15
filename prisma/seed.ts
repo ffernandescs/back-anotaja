@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs';
-import { prisma } from '../../../lib/prisma';
+import { prisma } from '../lib/prisma';
 import { TableStatus } from 'src/modules/tables/types';
 
 interface ProductSeed {
@@ -4106,6 +4106,7 @@ async function main() {
   for (const [type, companies] of Object.entries(companiesData)) {
     for (const companyData of companies) {
       console.log(`🏢 Criando empresa - ${companyData.name}`);
+
       const company = await prisma.company.create({
         data: {
           name: companyData.name,
@@ -4140,14 +4141,23 @@ async function main() {
       for (const [index, branchData] of branches.entries()) {
         const isMatriz = index === 0;
 
+        const createBranchAddress = await prisma.branchAddress.create({
+          data: {
+            street: branchData.state,
+            number: Math.floor(Math.random() * 1000).toString(),
+            complement: '',
+            neighborhood: '',
+            city: branchData.city,
+            state: branchData.state,
+            zipCode: branchData.zipCode,
+          },
+        });
+
         const branch = await prisma.branch.create({
           data: {
             name: isMatriz ? `Matriz - ${companyData.name}` : branchData.name,
             document: isMatriz ? companyData.document : branchData.document,
-            address: branchData.address,
-            city: branchData.city,
-            state: branchData.state,
-            zipCode: branchData.zipCode,
+            addressId: createBranchAddress.id,
             phone: branchData.phone,
             subdomain:
               branchData.subdomain ||

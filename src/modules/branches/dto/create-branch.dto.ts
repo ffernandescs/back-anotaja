@@ -36,17 +36,28 @@ export class CreateBranchDto {
   @IsString()
   zipCode!: string;
 
+  @IsOptional()
+  @IsString()
+  reference?: string;
+
+  @IsOptional()
+  @IsString()
+  complement?: string;
+
+  @IsString()
+  neighborhood!: string;
+
+  @IsString()
+  number!: string;
+
   @IsString()
   phone!: string;
 
-  @IsOptional()
   @IsEmail()
-  email?: string;
+  email!: string;
 
-  @IsOptional()
   @IsString()
-  @MinLength(3)
-  subdomain?: string;
+  subdomain!: string;
 
   @IsOptional()
   @IsString()

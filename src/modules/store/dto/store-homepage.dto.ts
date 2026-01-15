@@ -1,3 +1,5 @@
+import { CompanyAddress } from 'generated/prisma';
+
 export class StoreHomepageDto {
   company!: {
     id: string;
@@ -8,10 +10,7 @@ export class StoreHomepageDto {
   branch!: {
     id: string;
     name: string;
-    address: string;
-    city: string;
-    state: string;
-    zipCode: string;
+    address: CompanyAddress;
     phone: string;
     email?: string | null;
     subdomain: string;
@@ -21,7 +20,7 @@ export class StoreHomepageDto {
     openingHours?: string | null;
     socialMedia?: string | null;
     paymentMethods?: string | null;
-    cnpj?: string | null;
+    document?: string | null;
     description?: string | null;
     instagram?: string | null;
     minOrderValue?: number | null;
