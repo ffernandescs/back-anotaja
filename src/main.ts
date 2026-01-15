@@ -32,18 +32,23 @@ async function bootstrap() {
   // CORS
   app.enableCors({
     origin: (origin, callback) => {
-      // Permite chamadas sem origin (ex: Postman, mobile apps)
       if (!origin) {
         return callback(null, true);
       }
 
-      const allowedDomainRegex = /^https?:\/\/([a-z0-9-]+\.)*anotaja\.shop$/i;
+      const allowedOrigins = [
+        /^https?:\/\/([a-z0-9-]+\.)*anotaja\.shop$/i,
+        /^https?:\/\/([a-z0-9-]+\.)*vercel\.app$/i,
+        /^http:\/\/localhost:\d+$/i,
+      ];
 
-      if (allowedDomainRegex.test(origin)) {
+      const isAllowed = allowedOrigins.some((regex) => regex.test(origin));
+
+      if (isAllowed) {
         return callback(null, true);
       }
 
-      return callback(new Error('Not allowed by CORS'), false);
+      return callback(new Error(`Not allowed by CORS: ${origin}`), false);
     },
     credentials: true,
   });
