@@ -38,10 +38,9 @@ export class ComplementOptionsService {
       name: createComplementOptionDto.name,
       price: createComplementOptionDto.price ?? 0,
       active: createComplementOptionDto.active ?? true,
-      stockControlEnabled:
-        createComplementOptionDto.stockControlEnabled ?? false,
-      minStock: createComplementOptionDto.minStock ?? null,
-      displayOrder: createComplementOptionDto.displayOrder ?? null,
+      stockControlEnabled: false,
+      minStock: null,
+      displayOrder: Math.floor(Math.random() * 1000000),
       complement: createComplementOptionDto.complementId
         ? { connect: { id: createComplementOptionDto.complementId } }
         : undefined,
@@ -107,20 +106,8 @@ export class ComplementOptionsService {
       orderBy: [{ displayOrder: 'asc' }, { createdAt: 'desc' }],
       include: {
         complement: {
-          select: {
-            id: true,
-            name: true,
-            active: true,
-            displayOrder: true,
-            createdAt: true,
-            updatedAt: true,
-            minOptions: true,
-            maxOptions: true,
-            required: true,
-            allowRepeat: true,
-            productId: true,
-            branchId: true,
-            product: { select: { id: true, name: true } }, // precisamos remover isso
+          include: {
+            product: true,
           },
         },
       },
@@ -142,6 +129,7 @@ export class ComplementOptionsService {
             allowRepeat: opt.complement.allowRepeat,
             productId: opt.complement.productId,
             branchId: opt.complement.branchId,
+            selectionType: opt.complement.selectionType, // <- Adicione isso
           }
         : undefined, // se não existir, passa undefined
     }));
@@ -164,19 +152,8 @@ export class ComplementOptionsService {
       where: { id },
       include: {
         complement: {
-          select: {
-            id: true,
-            name: true,
-            branchId: true,
-            productId: true,
-            active: true,
-            displayOrder: true,
-            createdAt: true,
-            updatedAt: true,
-            minOptions: true,
-            maxOptions: true,
-            required: true,
-            allowRepeat: true,
+          include: {
+            product: true,
           },
         },
       },
@@ -189,7 +166,23 @@ export class ComplementOptionsService {
     // mapear complement para o tipo correto
     return {
       ...option,
-      complement: option.complement ? { ...option.complement } : undefined,
+      complement: option.complement
+        ? {
+            id: option.complement.id,
+            name: option.complement.name,
+            active: option.complement.active,
+            displayOrder: option.complement.displayOrder,
+            createdAt: option.complement.createdAt,
+            updatedAt: option.complement.updatedAt,
+            minOptions: option.complement.minOptions,
+            maxOptions: option.complement.maxOptions,
+            required: option.complement.required,
+            allowRepeat: option.complement.allowRepeat,
+            productId: option.complement.productId,
+            branchId: option.complement.branchId,
+            selectionType: option.complement.selectionType,
+          }
+        : undefined,
     };
   }
 
@@ -219,19 +212,8 @@ export class ComplementOptionsService {
       data: updateComplementOptionDto,
       include: {
         complement: {
-          select: {
-            id: true,
-            name: true,
-            branchId: true,
-            productId: true,
-            active: true,
-            displayOrder: true,
-            createdAt: true,
-            updatedAt: true,
-            minOptions: true,
-            maxOptions: true,
-            required: true,
-            allowRepeat: true,
+          include: {
+            product: true,
           },
         },
       },

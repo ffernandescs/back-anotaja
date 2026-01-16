@@ -4,7 +4,10 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
-import { CreateComplementDto } from './dto/create-complement.dto';
+import {
+  CreateComplementDto,
+  SelectionTypeDto,
+} from './dto/create-complement.dto';
 import { UpdateComplementDto } from './dto/update-complement.dto';
 import { CreateComplementOptionDto } from './dto/create-complement-option.dto';
 import { UpdateComplementOptionDto } from './dto/update-complement-option.dto';
@@ -29,29 +32,33 @@ export class ComplementsService {
     }
 
     // Verificar se o produto existe e pertence à mesma filial
-    const product = await prisma.product.findUnique({
-      where: { id: createComplementDto.productId },
-    });
+    if (createComplementDto.productId) {
+      const product = await prisma.product.findUnique({
+        where: { id: createComplementDto.productId },
+      });
 
-    if (!product) {
-      throw new NotFoundException('Produto não encontrado');
-    }
+      if (!product) {
+        throw new NotFoundException('Produto não encontrado');
+      }
 
-    if (product.branchId !== user.branchId) {
-      throw new ForbiddenException('O produto não pertence à sua filial');
+      if (product.branchId !== user.branchId) {
+        throw new ForbiddenException('O produto não pertence à sua filial');
+      }
     }
 
     // Criar o complemento com suas opções
     const complement = await prisma.productComplement.create({
       data: {
         name: createComplementDto.name,
+        selectionType:
+          createComplementDto.selectionType ?? SelectionTypeDto.SINGLE,
         minOptions: createComplementDto.minOptions ?? 0,
-        maxOptions: createComplementDto.maxOptions ?? null,
+        maxOptions: createComplementDto.maxOptions ?? 1,
         required: createComplementDto.required ?? false,
         allowRepeat: createComplementDto.allowRepeat ?? false,
         active: createComplementDto.active ?? true,
         displayOrder: createComplementDto.displayOrder ?? null,
-        productId: createComplementDto.productId,
+        productId: createComplementDto.productId ?? null,
         branchId: user.branchId, // Sempre usar branchId do usuário logado
         options: createComplementDto.options
           ? {
@@ -216,7 +223,7 @@ export class ComplementsService {
     }
 
     // Remover options do update (opções são gerenciadas separadamente)
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+
     const { options, ...updateData } = updateComplementDto;
 
     return prisma.productComplement.update({

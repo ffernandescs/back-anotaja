@@ -517,21 +517,28 @@ model OrderItemComplementOption {
   option              ComplementOption    @relation(fields: [optionId], references: [id], onDelete: Cascade)
 }
 
-model ProductComplement {
-  id           String   @id @default(cuid())
-  name         String // Nome do complemento (ex: "Tamanho", "Adicionais")
-  minOptions   Int      @default(0) // Mínimo de opções a selecionar
-  maxOptions   Int? // Máximo de opções (null = ilimitado)
-  required     Boolean  @default(false) // Se é obrigatório
-  allowRepeat  Boolean  @default(false) // Se permite repetir a mesma opção
-  active       Boolean  @default(true)
-  displayOrder Int? // Ordem de exibição
-  productId    String
-  branchId     String
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+enum SelectionType {
+  SINGLE
+  MULTIPLE_NO_REPEAT
+  MULTIPLE_REPEAT
+}
 
-  product              Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
+model ProductComplement {
+  id            String        @id @default(cuid())
+  name          String // Nome do complemento (ex: "Tamanho", "Adicionais")
+  minOptions    Int           @default(0) // Mínimo de opções a selecionar
+  maxOptions    Int           @default(1) // Máximo de opções (null = ilimitado)
+  required      Boolean       @default(false) // Se é obrigatório
+  allowRepeat   Boolean       @default(false) // Se permite repetir a mesma opção
+  active        Boolean       @default(true)
+  displayOrder  Int? // Ordem de exibição
+  productId     String?
+  selectionType SelectionType @default(SINGLE) // SINGLE, MULTIPLE_NO_REPEAT, MULTIPLE_REPEAT
+  branchId      String
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  product              Product?              @relation(fields: [productId], references: [id], onDelete: Cascade)
   branch               Branch                @relation(fields: [branchId], references: [id], onDelete: Cascade)
   options              ComplementOption[]
   orderItemComplements OrderItemComplement[]

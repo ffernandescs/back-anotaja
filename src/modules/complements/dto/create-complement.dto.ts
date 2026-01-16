@@ -6,9 +6,16 @@ import {
   IsArray,
   ValidateNested,
   Min,
+  IsEnum,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { CreateComplementOptionDto } from './create-complement-option.dto';
+
+export enum SelectionTypeDto {
+  SINGLE = 'SINGLE',
+  MULTIPLE_NO_REPEAT = 'MULTIPLE_NO_REPEAT',
+  MULTIPLE_REPEAT = 'MULTIPLE_REPEAT',
+}
 
 export class CreateComplementDto {
   @IsString()
@@ -18,6 +25,9 @@ export class CreateComplementDto {
   @IsInt()
   @Min(0)
   minOptions?: number;
+
+  @IsEnum(SelectionTypeDto)
+  selectionType!: SelectionTypeDto;
 
   @IsOptional()
   @IsInt()
@@ -40,8 +50,9 @@ export class CreateComplementDto {
   @IsInt()
   displayOrder?: number;
 
+  @IsOptional()
   @IsString()
-  productId!: string;
+  productId?: string;
 
   @IsOptional()
   @IsArray()

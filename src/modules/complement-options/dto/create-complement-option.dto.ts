@@ -7,6 +7,12 @@ import {
   Min,
 } from 'class-validator';
 
+enum SelectionType {
+  SINGLE = 'single',
+  MULTIPLE_NO_REPEAT = 'multiple_no_repeat',
+  MULTIPLE_REPEAT = 'multiple_repeat',
+}
+
 export class CreateComplementOptionDto {
   @IsString()
   name!: string;
@@ -36,4 +42,8 @@ export class CreateComplementOptionDto {
   @IsOptional()
   @IsString()
   complementId?: string;
+
+  @IsOptional()
+  @IsString()
+  selectionType?: SelectionType;
 }

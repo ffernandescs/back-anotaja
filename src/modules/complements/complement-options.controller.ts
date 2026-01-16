@@ -32,8 +32,14 @@ export class ComplementOptionsController {
 
   @Post()
   @Roles('admin', 'manager')
-  create(@Body() createOptionDto: CreateComplementOptionDto, @Req() req: RequestWithUser) {
-    return this.complementsService.createOption(createOptionDto, req.user.userId);
+  create(
+    @Body() createOptionDto: CreateComplementOptionDto,
+    @Req() req: RequestWithUser,
+  ) {
+    return this.complementsService.createOption(
+      createOptionDto,
+      req.user.userId,
+    );
   }
 
   @Get()
@@ -42,8 +48,13 @@ export class ComplementOptionsController {
     @Query('complementId') complementId?: string,
     @Query('active') active?: string,
   ) {
-    const activeFilter = active === 'true' ? true : active === 'false' ? false : undefined;
-    return this.complementsService.findAllOptions(req.user.userId, complementId, activeFilter);
+    const activeFilter =
+      active === 'true' ? true : active === 'false' ? false : undefined;
+    return this.complementsService.findAllOptions(
+      req.user.userId,
+      complementId,
+      activeFilter,
+    );
   }
 
   @Get(':id')
@@ -58,7 +69,11 @@ export class ComplementOptionsController {
     @Body() updateOptionDto: UpdateComplementOptionDto,
     @Req() req: RequestWithUser,
   ) {
-    return this.complementsService.updateOptionById(id, updateOptionDto, req.user.userId);
+    return this.complementsService.updateOptionById(
+      id,
+      updateOptionDto,
+      req.user.userId,
+    );
   }
 
   @Delete(':id')
@@ -67,4 +82,3 @@ export class ComplementOptionsController {
     return this.complementsService.removeOptionById(id, req.user.userId);
   }
 }
-
