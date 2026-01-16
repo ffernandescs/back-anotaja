@@ -8,7 +8,6 @@
   "scripts": {
     "postbuild": "node scripts/fix-prisma-path.js",
     "prebuild": "npm run prisma:generate",
-    "vercel-build": "nest build && node scripts/fix-prisma-path.js",
     "build": "prisma generate && nest build",
     "postinstall": "prisma generate",
     "start": "node -r tsconfig-paths/register dist/src/main.js",
