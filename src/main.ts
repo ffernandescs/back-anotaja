@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -9,19 +10,40 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
 
   /**
-   * 🌐 CORS — Configuração simplificada e funcional para Vercel
+   * ⚠️ IMPORTANTE PARA VERCEL
+   * WebSocket Adapter quebra CORS/preflight em serverless
+   * Só habilite fora do Vercel
+   */
+  if (!process.env.VERCEL) {
+    app.useWebSocketAdapter(new IoAdapter(app));
+  }
+
+  /**
+   * 🌐 CORS — compatível com Vercel + subdomínios
    */
   app.enableCors({
-    origin: [
-      'https://www.anotaja.shop',
-      'https://anotaja.shop',
-      /^https:\/\/.*\.anotaja\.shop$/,
-      /^https:\/\/.*\.vercel\.app$/,
-      'http://localhost:3000',
-      'http://localhost:3001',
-    ],
+    origin: (origin, callback) => {
+      // Permite chamadas server-to-server (ex: curl, cron, SSR)
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      const allowedOrigins = [
+        /^https?:\/\/([a-z0-9-]+\.)*anotaja\.shop$/i, // anotaja.shop + subdomínios
+        /^https?:\/\/([a-z0-9-]+\.)*vercel\.app$/i, // previews Vercel
+        /^http:\/\/localhost:\d+$/i, // localhost
+      ];
+
+      const isAllowed = allowedOrigins.some((regex) => regex.test(origin));
+
+      if (isAllowed) {
+        return callback(null, true);
+      }
+
+      return callback(new Error(`Not allowed by CORS: ${origin}`), false);
+    },
     credentials: true,
-    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     allowedHeaders: [
       'Content-Type',
       'Authorization',
@@ -29,7 +51,6 @@ async function bootstrap() {
       'Origin',
       'X-Requested-With',
     ],
-    preflightContinue: false,
     optionsSuccessStatus: 204,
   });
 
