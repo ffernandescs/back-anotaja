@@ -1,20 +1,19 @@
 import {
-  Injectable,
-  UnauthorizedException,
-  NotFoundException,
   ConflictException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { ConfigService } from '@nestjs/config';
-import { UsersService } from '../users/users.service';
-import { LoginDto } from './dto/login.dto';
-import { RegisterDto } from './dto/register.dto';
-import { RefreshTokenDto } from './dto/refresh-token.dto';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
+import { securityConfig } from '../../../src/config/security.config';
 import { prisma } from '../../../lib/prisma';
 import { MailService } from '../mail/mail.service';
-import { securityConfig } from 'src/config/security.config';
+import { UsersService } from '../users/users.service';
+import { LoginDto } from './dto/login.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { RegisterDto } from './dto/register.dto';
 
 const OTP_EXPIRES_IN_MINUTES = Number(process.env.OTP_EXPIRES_IN_MINUTES ?? 10);
 
