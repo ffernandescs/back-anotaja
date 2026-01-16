@@ -1,32 +1,39 @@
-import { ExecutionContext, Injectable } from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
-import { AuthGuard } from '@nestjs/passport';
-import { IS_PUBLIC_KEY } from '../../../../src/common/decorators/public.decorator';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { PassportStrategy } from '@nestjs/passport';
+import { ExtractJwt, Strategy } from 'passport-jwt';
+import { ConfigService } from '@nestjs/config';
+import { UsersService } from '../../users/users.service';
 
 @Injectable()
-export class JwtAuthGuard extends AuthGuard('jwt') {
-  constructor(private reflector: Reflector) {
-    super();
+export class JwtStrategy extends PassportStrategy(Strategy) {
+  constructor(
+    private configService: ConfigService,
+    private usersService: UsersService,
+  ) {
+    super({
+      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ignoreExpiration: false,
+      secretOrKey: configService.get<string>('JWT_SECRET') || '12346',
+    });
   }
 
-  canActivate(context: ExecutionContext) {
-    const request = context.switchToHttp().getRequest();
-
-    // ✅ LIBERA PREFLIGHT OPTIONS
-    if (request.method === 'OPTIONS') {
-      return true;
+  async validate(payload: {
+    sub?: string;
+    userId?: string;
+    email?: string;
+    role?: string;
+    phone?: string;
+  }) {
+    // Usar sub ou userId (compatibilidade com tokens de store e admin)
+    const userId = payload.sub || payload.userId;
+    if (!userId) {
+      throw new UnauthorizedException('Token inválido: userId não encontrado');
     }
 
-    // ✅ LIBERA ROTAS @Public()
-    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
-
-    if (isPublic) {
-      return true;
+    const user = await this.usersService.findOne(userId);
+    if (!user) {
+      throw new UnauthorizedException('Usuário não encontrado');
     }
-
-    return super.canActivate(context);
+    return { userId: user.id, email: user.email, role: user.role };
   }
 }
