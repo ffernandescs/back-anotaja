@@ -136,6 +136,19 @@ export class ComplementsController {
     );
   }
 
+  @Patch(':productId/complements/:complementId/disassociate')
+  async disassociateComplement(
+    @Param('productId') productId: string,
+    @Param('complementId') complementId: string,
+    @Req() req: RequestWithUser,
+  ) {
+    return this.complementsService.disassociateComplementFromProduct(
+      productId,
+      complementId,
+      req.user.userId,
+    );
+  }
+
   @Delete(':complementId/options/:optionId')
   @Roles('admin', 'manager')
   removeOption(

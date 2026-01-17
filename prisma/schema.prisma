@@ -304,42 +304,55 @@ model Category {
 }
 
 model Product {
-  id                                                                             String               @id @default(cuid())
-  name                                                                           String
-  description                                                                    String?
-  price                                                                          Float
-  image                                                                          String?
-  active                                                                         Boolean              @default(true)
-  featured                                                                       Boolean              @default(false)
-  promotionalPrice                                                               Float?
-  promotionalType       String? // FIXED, PERCENTAGE
-  promotionalPeriodType String? // DATE_RANGE, DAYS_OF_WEEK
-  promotionalStartDate                                                           DateTime?
-  promotionalEndDate                                                             DateTime?
-  promotionalDays       String? // JSON array: ["monday", "tuesday", ...]
-  weight                Float? // Peso em gramas
-  preparationTime       Int? // Tempo de preparo em minutos
-  stockControlEnabled                                                            Boolean              @default(false) // Controle de estoque ativo/desativado
-  minStock              Int? // Estoque mínimo
-  tags                  String? // Tags separadas por vírgula
-  // Metadados de filtro (JSON: { genero: "masculino", tamanho: "50ml", marca: "Natura", ... })
-  filterMetadata        String? // JSON com metadados para filtros/subcategorias
-  // Configuração de parcelamento (JSON: { enabled: true, maxInstallments: 12, interestRate: 0, minInstallmentValue: 10.00 })
-  installmentConfig     String? // JSON com configuração de parcelamento
-  displayOrder          Int? // Ordem de exibição
-  categoryId                                                                     String
-  branchId                                                                       String
-  createdAt                                                                      DateTime             @default(now())
-  updatedAt                                                                      DateTime             @updatedAt
+  id                                                                        String               @id @default(cuid())
+  name                                                                      String
+  description                                                               String?
+  price                                                                     Float
+  image                                                                     String?
+  active                                                                    Boolean              @default(true)
+  featured                                                                  Boolean              @default(false)
 
-  category                                                                       Category            @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  branch                                                                         Branch              @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  orderItems                                                                     OrderItem[]
-  additions                                                                      ProductAddition[]
-  complements                                                                    ProductComplement[]
-  ingredients                                                                    ProductIngredient[]
-  stockMovements                                                                 StockMovement[]
+  //                                                                        Promoção
+  hasPromotion                                                              Boolean              @default(false)
+  promotionalPrice                                                          Float?
+  promotionalType        String?  // FIXED, PERCENTAGE
+  promotionalPeriodType  String?  // DATE_RANGE, DAYS_OF_WEEK
+  promotionalStartDate                                                      DateTime?
+  promotionalEndDate                                                        DateTime?
+  promotionalDays        String?  // JSON array: ["monday", "tuesday", ...]
+
+  //                                                                        Produto
+  weight                 Float?   // Peso em gramas
+  preparationTime        Int?     // Tempo de preparo em minutos
+  stockControlEnabled                                                       Boolean              @default(false)
+  minStock               Int?     // Estoque mínimo
+  tags                   String?  // Tags separadas por vírgula
+  filterMetadata         String?  // JSON com metadados
+  displayOrder           Int?     // Ordem de exibição
+
+  //                                                                        Parcelamento
+  installmentEnabled                                                        Boolean              @default(false)
+  maxInstallments                                                           Int?
+  minInstallmentValue                                                       Float?
+  installmentInterestRate                                                   Float?
+  installmentOnPromotionalPrice                                             Boolean              @default(false)
+
+  categoryId                                                                String
+  branchId                                                                  String
+  createdAt                                                                 DateTime             @default(now())
+  updatedAt                                                                 DateTime             @updatedAt
+
+  category                                                                  Category            @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  branch                                                                    Branch              @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  orderItems                                                                OrderItem[]
+  additions                                                                 ProductAddition[]
+  complements                                                               ProductComplement[]
+  ingredients                                                               ProductIngredient[]
+  stockMovements                                                            StockMovement[]
 }
+
+
 
 model ProductAddition {
   id                                         String                @id @default(cuid())
@@ -539,7 +552,7 @@ model ProductComplement {
   createdAt                                                                 DateTime               @default(now())
   updatedAt                                                                 DateTime               @updatedAt
 
-  product                                                                   Product?              @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product                                                                   Product?              @relation(fields: [productId], references: [id], onDelete: SetNull)
   branch                                                                    Branch                @relation(fields: [branchId], references: [id], onDelete: Cascade)
   options                                                                   ComplementOption[]
   orderItemComplements                                                      OrderItemComplement[]

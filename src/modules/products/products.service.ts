@@ -7,6 +7,7 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { prisma } from '../../../lib/prisma';
 import { Prisma } from 'generated/prisma';
+import { UpdateProductAdvancedOptionsDto } from './dto/update-product-advanced-options.dto';
 
 @Injectable()
 export class ProductsService {
@@ -183,26 +184,8 @@ export class ProductsService {
           },
         },
         complements: {
-          where: {
-            active: true,
-          },
-          select: {
-            id: true,
-            name: true,
-            minOptions: true,
-            maxOptions: true,
-            required: true,
-            allowRepeat: true,
-            options: {
-              where: {
-                active: true,
-              },
-              select: {
-                id: true,
-                name: true,
-                price: true,
-              },
-            },
+          include: {
+            options: true,
           },
         },
       },
@@ -243,32 +226,21 @@ export class ProductsService {
     }
 
     // Tipar corretamente o objeto de atualização
-    const updateData: Prisma.ProductUpdateInput = {
-      ...updateProductDto,
-    };
-
-    // Converter strings de data para Date, se existirem
-    if (updateProductDto.promotionalStartDate) {
-      updateData.promotionalStartDate = new Date(
-        updateProductDto.promotionalStartDate,
-      );
-    }
-
-    if (updateProductDto.promotionalEndDate) {
-      updateData.promotionalEndDate = new Date(
-        updateProductDto.promotionalEndDate,
-      );
-    }
 
     return prisma.product.update({
       where: { id },
-      data: updateData,
+      data: updateProductDto,
       include: {
         category: {
           select: {
             id: true,
             name: true,
             slug: true,
+          },
+        },
+        complements: {
+          include: {
+            options: true,
           },
         },
         branch: {
@@ -281,40 +253,65 @@ export class ProductsService {
     });
   }
 
+  async updateAdvancedOptions(
+    productId: string,
+    data: UpdateProductAdvancedOptionsDto,
+    userId: string,
+  ) {
+    // Garantir que o produto existe e pertence à branch
+    await this.findOne(productId, userId);
+
+    // Preparar dados para o Prisma
+    const updateData: Prisma.ProductUpdateInput = {
+      ...data,
+      promotionalStartDate: data.promotionalStartDate
+        ? new Date(data.promotionalStartDate)
+        : null,
+      promotionalEndDate: data.promotionalEndDate
+        ? new Date(data.promotionalEndDate)
+        : null,
+      promotionalDays: data.promotionalDays
+        ? JSON.stringify(data.promotionalDays)
+        : null,
+    };
+
+    return prisma.product.update({
+      where: { id: productId },
+      data: updateData,
+      include: {
+        category: { select: { id: true, name: true } },
+        branch: { select: { id: true, name: true } },
+      },
+    });
+  }
+
   async remove(id: string, userId: string) {
-    // Verificar se o produto existe e se o usuário tem permissão
+    // Verifica se produto existe e se o usuário tem permissão
     await this.findOne(id, userId);
 
-    // Verificar se há pedidos associados
+    // Verifica se há pedidos associados
     const orderItemsCount = await prisma.orderItem.count({
       where: { productId: id },
     });
 
     if (orderItemsCount > 0) {
-      // Não deletar, apenas desativar
+      // Apenas desativa
       return prisma.product.update({
         where: { id },
         data: { active: false },
         include: {
           category: {
-            select: {
-              id: true,
-              name: true,
-            },
+            select: { id: true, name: true },
           },
         },
       });
     }
 
+    // Deleta produto sem tocar em complementos
     return prisma.product.delete({
       where: { id },
       include: {
-        category: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
+        category: { select: { id: true, name: true } },
       },
     });
   }

@@ -124,17 +124,15 @@ export class ComplementsService {
       throw new ForbiddenException('Usuário não está associado a uma filial');
     }
 
-    // Tipar corretamente o filtro usando Prisma.ProductComplementWhereInput
+    // Monta filtro principal
     const where: Prisma.ProductComplementWhereInput = {
-      branchId: user.branchId,
+      branchId: user.branchId, // Garantindo apenas complementos da branch
     };
 
-    // Filtro por produto
     if (productId) {
       where.productId = productId;
     }
 
-    // Filtro por complementos ativos
     if (active !== undefined) {
       const isActive = typeof active === 'boolean' ? active : active === 'true';
       where.active = isActive;
@@ -153,6 +151,7 @@ export class ComplementsService {
         options: {
           where: {
             active: true,
+            branchId: user.branchId, // Garantindo que options também sejam da mesma branch
           },
           orderBy: { displayOrder: 'asc' },
         },
@@ -239,11 +238,50 @@ export class ComplementsService {
 
     // Remover options do update (opções são gerenciadas separadamente)
 
-    const { options, ...updateData } = updateComplementDto;
+    if (updateComplementDto.options?.length) {
+      const optionIds = updateComplementDto.options.map((o) => o.id);
+
+      const validOptions = await prisma.complementOption.findMany({
+        where: {
+          id: { in: optionIds },
+          branchId: user.branchId,
+          active: true,
+        },
+        select: { id: true },
+      });
+
+      if (validOptions.length !== optionIds.length) {
+        throw new ForbiddenException(
+          'Uma ou mais opções não pertencem à sua filial ou estão inativas',
+        );
+      }
+    }
 
     return prisma.productComplement.update({
       where: { id },
-      data: updateData,
+      data: {
+        name: updateComplementDto.name,
+        selectionType:
+          updateComplementDto.selectionType ?? SelectionTypeDto.SINGLE,
+        minOptions: updateComplementDto.minOptions ?? 0,
+        maxOptions: updateComplementDto.maxOptions ?? 1,
+        required: updateComplementDto.required ?? false,
+        allowRepeat: updateComplementDto.allowRepeat ?? false,
+        active: updateComplementDto.active ?? true,
+        displayOrder: updateComplementDto.displayOrder ?? null,
+        productId: updateComplementDto.productId ?? null,
+        branchId: user.branchId,
+
+        // 🔥 REPLACE TOTAL DAS OPTIONS
+        options: updateComplementDto.options
+          ? {
+              set: [], // remove todas
+              connect: updateComplementDto.options.map((option) => ({
+                id: option.id,
+              })),
+            }
+          : undefined,
+      },
       include: {
         product: {
           select: {
@@ -257,7 +295,6 @@ export class ComplementsService {
       },
     });
   }
-
   async remove(id: string, userId: string) {
     // Verificar se o complemento existe e se o usuário tem permissão
     await this.findOne(id, userId);
@@ -411,6 +448,59 @@ export class ComplementsService {
     return prisma.productComplement.findMany({
       where: {
         id: { in: associateDto.complementIds },
+      },
+      include: {
+        options: {
+          where: { active: true },
+        },
+      },
+    });
+  }
+
+  async disassociateComplementFromProduct(
+    productId: string,
+    complementId: string,
+    userId: string,
+  ) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { branch: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    if (!user.branchId) {
+      throw new ForbiddenException('Usuário não está associado a uma filial');
+    }
+
+    const complement = await prisma.productComplement.findUnique({
+      where: { id: complementId },
+    });
+
+    if (!complement) {
+      throw new NotFoundException('Complemento não encontrado');
+    }
+
+    if (complement.branchId !== user.branchId) {
+      throw new ForbiddenException(
+        'Você não tem permissão para alterar este complemento',
+      );
+    }
+
+    if (complement.productId !== productId) {
+      throw new BadRequestException(
+        'Este complemento não está associado a este produto',
+      );
+    }
+
+    // 🔥 Desassociação simples e segura
+    return prisma.productComplement.update({
+      where: { id: complementId },
+      data: {
+        productId: null,
+        active: false, // opcional, mas mantém consistência
       },
       include: {
         options: {

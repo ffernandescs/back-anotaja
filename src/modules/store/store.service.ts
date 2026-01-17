@@ -111,7 +111,11 @@ export class StoreService {
             active: true,
             stockControlEnabled: true,
             minStock: true,
-            installmentConfig: true,
+            installmentEnabled: true,
+            maxInstallments: true,
+            minInstallmentValue: true,
+            installmentInterestRate: true,
+            installmentOnPromotionalPrice: true,
             filterMetadata: true,
             additions: {
               where: { active: true },
@@ -227,7 +231,11 @@ export class StoreService {
           active: product.active,
           stockControlEnabled: product.stockControlEnabled,
           minStock: product.minStock,
-          installmentConfig: product.installmentConfig,
+          installmentEnabled: product.installmentEnabled,
+          maxInstallments: product.maxInstallments,
+          minInstallmentValue: product.minInstallmentValue,
+          installmentInterestRate: product.installmentInterestRate,
+          installmentOnPromotionalPrice: product.installmentOnPromotionalPrice,
           filterMetadata: product.filterMetadata,
           additions: product.additions.map((addition) => ({
             id: addition.id,
@@ -419,7 +427,11 @@ export class StoreService {
         active: true,
         stockControlEnabled: true,
         minStock: true,
-        installmentConfig: true,
+        installmentEnabled: true,
+        maxInstallments: true,
+        minInstallmentValue: true,
+        installmentInterestRate: true,
+        installmentOnPromotionalPrice: true,
         filterMetadata: true,
         category: {
           select: {

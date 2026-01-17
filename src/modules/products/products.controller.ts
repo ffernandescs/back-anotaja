@@ -17,6 +17,7 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { UpdateProductAdvancedOptionsDto } from './dto/update-product-advanced-options.dto';
 
 interface RequestWithUser extends Request {
   user: {
@@ -33,7 +34,10 @@ export class ProductsController {
 
   @Post()
   @Roles('admin', 'manager')
-  create(@Body() createProductDto: CreateProductDto, @Req() req: RequestWithUser) {
+  create(
+    @Body() createProductDto: CreateProductDto,
+    @Req() req: RequestWithUser,
+  ) {
     return this.productsService.create(createProductDto, req.user.userId);
   }
 
@@ -78,6 +82,20 @@ export class ProductsController {
     @Req() req: RequestWithUser,
   ) {
     return this.productsService.update(id, updateProductDto, req.user.userId);
+  }
+
+  @Patch(':id/advanced-options')
+  @Roles('admin', 'manager')
+  async updateAdvancedOptions(
+    @Param('id') productId: string,
+    @Body() body: UpdateProductAdvancedOptionsDto,
+    @Req() req: RequestWithUser,
+  ) {
+    return this.productsService.updateAdvancedOptions(
+      productId,
+      body,
+      req.user.userId,
+    );
   }
 
   @Put(':id')
