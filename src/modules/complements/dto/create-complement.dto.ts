@@ -10,6 +10,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { CreateComplementOptionDto } from './create-complement-option.dto';
+import { ConnectComplementOptionDto } from './connect-complement-option.dto ';
 
 export enum SelectionTypeDto {
   SINGLE = 'SINGLE',
@@ -57,6 +58,6 @@ export class CreateComplementDto {
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => CreateComplementOptionDto)
-  options?: CreateComplementOptionDto[];
+  @Type(() => ConnectComplementOptionDto)
+  options?: ConnectComplementOptionDto[];
 }

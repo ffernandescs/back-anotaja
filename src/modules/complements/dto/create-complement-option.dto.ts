@@ -9,6 +9,9 @@ import {
 
 export class CreateComplementOptionDto {
   @IsString()
+  id!: string;
+
+  @IsString()
   complementId!: string;
 
   @IsString()

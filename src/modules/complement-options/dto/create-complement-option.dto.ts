@@ -1,3 +1,4 @@
+// create-complement-option.dto.ts
 import {
   IsString,
   IsOptional,
@@ -5,9 +6,10 @@ import {
   IsNumber,
   IsInt,
   Min,
+  IsEnum,
 } from 'class-validator';
 
-enum SelectionType {
+export enum SelectionType {
   SINGLE = 'single',
   MULTIPLE_NO_REPEAT = 'multiple_no_repeat',
   MULTIPLE_REPEAT = 'multiple_repeat',
@@ -42,8 +44,4 @@ export class CreateComplementOptionDto {
   @IsOptional()
   @IsString()
   complementId?: string;
-
-  @IsOptional()
-  @IsString()
-  selectionType?: SelectionType;
 }

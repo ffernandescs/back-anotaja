@@ -237,6 +237,7 @@ async function createCategoriesProductsAndComplements(
             await prisma.complementOption.create({
               data: {
                 name: optionData.name,
+                branchId: branchId,
                 price: money(
                   Math.max(0, optionData.price + (Math.random() * 1 - 0.5)),
                 ),

@@ -46,6 +46,25 @@ export class ComplementsService {
       }
     }
 
+    if (createComplementDto.options?.length) {
+      const optionIds = createComplementDto.options.map((o) => o.id);
+
+      const validOptions = await prisma.complementOption.findMany({
+        where: {
+          id: { in: optionIds },
+          branchId: user.branchId,
+          active: true,
+        },
+        select: { id: true },
+      });
+
+      if (validOptions.length !== optionIds.length) {
+        throw new ForbiddenException(
+          'Uma ou mais opções não pertencem à sua filial ou estão inativas',
+        );
+      }
+    }
+
     // Criar o complemento com suas opções
     const complement = await prisma.productComplement.create({
       data: {
@@ -62,17 +81,13 @@ export class ComplementsService {
         branchId: user.branchId, // Sempre usar branchId do usuário logado
         options: createComplementDto.options
           ? {
-              create: createComplementDto.options.map((option) => ({
-                name: option.name,
-                price: option.price ?? 0,
-                active: option.active ?? true,
-                stockControlEnabled: option.stockControlEnabled ?? false,
-                minStock: option.minStock ?? null,
-                displayOrder: option.displayOrder ?? null,
+              connect: createComplementDto.options.map((option) => ({
+                id: option.id, // 👈 SOMENTE ISSO
               })),
             }
           : undefined,
       },
+
       include: {
         product: {
           select: {
@@ -272,6 +287,7 @@ export class ComplementsService {
     return prisma.complementOption.create({
       data: {
         ...createOptionDto,
+        branchId: userId,
         complementId,
         price: createOptionDto.price ?? 0,
         active: createOptionDto.active ?? true,
@@ -325,7 +341,6 @@ export class ComplementsService {
     associateDto: AssociateComplementsDto,
     userId: string,
   ) {
-    // Verificar se o usuário existe e tem branchId
     const user = await prisma.user.findUnique({
       where: { id: userId },
       include: { branch: true },
@@ -339,7 +354,6 @@ export class ComplementsService {
       throw new ForbiddenException('Usuário não está associado a uma filial');
     }
 
-    // Verificar se o produto existe e pertence à mesma filial do usuário
     const product = await prisma.product.findUnique({
       where: { id: productId },
     });
@@ -354,7 +368,7 @@ export class ComplementsService {
       );
     }
 
-    // Verificar se todos os complementos existem e pertencem à mesma filial
+    // 🔹 Verifica complementos enviados
     const complements = await prisma.productComplement.findMany({
       where: {
         id: { in: associateDto.complementIds },
@@ -368,38 +382,42 @@ export class ComplementsService {
       );
     }
 
-    // Associar todos os complementos ao produto
-    // Atualizar cada complemento para associá-lo ao produto e ativá-lo
-    const updatePromises = associateDto.complementIds.map((complementId) =>
-      prisma.productComplement.update({
-        where: { id: complementId },
+    // 🔥 TRANSAÇÃO = consistência garantida
+    await prisma.$transaction([
+      // 1️⃣ Remove TODOS os complementos atuais do produto
+      prisma.productComplement.updateMany({
+        where: {
+          productId: productId,
+        },
+        data: {
+          productId: null,
+          active: false,
+        },
+      }),
+
+      // 2️⃣ Associa apenas os novos
+      prisma.productComplement.updateMany({
+        where: {
+          id: { in: associateDto.complementIds },
+        },
         data: {
           productId: productId,
           active: true,
         },
       }),
-    );
+    ]);
 
-    await Promise.all(updatePromises);
-
-    // Retornar os complementos associados
-    const associatedComplements = await prisma.productComplement.findMany({
+    // 3️⃣ Retorna somente os complementos finais
+    return prisma.productComplement.findMany({
       where: {
         id: { in: associateDto.complementIds },
       },
       include: {
         options: {
-          where: {
-            active: true,
-          },
+          where: { active: true },
         },
       },
     });
-
-    return {
-      message: `${associatedComplements.length} complemento(s) associado(s) com sucesso`,
-      complements: associatedComplements,
-    };
   }
 
   async removeOption(complementId: string, optionId: string, userId: string) {
@@ -458,6 +476,7 @@ export class ComplementsService {
     return prisma.complementOption.create({
       data: {
         ...createOptionDto,
+        branchId: user.branchId,
         price: createOptionDto.price ?? 0,
         active: createOptionDto.active ?? true,
         stockControlEnabled: createOptionDto.stockControlEnabled ?? false,

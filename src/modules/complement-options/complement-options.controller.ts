@@ -40,8 +40,8 @@ export class ComplementOptionsController {
     @Req() req: RequestWithUser,
   ) {
     return this.complementOptionsService.create(
-      createComplementOptionDto,
       req.user.userId,
+      createComplementOptionDto,
     );
   }
 
