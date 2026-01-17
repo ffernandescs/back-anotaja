@@ -2,11 +2,17 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { Company, Prisma, StockMovement } from 'generated/prisma';
+import { Prisma, StockMovement } from 'generated/prisma';
 import { prisma } from '../../../lib/prisma';
+import {
+  DeliveryTypeDto,
+  OrderStatusDto,
+} from '../orders/dto/create-order-item.dto';
+import { SubscriptionStatusDto } from '../subscription/dto/create-subscription.dto';
 import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
 import { CalculateDeliveryFeeDto } from './dto/calculate-delivery-fee.dto';
 import { CreateCustomerAddressDto } from './dto/create-customer-address.dto';
@@ -14,18 +20,7 @@ import { CreateStoreOrderDto } from './dto/create-store-order.dto';
 import { StoreHomepageDto } from './dto/store-homepage.dto';
 import { StoreLoginDto } from './dto/store-login.dto';
 import { UpdateCustomerAddressDto } from './dto/update-customer-address.dto';
-import {
-  BranchWithRelations,
-  CepResult,
-  GeoData,
-  LatLng,
-  OrderForStock,
-} from './types';
-import {
-  DeliveryTypeDto,
-  OrderStatusDto,
-} from '../orders/dto/create-order-item.dto';
-import { SubscriptionStatusDto } from '../subscription/dto/create-subscription.dto';
+import { CepResult, GeoData, LatLng, OrderForStock } from './types';
 interface PlanLimits {
   branches: number;
   users: number;
@@ -56,24 +51,47 @@ export class StoreService {
    * Obter dados da loja identificada por subdomain ou branchId
    */
   async getBranch(subdomain?: string, branchId?: string) {
-    const branch = await prisma.branch.findUnique({
-      where: { id: branchId || subdomain },
-      include: {
-        company: {
-          include: { address: true },
-        },
-        address: true,
-        _count: {
-          select: {
-            products: { where: { active: true } },
-            categories: { where: { active: true } },
+    console.log(subdomain, '1221');
+    if (branchId) {
+      return prisma.branch.findUnique({
+        where: { id: branchId },
+        include: {
+          company: {
+            include: { address: true },
+          },
+          address: true,
+          _count: {
+            select: {
+              products: { where: { active: true } },
+              categories: { where: { active: true } },
+            },
           },
         },
-      },
-    });
+      });
+    }
 
-    // agora branch: BranchWithRelations
-    return branch as BranchWithRelations;
+    if (subdomain) {
+      return prisma.branch.findFirst({
+        where: {
+          subdomain,
+          active: true,
+        },
+        include: {
+          company: {
+            include: { address: true },
+          },
+          address: true,
+          _count: {
+            select: {
+              products: { where: { active: true } },
+              categories: { where: { active: true } },
+            },
+          },
+        },
+      });
+    }
+
+    return null;
   }
 
   /**
@@ -85,7 +103,12 @@ export class StoreService {
     customerPhone?: string,
   ): Promise<StoreHomepageDto> {
     const branch = await this.getBranch(subdomain, branchId);
-    // Buscar categorias ativas com produtos
+
+    if (!branch) {
+      throw new NotFoundException(
+        'Loja não encontrada para o subdomínio ou filial informada',
+      );
+    } // Buscar categorias ativas com produtos
     const categories = await prisma.category.findMany({
       where: {
         branchId: branch.id,
@@ -165,10 +188,12 @@ export class StoreService {
       },
       orderBy: [{ featured: 'desc' }, { name: 'asc' }],
     });
-
+    if (!branch.company) {
+      throw new InternalServerErrorException('Branch sem empresa associada');
+    }
     const company = branch.company;
 
-    const address = await prisma.companyAddress.findUnique({
+    const address = await prisma.branchAddress.findUnique({
       where: { id: branch.addressId || undefined },
     });
     if (!address) {
@@ -183,9 +208,9 @@ export class StoreService {
         phone: company.phone,
       },
       branch: {
+        address: address,
         id: branch.id,
         name: branch.name,
-        address: address,
         phone: branch.phone,
         email: branch.email,
         subdomain: branch.subdomain || '',
@@ -322,7 +347,13 @@ export class StoreService {
    */
   async getInfo(subdomain?: string, branchId?: string) {
     const branch = await this.getBranch(subdomain, branchId);
-    const company = branch.company as Company;
+
+    if (!branch) {
+      throw new NotFoundException(
+        'Loja não encontrada para o subdomínio ou filial informada',
+      );
+    }
+    const company = branch.company;
 
     const address = await prisma.companyAddress.findUnique({
       where: { id: branch.addressId || undefined },
@@ -371,6 +402,12 @@ export class StoreService {
   async getCategories(subdomain?: string, branchId?: string) {
     const branch = await this.getBranch(subdomain, branchId);
 
+    if (!branch) {
+      throw new NotFoundException(
+        'Loja não encontrada para o subdomínio ou filial informada',
+      );
+    }
+
     const categories = await prisma.category.findMany({
       where: {
         branchId: branch.id,
@@ -400,6 +437,12 @@ export class StoreService {
     categoryId?: string,
   ) {
     const branch = await this.getBranch(subdomain, branchId);
+
+    if (!branch) {
+      throw new NotFoundException(
+        'Loja não encontrada para o subdomínio ou filial informada',
+      );
+    }
 
     const where: Prisma.ProductWhereInput = {
       branchId: branch.id,
@@ -603,8 +646,10 @@ export class StoreService {
     // Obter branch
     const branch = await this.getBranch(subdomain, branchId);
 
-    if (!branch.company) {
-      throw new NotFoundException('Empresa não encontrada');
+    if (!branch) {
+      throw new NotFoundException(
+        'Loja não encontrada para o subdomínio ou filial informada',
+      );
     }
 
     // Validar assinatura
@@ -1170,6 +1215,12 @@ export class StoreService {
   ) {
     const branch = await this.getBranch(subdomain, branchId);
 
+    if (!branch) {
+      throw new NotFoundException(
+        'Loja não encontrada para o subdomínio ou filial informada',
+      );
+    }
+
     // Tipando corretamente o filtro
     const where: Prisma.OrderWhereInput = {
       branchId: branch.id,
@@ -1211,6 +1262,12 @@ export class StoreService {
    */
   async getOrderById(orderId: string, subdomain?: string, branchId?: string) {
     const branch = await this.getBranch(subdomain, branchId);
+
+    if (!branch) {
+      throw new NotFoundException(
+        'Loja não encontrada para o subdomínio ou filial informada',
+      );
+    }
 
     const order = await prisma.order.findUnique({
       where: {
@@ -1464,6 +1521,12 @@ export class StoreService {
     branchId?: string,
   ) {
     const branch = await this.getBranch(subdomain, branchId);
+
+    if (!branch) {
+      throw new NotFoundException(
+        'Loja não encontrada para o subdomínio ou filial informada',
+      );
+    }
 
     const {
       zipCode,
@@ -1902,6 +1965,12 @@ export class StoreService {
    */
   async getAnnouncements(subdomain?: string, branchId?: string) {
     const branch = await this.getBranch(subdomain, branchId);
+
+    if (!branch) {
+      throw new NotFoundException(
+        'Loja não encontrada para o subdomínio ou filial informada',
+      );
+    }
 
     const now = new Date();
     const currentDay = now

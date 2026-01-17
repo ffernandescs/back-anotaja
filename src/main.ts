@@ -29,9 +29,11 @@ async function bootstrap() {
       }
 
       const allowedOrigins = [
-        /^https?:\/\/([a-z0-9-]+\.)*anotaja\.shop$/i, // anotaja.shop + subdomínios
-        /^https?:\/\/([a-z0-9-]+\.)*vercel\.app$/i, // previews Vercel
-        /^http:\/\/localhost:\d+$/i, // localhost
+        /^https?:\/\/([a-z0-9-]+\.)*anotaja\.shop$/i,
+        /^https?:\/\/([a-z0-9-]+\.)*vercel\.app$/i,
+
+        // 🔥 localhost + subdomínios (thyaynna.localhost, admin.localhost etc)
+        /^http:\/\/([a-z0-9-]+\.)*localhost:\d+$/i,
       ];
 
       const isAllowed = allowedOrigins.some((regex) => regex.test(origin));
@@ -50,7 +52,9 @@ async function bootstrap() {
       'Accept',
       'Origin',
       'X-Requested-With',
+      'x-tenant', // 🔥 O HEADER QUE FALTAVA
     ],
+
     optionsSuccessStatus: 204,
   });
 

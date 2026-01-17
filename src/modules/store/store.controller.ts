@@ -88,7 +88,7 @@ export class StoreController {
 
     // Tentar obter telefone do usuário autenticado ou do query param
     let customerPhone: string | undefined = phone;
-    
+
     // Se houver usuário autenticado (mesmo sendo rota pública), usar o telefone dele
     if (req?.user?.userId && !customerPhone) {
       try {
@@ -266,7 +266,10 @@ export class StoreController {
     let finalBranchId = branchId;
     if (!finalBranchId) {
       const hostname = req.headers?.host || '';
-      const { branchId: headerBranchId } = this.extractSubdomain(hostname, xTenant);
+      const { branchId: headerBranchId } = this.extractSubdomain(
+        hostname,
+        xTenant,
+      );
       finalBranchId = headerBranchId;
     }
 

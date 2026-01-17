@@ -1,4 +1,4 @@
-import { CompanyAddress } from 'generated/prisma';
+import { BranchAddress, CompanyAddress } from 'generated/prisma';
 
 export class StoreHomepageDto {
   company!: {
@@ -10,7 +10,7 @@ export class StoreHomepageDto {
   branch!: {
     id: string;
     name: string;
-    address: CompanyAddress;
+    address: BranchAddress;
     phone: string;
     email?: string | null;
     subdomain: string;
