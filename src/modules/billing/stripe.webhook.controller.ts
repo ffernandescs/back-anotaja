@@ -33,16 +33,46 @@ export class StripeWebhookController {
 
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object;
-
       const companyId = session.metadata?.companyId;
       const subscriptionId = session.subscription as string;
 
-      await prisma.subscription.update({
+      // Consulta o Strapi pela assinatura
+      const strapiSubscription = await fetch(
+        `${process.env.STRAPI_API_URL}/subscriptions/${subscriptionId}`,
+        {
+          headers: { Authorization: `Bearer ${process.env.STRAPI_API_TOKEN}` },
+        },
+      ).then((res) => res.json());
+
+      if (!strapiSubscription) {
+        throw new BadRequestException('Subscription not found');
+      }
+      if (!companyId) {
+        throw new BadRequestException('Empresa não encontrada');
+      }
+
+      await prisma.subscription.upsert({
         where: { companyId },
-        data: {
-          status: 'ACTIVE',
+        update: {
+          status: strapiSubscription.status, // ACTIVE, SUSPENDED etc
           strapiSubscriptionId: subscriptionId,
-          startDate: new Date(),
+          planId: strapiSubscription.planId,
+          billingPeriod: strapiSubscription.billingPeriod,
+          startDate: new Date(strapiSubscription.startDate),
+          nextBillingDate: new Date(strapiSubscription.nextBillingDate),
+          lastBillingDate: new Date(strapiSubscription.lastBillingDate),
+          lastBillingAmount: strapiSubscription.lastBillingAmount,
+        },
+        create: {
+          companyId,
+          status: strapiSubscription.status,
+          strapiSubscriptionId: subscriptionId,
+          planId: strapiSubscription.planId,
+          billingPeriod: strapiSubscription.billingPeriod,
+          startDate: new Date(strapiSubscription.startDate),
+          nextBillingDate: new Date(strapiSubscription.nextBillingDate),
+          lastBillingDate: new Date(strapiSubscription.lastBillingDate),
+          lastBillingAmount: strapiSubscription.lastBillingAmount,
         },
       });
     }
