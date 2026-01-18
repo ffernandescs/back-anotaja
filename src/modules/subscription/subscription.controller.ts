@@ -8,6 +8,7 @@ import {
   Delete,
   Req,
   UseGuards,
+  NotFoundException,
 } from '@nestjs/common';
 import { SubscriptionService } from './subscription.service';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
@@ -15,6 +16,8 @@ import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import Stripe from 'stripe';
+import { StripeService } from '../billing/stripe.service';
 
 interface RequestWithUser extends Request {
   user: {
@@ -27,7 +30,10 @@ interface RequestWithUser extends Request {
 @Controller('subscription')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class SubscriptionController {
-  constructor(private readonly subscriptionService: SubscriptionService) {}
+  constructor(
+    private readonly subscriptionService: SubscriptionService,
+    private readonly stripeService: StripeService,
+  ) {}
 
   @Post()
   @Roles('admin', 'manager')
@@ -77,5 +83,31 @@ export class SubscriptionController {
   @Roles('admin')
   remove(@Param('id') id: string, @Req() req: RequestWithUser) {
     return this.subscriptionService.remove(id, req.user.userId);
+  }
+
+  @Post('verify-payment')
+  async verifyPayment(
+    @Body('sessionId') sessionId: string,
+    @Req() req: RequestWithUser,
+  ) {
+    if (!sessionId) throw new NotFoundException('SessionId não fornecido');
+
+    // 1️⃣ Recupera session no Stripe
+    let session;
+    try {
+      session =
+        await this.stripeService.stripe.checkout.sessions.retrieve(sessionId);
+    } catch (err) {
+      console.error(err);
+      throw new NotFoundException('Session inválida');
+    }
+
+    // 2️⃣ Atualiza subscription no banco
+    const subscriptionData = await this.subscriptionService.verifyPayment(
+      session,
+      req.user.userId,
+    );
+
+    return subscriptionData;
   }
 }

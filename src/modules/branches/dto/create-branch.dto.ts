@@ -1,12 +1,11 @@
 import {
-  IsString,
-  IsOptional,
-  IsBoolean,
-  IsNumber,
-  IsEmail,
-  MinLength,
-  IsEnum,
   IsArray,
+  IsBoolean,
+  IsEmail,
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  IsString,
 } from 'class-validator';
 import { PaymentMethod } from 'generated/prisma';
 
@@ -74,10 +73,6 @@ export class CreateBranchDto {
   @IsOptional()
   @IsString()
   primaryColor?: string;
-
-  @IsOptional()
-  @IsString()
-  openingHours?: string;
 
   @IsOptional()
   @IsString()

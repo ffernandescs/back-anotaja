@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { CreateCompanyDto } from './dto/create-company.dto';
 import * as bcrypt from 'bcrypt';
 import { prisma } from '../../../lib/prisma';
@@ -65,7 +69,14 @@ export class CompaniesService {
 
       // 1️⃣ Criar empresa
       const createdCompany = await prisma.company.create({
-        data: { name, document, email, phone },
+        data: {
+          name,
+          document,
+          email,
+          phone,
+          active: true,
+          onboardingCompleted: false,
+        },
       });
 
       // 2️⃣ Criar endereço da empresa
@@ -128,5 +139,178 @@ export class CompaniesService {
     });
 
     return company;
+  }
+
+  async getOnboardingStatus(userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { branch: true },
+    });
+
+    if (!user || !user.branch) {
+      throw new NotFoundException('Usuário ou filial não encontrada');
+    }
+
+    const companyId = user.companyId;
+    if (!companyId) {
+      throw new NotFoundException('Empresa não encontrada');
+    }
+    const company = await prisma.company.findUnique({
+      where: { id: companyId },
+      include: {
+        subscription: true,
+        branches: {
+          include: {
+            openingHours: true,
+          },
+        },
+      },
+    });
+
+    if (!company) {
+      throw new NotFoundException('Empresa não encontrada');
+    }
+
+    // ✅ Se já concluiu
+    if (company.onboardingCompleted) {
+      await prisma.company.update({
+        where: { id: companyId },
+        data: { onboardingStep: 'COMPLETED' },
+      });
+      return {
+        completed: true,
+        currentStep: 'COMPLETED',
+      };
+    }
+
+    // 1️⃣ Plano
+    if (!company.subscription) {
+      await prisma.company.update({
+        where: { id: companyId },
+        data: { onboardingStep: 'PLAN' },
+      });
+      return {
+        completed: false,
+        currentStep: 'PLAN',
+      };
+    }
+
+    // 2️⃣ Horários
+    const hasOpeningHours = company.branches.some(
+      (branch) => branch.openingHours && branch.openingHours.length > 0,
+    );
+
+    if (!hasOpeningHours) {
+      await prisma.company.update({
+        where: { id: companyId },
+        data: { onboardingStep: 'SCHEDULE' },
+      });
+      return {
+        completed: false,
+        currentStep: 'SCHEDULE',
+      };
+    }
+
+    // 3️⃣ Domínio
+    const hasSubdomain = company.branches.some((branch) => !!branch.subdomain);
+
+    if (!hasSubdomain) {
+      await prisma.company.update({
+        where: { id: companyId },
+        data: { onboardingStep: 'DOMAIN' },
+      });
+      return {
+        completed: false,
+        currentStep: 'DOMAIN',
+      };
+    }
+
+    // 4️⃣ Pagamento
+    if (!company.subscription || company.subscription.status !== 'ACTIVE') {
+      await prisma.company.update({
+        where: { id: companyId },
+        data: { onboardingStep: 'PAYMENT' },
+      });
+      return {
+        completed: false,
+        currentStep: 'PAYMENT',
+      };
+    }
+
+    // ✅ Tudo OK
+    return {
+      completed: true,
+      currentStep: 'COMPLETED',
+    };
+  }
+
+  async completeOnboarding(userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        company: {
+          include: {
+            subscription: true,
+            branches: {
+              select: {
+                openingHours: true,
+                subdomain: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!user || !user.company) {
+      throw new NotFoundException('Usuário ou empresa não encontrada');
+    }
+
+    const company = user.company;
+
+    if (company.onboardingCompleted) {
+      throw new BadRequestException('Onboarding já foi concluído');
+    }
+
+    // 1️⃣ Plano
+    if (!company.subscription) {
+      throw new BadRequestException('Plano não configurado');
+    }
+
+    // 2️⃣ Horários
+    const hasOpeningHours = company.branches.some(
+      (branch) => !!branch.openingHours,
+    );
+
+    if (!hasOpeningHours) {
+      throw new BadRequestException(
+        'Horários de funcionamento não configurados',
+      );
+    }
+
+    // 3️⃣ Domínio
+    const hasSubdomain = company.branches.some((branch) => !!branch.subdomain);
+
+    if (!hasSubdomain) {
+      throw new BadRequestException('Domínio não configurado');
+    }
+
+    // 4️⃣ Pagamento
+    if (company.subscription.status !== 'ACTIVE') {
+      throw new BadRequestException('Pagamento não concluído');
+    }
+
+    // ✅ Finaliza onboarding
+    await prisma.company.update({
+      where: { id: company.id },
+      data: {
+        onboardingCompleted: true,
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Onboarding concluído com sucesso',
+    };
   }
 }

@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ConflictException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   BillingPeriodDto,
@@ -12,9 +13,13 @@ import {
 import { prisma } from '../../../lib/prisma';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 import { UpdateSubscriptionInput } from './types';
+import Stripe from 'stripe';
+import { StripeService } from '../billing/stripe.service';
 
 @Injectable()
 export class SubscriptionService {
+  constructor(private readonly stripeService: StripeService) {}
+
   async create(createSubscriptionDto: CreateSubscriptionDto, userId: string) {
     // Verificar se o usuário tem permissão (deve ser admin ou owner da empresa)
     const user = await prisma.user.findUnique({
@@ -338,5 +343,74 @@ export class SubscriptionService {
         },
       },
     });
+  }
+
+  async verifyPayment(session: Stripe.Checkout.Session, userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { company: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+    const subscriptionId = session.subscription as string | undefined;
+    const companyId = session.metadata?.companyId as string;
+
+    if (!subscriptionId || !companyId) {
+      throw new NotFoundException('Session inválida');
+    }
+
+    // Pega subscription atual, incluindo o plan
+    let subscription = await prisma.subscription.findUnique({
+      where: { companyId },
+      include: {
+        plan: true, // ✅ precisa incluir para ter acesso a subscription.plan
+        company: true, // opcional
+      },
+    });
+
+    // Se não existir ou não estiver ativa, faz upsert
+    if (!subscription || subscription.status !== 'ACTIVE') {
+      // Você pode usar o planId do metadata da session
+      const planId = session.metadata?.planId as string;
+
+      subscription = await prisma.subscription.upsert({
+        where: { companyId },
+        update: {
+          status: 'ACTIVE',
+          strapiSubscriptionId: subscriptionId,
+          startDate: new Date(),
+          planId,
+        },
+        create: {
+          companyId,
+          planId,
+          status: 'ACTIVE',
+          strapiSubscriptionId: subscriptionId,
+          startDate: new Date(),
+        },
+        include: {
+          plan: true, // ✅ incluímos plan para acessar depois
+          company: true, // opcional
+        },
+      });
+    }
+
+    await prisma.company.update({
+      where: { id: companyId },
+      data: { onboardingStep: 'SCHEDULE' }, // ou o valor exato que você usa no enum/enum-like
+    });
+    // Retorno limpo pro frontend
+    return {
+      id: subscription.id,
+      companyId: subscription.companyId,
+      planId: subscription.planId,
+      status: subscription.status,
+      startDate: subscription.startDate,
+      nextBillingDate: subscription.nextBillingDate,
+      planName: subscription.plan.name, // agora funciona
+      billingPeriod: subscription.plan.billingPeriod,
+    };
   }
 }

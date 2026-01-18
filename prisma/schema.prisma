@@ -20,22 +20,109 @@ model MasterUser {
   updatedAt DateTime  @updatedAt
 }
 
-model Company {
-  id           String           @id @default(cuid())
-  name         String
-  document     String           @unique
-  email        String           @unique
-  phone        String           @unique
-  active       Boolean          @default(true)
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
-
-  branches     Branch[]
-  users        User[]
-  subscription Subscription?
-  address      CompanyAddress? @relation("CompanyAddress")
+enum OnboardingStep {
+  PLAN
+  SCHEDULE
+  DOMAIN
+  PAYMENT
+  COMPLETED
 }
 
+
+model Company {
+  id                  String           @id @default(cuid())
+  name                String
+  document            String           @unique
+  email               String           @unique
+  phone               String           @unique
+  active              Boolean          @default(true)
+  onboardingStep      OnboardingStep   @default(PLAN)
+  onboardingCompleted Boolean          @default(false)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  branches            Branch[]
+  users               User[]
+  subscription        Subscription?
+  address             CompanyAddress? @relation("CompanyAddress")
+}
+enum PlanType {
+  TRIAL // Plano de teste (gratuito, cumprindo legislação brasileira)
+  BASIC // Plano básico
+  PREMIUM // Plano premium
+  ENTERPRISE // Plano empresarial
+}
+
+enum SubscriptionStatus {
+  PENDING   // Pendente
+  ACTIVE // Ativa
+  INACTIVE // Inativa
+  CANCELLED // Cancelada
+  EXPIRED // Expirada
+  SUSPENDED // Suspensa
+}
+
+enum BillingPeriod {
+  MONTHLY // Mensal
+  SEMESTRAL // Semestral (6 meses)
+  ANNUAL // Anual (12 meses)
+}
+model Plan {
+  id                                                                                     String          @id @default(cuid())
+  name                                                                                   String
+  description                                                                            String?
+  type                                                                                   PlanType
+  price         Float // Preço base mensal em R$ (será calculado conforme billingPeriod)
+  // Periodicidade de cobrança
+  billingPeriod                                                                          BillingPeriod   @default(MONTHLY)
+  // Limites do plano (JSON: { branches: 1, users: 5, products: 100, ordersPerMonth: 1000 })
+  limits                                                                                 String?
+  // Recursos incluídos (JSON: ["delivery", "stock", "reports", "api"])
+  features                                                                               String?
+  // Duração do plano de teste em dias (apenas para TRIAL)
+  trialDays                                                                              Int?            @default(7) // Padrão 7 dias conforme legislação brasileira
+  // Se o plano está ativo para novos cadastros
+  active                                                                                 Boolean         @default(true)
+  // Se é um plano de teste (gratuito, cumprindo legislação brasileira)
+  isTrial                                                                                Boolean         @default(false)
+  // Se o plano está em destaque (mais escolhido)
+  isFeatured                                                                             Boolean         @default(false)
+  // Ordem de exibição
+  displayOrder                                                                           Int             @default(0)
+  createdAt                                                                              DateTime        @default(now())
+  updatedAt                                                                              DateTime        @updatedAt
+
+  subscriptions                                                                          Subscription[]
+}
+model Subscription {
+  id                   String              @id @default(cuid())
+  companyId            String              @unique
+  planId               String
+  status               SubscriptionStatus  @default(ACTIVE)
+  // Periodicidade de cobrança da assinatura
+  billingPeriod        BillingPeriod       @default(MONTHLY)
+  // Data de início da assinatura
+  startDate            DateTime            @default(now())
+  // Data de término (null = sem término)
+  endDate              DateTime?
+  // Data do próximo pagamento
+  nextBillingDate      DateTime?
+  // Data do último pagamento
+  lastBillingDate      DateTime?
+  // ID da assinatura no Strapi
+  strapiSubscriptionId String?
+  // ID do cliente no Strapi
+  strapiCustomerId     String?
+  // Valor pago na última cobrança
+  lastBillingAmount    Float?
+  //                   Observações
+  notes                String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  company              Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  plan                 Plan               @relation(fields: [planId], references: [id])
+}
 model CompanyAddress {
   id           String    @id @default(cuid())
   street       String
@@ -68,6 +155,17 @@ model PasswordResetToken {
   @@index([email])
 }
 
+
+// Configurações globais do sistema (apenas master pode editar)
+model SystemConfig {
+  id                                                         String    @id @default(cuid())
+  key                                                        String    @unique // Ex: "strapi_url", "strapi_api_token", etc.
+  value     String? // Valor da configuração (pode ser JSON)
+  encrypted                                                  Boolean   @default(false) // Se o valor deve ser criptografado
+  createdAt                                                  DateTime  @default(now())
+  updatedAt                                                  DateTime  @updatedAt
+}
+
 model Branch {
   id                     String                   @id @default(cuid())
   name                   String
@@ -81,7 +179,6 @@ model Branch {
   // Cor primária da loja (hex: #000000)
   primaryColor           String?                  @default("#3B82F6")
   // Horários de funcionamento (JSON: { monday: { open: "08:00", close: "22:00" }, ... })
-  openingHours           String?
   // Redes sociais (JSON: { instagram: "...", facebook: "...", whatsapp: "..." })
   socialMedia            String?
   // Formas de pagamento aceitas (JSON: ["CASH", "CREDIT_CARD", "DEBIT_CARD", "PIX", "ONLINE"])
@@ -105,6 +202,7 @@ model Branch {
   createdAt              DateTime                 @default(now())
   updatedAt              DateTime                 @updatedAt
 
+  openingHours           BranchSchedule[]
   customers              Customer[]
   company                Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
   users                  User[]
@@ -127,13 +225,25 @@ model Branch {
   customerPoints         CustomerPoints[]
   announcements          Announcement[]
   tables                 Table[]
-  paymentMethods         PaymentMethod[]
+  paymentMethods         BranchPaymentMethod[]
   billSplits             BillSplit[]
   complementOptions      ComplementOption[]
   address                BranchAddress?          @relation(fields: [addressId], references: [id], onDelete: Restrict)
   addressId              String?
 }
 
+model BranchSchedule {
+  id        String     @id @default(cuid())
+  day       String
+  open      String
+  close     String
+  closed    Boolean    @default(false)
+  branchId  String
+  date      DateTime?
+  branch    Branch    @relation(fields: [branchId], references: [id])
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
 model BranchAddress {
   id           String    @id @default(cuid())
   street       String
@@ -351,9 +461,6 @@ model Product {
   ingredients                                                               ProductIngredient[]
   stockMovements                                                            StockMovement[]
 }
-
-
-
 model ProductAddition {
   id                                         String                @id @default(cuid())
   name                                       String
@@ -371,7 +478,6 @@ model ProductAddition {
   ingredients                                AdditionIngredient[]
   stockMovements                             StockMovement[]
 }
-
 model Customer {
   id               String             @id @default(cuid())
   name             String
@@ -390,7 +496,6 @@ model Customer {
 
   @@unique([phone, branchId])
 }
-
 model CustomerAddress {
   id           String    @id @default(cuid())
   address      String
@@ -417,7 +522,6 @@ model CustomerAddress {
   @@index([customerId])
   @@index([branchId])
 }
-
 model Order {
   id                                                           String               @id @default(cuid())
   orderNumber                                                  Int?                 @unique // Número sequencial do pedido
@@ -463,7 +567,6 @@ enum PaymentStatus {
   PAID
   CANCELLED
 }
-
 model OrderPayment {
   id                                                                     String            @id @default(cuid())
   orderId                                                                String
@@ -477,7 +580,6 @@ model OrderPayment {
   billSplitPerson                                                        BillSplitPerson? @relation(fields: [billSplitPersonId], references: [id])
   billSplitPersonId                                                      String?
 }
-
 model OrderItem {
   id                                                                      String                 @id @default(cuid())
   quantity                                                                Int
@@ -498,7 +600,6 @@ model OrderItem {
   additions                                                               OrderItemAddition[]
   complements                                                             OrderItemComplement[]
 }
-
 model OrderItemAddition {
   id          String           @id @default(cuid())
   orderItemId String
@@ -508,7 +609,6 @@ model OrderItemAddition {
   orderItem   OrderItem       @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
   addition    ProductAddition @relation(fields: [additionId], references: [id], onDelete: Cascade)
 }
-
 model OrderItemComplement {
   id           String                       @id @default(cuid())
   orderItemId  String
@@ -519,7 +619,6 @@ model OrderItemComplement {
   complement   ProductComplement           @relation(fields: [complementId], references: [id], onDelete: Cascade)
   options      OrderItemComplementOption[]
 }
-
 model OrderItemComplementOption {
   id                    String               @id @default(cuid())
   orderItemComplementId String
@@ -536,7 +635,6 @@ enum SelectionType {
   MULTIPLE_NO_REPEAT
   MULTIPLE_REPEAT
 }
-
 model ProductComplement {
   id                                                                        String                 @id @default(cuid())
   name          String // Nome do complemento (ex: "Tamanho", "Adicionais")
@@ -557,7 +655,6 @@ model ProductComplement {
   options                                                                   ComplementOption[]
   orderItemComplements                                                      OrderItemComplement[]
 }
-
 model ComplementOption {
   id                         String                       @id @default(cuid())
   name                       String
@@ -576,7 +673,6 @@ model ComplementOption {
   orderItemComplementOptions OrderItemComplementOption[]
   stockMovements             StockMovement[]
 }
-
 model Coupon {
   id         String      @id @default(cuid())
   code       String      @unique
@@ -595,7 +691,6 @@ model Coupon {
   branch     Branch?    @relation(fields: [branchId], references: [id], onDelete: Cascade)
   orders     Order[]
 }
-
 model PointsConfig {
   id                String    @id @default(cuid())
   branchId          String    @unique
@@ -608,7 +703,6 @@ model PointsConfig {
 
   branch            Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
 }
-
 model PointsTransaction {
   id                                                            String    @id @default(cuid())
   userId                                                        String
@@ -623,7 +717,6 @@ model PointsTransaction {
   branch                                                        Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
   order                                                         Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
 }
-
 model CustomerPoints {
   id            String    @id @default(cuid())
   userId        String    @unique
@@ -636,7 +729,6 @@ model CustomerPoints {
   user          User     @relation("CustomerPoints", fields: [userId], references: [id], onDelete: Cascade)
   branch        Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
 }
-
 model DeliveryArea {
   id                                                               String    @id @default(cuid())
   name                                                             String
@@ -656,7 +748,6 @@ model DeliveryArea {
 
   branch                                                           Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
 }
-
 model DeliveryRoute {
   id                                                             String    @id @default(cuid())
   name                                                           String
@@ -672,7 +763,6 @@ model DeliveryRoute {
 
   branch                                                         Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
 }
-
 model DeliveryAssignment {
   id                                                                                   String          @id @default(cuid())
   name              String? // Nome opcional da rota
@@ -691,7 +781,6 @@ model DeliveryAssignment {
   branch                                                                               Branch         @relation(fields: [branchId], references: [id], onDelete: Cascade)
   orders                                                                               Order[]
 }
-
 model DeliveryExclusionArea {
   id                                                           String    @id @default(cuid())
   name                                                         String
@@ -707,7 +796,6 @@ model DeliveryExclusionArea {
 
   branch                                                       Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
 }
-
 model IngredientCategory {
   id          String        @id @default(cuid())
   name        String
@@ -718,7 +806,6 @@ model IngredientCategory {
   branch      Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
   ingredients Ingredient[]
 }
-
 model Ingredient {
   id                                                                      String                @id @default(cuid())
   name                                                                    String
@@ -743,7 +830,6 @@ model Ingredient {
   products                                                                ProductIngredient[]
   additions                                                               AdditionIngredient[]
 }
-
 model StockMovement {
   id                                                                              String             @id @default(cuid())
   type         String // ENTRY, EXIT, ADJUSTMENT
@@ -764,7 +850,6 @@ model StockMovement {
   addition                                                                        ProductAddition?  @relation(fields: [additionId], references: [id], onDelete: Cascade)
   option                                                                          ComplementOption? @relation(fields: [optionId], references: [id], onDelete: Cascade)
 }
-
 model ProductIngredient {
   id                                                                    String      @id @default(cuid())
   productId                                                             String
@@ -778,7 +863,6 @@ model ProductIngredient {
 
   @@unique([productId,                                                  ingredientId])
 }
-
 model AdditionIngredient {
   id                                                                    String           @id @default(cuid())
   additionId                                                            String
@@ -814,95 +898,6 @@ enum CouponType {
   FIXED
 }
 
-enum PlanType {
-  TRIAL // Plano de teste (gratuito, cumprindo legislação brasileira)
-  BASIC // Plano básico
-  PREMIUM // Plano premium
-  ENTERPRISE // Plano empresarial
-}
-
-enum SubscriptionStatus {
-  ACTIVE // Ativa
-  INACTIVE // Inativa
-  CANCELLED // Cancelada
-  EXPIRED // Expirada
-  SUSPENDED // Suspensa
-}
-
-enum BillingPeriod {
-  MONTHLY // Mensal
-  SEMESTRAL // Semestral (6 meses)
-  ANNUAL // Anual (12 meses)
-}
-
-model Plan {
-  id                                                                                     String          @id @default(cuid())
-  name                                                                                   String
-  description                                                                            String?
-  type                                                                                   PlanType
-  price         Float // Preço base mensal em R$ (será calculado conforme billingPeriod)
-  // Periodicidade de cobrança
-  billingPeriod                                                                          BillingPeriod   @default(MONTHLY)
-  // Limites do plano (JSON: { branches: 1, users: 5, products: 100, ordersPerMonth: 1000 })
-  limits                                                                                 String?
-  // Recursos incluídos (JSON: ["delivery", "stock", "reports", "api"])
-  features                                                                               String?
-  // Duração do plano de teste em dias (apenas para TRIAL)
-  trialDays                                                                              Int?            @default(7) // Padrão 7 dias conforme legislação brasileira
-  // Se o plano está ativo para novos cadastros
-  active                                                                                 Boolean         @default(true)
-  // Se é um plano de teste (gratuito, cumprindo legislação brasileira)
-  isTrial                                                                                Boolean         @default(false)
-  // Se o plano está em destaque (mais escolhido)
-  isFeatured                                                                             Boolean         @default(false)
-  // Ordem de exibição
-  displayOrder                                                                           Int             @default(0)
-  createdAt                                                                              DateTime        @default(now())
-  updatedAt                                                                              DateTime        @updatedAt
-
-  subscriptions                                                                          Subscription[]
-}
-
-model Subscription {
-  id                   String              @id @default(cuid())
-  companyId            String              @unique
-  planId               String
-  status               SubscriptionStatus  @default(ACTIVE)
-  // Periodicidade de cobrança da assinatura
-  billingPeriod        BillingPeriod       @default(MONTHLY)
-  // Data de início da assinatura
-  startDate            DateTime            @default(now())
-  // Data de término (null = sem término)
-  endDate              DateTime?
-  // Data do próximo pagamento
-  nextBillingDate      DateTime?
-  // Data do último pagamento
-  lastBillingDate      DateTime?
-  // ID da assinatura no Strapi
-  strapiSubscriptionId String?
-  // ID do cliente no Strapi
-  strapiCustomerId     String?
-  // Valor pago na última cobrança
-  lastBillingAmount    Float?
-  //                   Observações
-  notes                String?
-  createdAt            DateTime            @default(now())
-  updatedAt            DateTime            @updatedAt
-
-  company              Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  plan                 Plan               @relation(fields: [planId], references: [id])
-}
-
-// Configurações globais do sistema (apenas master pode editar)
-model SystemConfig {
-  id                                                         String    @id @default(cuid())
-  key                                                        String    @unique // Ex: "strapi_url", "strapi_api_token", etc.
-  value     String? // Valor da configuração (pode ser JSON)
-  encrypted                                                  Boolean   @default(false) // Se o valor deve ser criptografado
-  createdAt                                                  DateTime  @default(now())
-  updatedAt                                                  DateTime  @updatedAt
-}
-
 enum TableStatus {
   OPEN
   CLOSED
@@ -914,7 +909,6 @@ enum TableStatus {
   CLOSING
   ALL
 }
-
 // Mesas do estabelecimento
 model Table {
   id                                                                 String       @id @default(cuid())
@@ -1000,18 +994,30 @@ model BillSplitPerson {
 }
 
 model PaymentMethod {
-  id          String    @id @default(cuid())
-  name        String
-  forDineIn   Boolean   @default(false)
-  forDelivery Boolean   @default(false)
-  isActive    Boolean   @default(true)
-
-  branchId    String
-  branch      Branch   @relation(fields: [branchId], references: [id])
-
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id             String                 @id @default(cuid())
+  name           String
+  isActive       Boolean                @default(true)
+  branchPayments BranchPaymentMethod[]
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
 }
+
+model BranchPaymentMethod {
+  id              String         @id @default(cuid())
+  branchId        String
+  paymentMethodId String
+  forDineIn       Boolean        @default(false)
+  forDelivery     Boolean        @default(false)
+
+  branch          Branch        @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  paymentMethod   PaymentMethod @relation(fields: [paymentMethodId], references: [id], onDelete: Cascade)
+
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@unique([branchId, paymentMethodId])
+}
+
 
 enum BillSplitItemStatus {
   SELECTING

@@ -1,18 +1,18 @@
-import { IsBoolean, IsOptional, IsString } from 'class-validator';
-
+// dto/create-payment-method.dto.ts
 export class CreatePaymentMethodDto {
-  @IsString()
   name!: string;
-
-  @IsOptional()
-  @IsBoolean()
-  forDineIn?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  forDelivery?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
   isActive?: boolean;
+}
+
+// dto/update-payment-method.dto.ts
+export class UpdatePaymentMethodDto {
+  name?: string;
+  isActive?: boolean;
+}
+
+// dto/branch-assign-payment.dto.ts
+export class BranchAssignPaymentDto {
+  paymentMethodId!: string;
+  forDineIn?: boolean;
+  forDelivery?: boolean;
 }

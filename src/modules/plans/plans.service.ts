@@ -7,6 +7,7 @@ import {
 import { CreatePlanDto } from './dto/create-plan.dto';
 import { UpdatePlanDto } from './dto/update-plan.dto';
 import { prisma } from '../../../lib/prisma';
+import { BillingPeriod, ChoosePlanDto } from './dto/choose-plan.dto';
 
 @Injectable()
 export class PlansService {
@@ -210,5 +211,86 @@ export class PlansService {
         },
       },
     });
+  }
+
+  private calculateNextBillingDate(date: Date, billingPeriod: BillingPeriod) {
+    const next = new Date(date);
+
+    if (billingPeriod === BillingPeriod.MONTHLY) {
+      next.setMonth(next.getMonth() + 1);
+    }
+
+    if (billingPeriod === BillingPeriod.SEMESTRAL) {
+      next.setMonth(next.getMonth() + 6);
+    }
+
+    if (billingPeriod === BillingPeriod.ANNUAL) {
+      next.setFullYear(next.getFullYear() + 1);
+    }
+
+    return next;
+  }
+
+  async choosePlanForCompany(dto: ChoosePlanDto, userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        company: {
+          include: {
+            subscription: true,
+          },
+        },
+      },
+    });
+
+    if (!user?.company) {
+      throw new NotFoundException('Empresa não encontrada');
+    }
+
+    const company = user.company;
+
+    // ❌ Já tem assinatura
+    if (company.subscription) {
+      throw new ConflictException(
+        'Empresa já possui uma assinatura ativa ou em andamento',
+      );
+    }
+
+    const plan = await prisma.plan.findUnique({
+      where: { id: dto.planId },
+    });
+
+    if (!plan || !plan.active) {
+      throw new NotFoundException('Plano inválido ou inativo');
+    }
+
+    const now = new Date();
+
+    let endDate: Date | null = null;
+    let nextBillingDate: Date | null = null;
+
+    // 🆓 Trial
+    if (plan.isTrial) {
+      endDate = new Date();
+      endDate.setDate(endDate.getDate() + (plan.trialDays ?? 7));
+      nextBillingDate = endDate;
+    } else {
+      nextBillingDate = this.calculateNextBillingDate(now, dto.billingPeriod);
+    }
+
+    const subscription = await prisma.subscription.create({
+      data: {
+        companyId: company.id,
+        planId: plan.id,
+        status: 'ACTIVE',
+        billingPeriod: dto.billingPeriod,
+        startDate: now,
+        endDate,
+        nextBillingDate,
+        notes: 'Assinatura criada durante onboarding',
+      },
+    });
+
+    return subscription;
   }
 }

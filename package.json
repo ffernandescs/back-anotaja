@@ -15,6 +15,7 @@
     "start:dev": "nodemon dist/src/main.js",
     "start:debug": "nest start --debug --watch",
     "db:seed": "tsx prisma/seed.ts",
+    "db:seed-plans": "tsx prisma/seed-plans.ts",
     "prisma:generate": "prisma generate",
     "prisma:push": "node scripts/prisma-push.js",
     "prisma:migrate": "dotenv -e .env -- prisma migrate dev",
@@ -53,7 +54,8 @@
     "pg": "^8.16.3",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "socket.io": "^4.8.3"
+    "socket.io": "^4.8.3",
+    "stripe": "^20.2.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
@@ -68,6 +70,7 @@
     "@types/node": "^22.19.5",
     "@types/passport-jwt": "^4.0.1",
     "@types/pg": "^8.16.0",
+    "@types/stripe": "^8.0.416",
     "@types/supertest": "^6.0.2",
     "dotenv-cli": "^11.0.0",
     "eslint": "^9.18.0",

@@ -287,7 +287,11 @@ export class AuthService {
         branchId: true,
         createdAt: true,
         updatedAt: true,
-        company: true,
+        company: {
+          include: {
+            subscription: true,
+          },
+        },
         branch: true,
       },
     });

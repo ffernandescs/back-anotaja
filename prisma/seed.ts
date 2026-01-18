@@ -4183,7 +4183,6 @@ async function main() {
                       : type === 'perfumaria'
                         ? '#9B59B6'
                         : '#3B82F6',
-            openingHours: defaultOpeningHours,
             socialMedia: defaultSocialMedia,
             description: `A melhor ${
               type === 'hamburgueria'

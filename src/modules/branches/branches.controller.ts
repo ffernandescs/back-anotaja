@@ -16,6 +16,8 @@ import { CreateBranchDto } from './dto/create-branch.dto';
 import { UpdateBranchDto } from './dto/update-branch.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { BranchScheduleItemDto } from './dto/create-branch-schedule.dto';
+import { UpdateBranchScheduleDto } from './dto/update-branch-schedule.dto';
 
 interface RequestWithUser extends Request {
   user: {
@@ -38,6 +40,37 @@ export class BranchesController {
     return this.branchesService.create(createBranchDto, req.user.userId);
   }
 
+  @Get('check-subdomain')
+  async checkSubdomain(
+    @Query('subdomain') subdomain: string,
+    @Query('excludeBranchId') excludeBranchId?: string,
+  ) {
+    return this.branchesService.checkSubdomainAvailability(
+      subdomain,
+      excludeBranchId,
+    );
+  }
+
+  @Post('schedule')
+  async createSchedule(
+    @Req() req: RequestWithUser,
+    @Body() dto: BranchScheduleItemDto[],
+  ) {
+    const userId = req.user.userId; // supondo que você tenha auth middleware
+    return this.branchesService.createSchedule(userId, dto);
+  }
+
+  @Patch('schedule/:id')
+  async updateSchedule(
+    @Req() req: RequestWithUser,
+    @Body() dto: BranchScheduleItemDto[], // array do front
+  ) {
+    const userId = req.user.userId;
+
+    // passar o array dentro do objeto esperado
+    return this.branchesService.updateSchedule(userId, dto);
+  }
+
   @Get()
   findAll(
     @Req() req: RequestWithUser,
@@ -50,6 +83,16 @@ export class BranchesController {
       return this.branchesService.findAll(req.user.userId);
     }
     return this.branchesService.findCurrent(req.user.userId);
+  }
+  @Patch('update-subdomain')
+  updateSubdomain(
+    @Body() body: { subdomain: string },
+    @Req() req: RequestWithUser,
+  ) {
+    return this.branchesService.updateSubdomain(
+      body.subdomain,
+      req.user.userId,
+    );
   }
 
   @Get(':id')

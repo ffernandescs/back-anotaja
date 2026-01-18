@@ -1,13 +1,15 @@
 import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
-  ForbiddenException,
-  ConflictException,
-  BadRequestException,
 } from '@nestjs/common';
+import { BranchSchedule } from 'generated/prisma';
+import { prisma } from '../../../lib/prisma';
+import { BranchScheduleItemDto } from './dto/create-branch-schedule.dto';
 import { CreateBranchDto } from './dto/create-branch.dto';
 import { UpdateBranchDto } from './dto/update-branch.dto';
-import { prisma } from '../../../lib/prisma';
 
 @Injectable()
 export class BranchesService {
@@ -115,6 +117,218 @@ export class BranchesService {
 
     return branch;
   }
+
+  async createSchedule(userId: string, dto: BranchScheduleItemDto[]) {
+    // Pegar branch do usuário
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { branch: true, company: true },
+    });
+
+    if (!user || !user.branchId) {
+      throw new NotFoundException('Usuário não está associado a uma filial');
+    }
+
+    const branchId = user.branchId;
+
+    const branch = await prisma.branch.findUnique({ where: { id: branchId } });
+    if (!branch) throw new NotFoundException('Filial não encontrada');
+
+    // Criar ou atualizar horários
+    const createdSchedules: BranchSchedule[] = [];
+
+    for (const schedule of dto) {
+      const existing = await prisma.branchSchedule.findFirst({
+        where: {
+          branchId,
+          day: schedule.day,
+          date: schedule.date ? new Date(schedule.date) : null,
+        },
+      });
+
+      if (existing) {
+        const updated = await prisma.branchSchedule.update({
+          where: { id: existing.id },
+          data: {
+            open: schedule.open,
+            close: schedule.close,
+            closed: schedule.closed,
+            date: schedule.date ? new Date(schedule.date) : null,
+          },
+        });
+        createdSchedules.push(updated); // ✅ agora não dá mais erro
+      } else {
+        const created = await prisma.branchSchedule.create({
+          data: {
+            branchId,
+            day: schedule.day,
+            open: schedule.open,
+            close: schedule.close,
+            closed: schedule.closed,
+            date: schedule.date ? new Date(schedule.date) : null,
+          },
+        });
+        createdSchedules.push(created);
+      }
+    }
+
+    if (!user.companyId)
+      throw new ForbiddenException('Usuário não está associado a uma empresa');
+
+    await prisma.company.update({
+      where: { id: user.companyId },
+      data: {
+        onboardingStep: 'DOMAIN',
+      },
+    });
+
+    return createdSchedules;
+  }
+
+  async updateSubdomain(subdomain: string, userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { branch: true, company: true },
+    });
+
+    if (!user || !user.branchId) {
+      throw new NotFoundException('Usuário não está associado a uma filial');
+    }
+
+    const branchId = user.branchId;
+
+    // Pega a branch atual
+    const branch = await prisma.branch.findUnique({
+      where: { id: branchId },
+      select: { id: true, subdomain: true },
+    });
+
+    if (!branch) throw new NotFoundException('Filial não encontrada');
+
+    // ⚠️ Se o subdomain enviado é igual ao atual, retorna sem atualizar
+    if (
+      branch.subdomain?.trim().toLowerCase() === subdomain.trim().toLowerCase()
+    ) {
+      return branch; // não faz update
+    }
+
+    // Verificar se existe outra branch com o mesmo subdomain
+    const existingBranch = await prisma.branch.findFirst({
+      where: {
+        subdomain,
+      },
+      select: { id: true },
+    });
+
+    if (existingBranch) {
+      throw new ConflictException('Subdomínio já está em uso');
+    }
+    if (!user.companyId)
+      throw new ForbiddenException('Usuário não está associado a uma empresa');
+
+    await prisma.company.update({
+      where: { id: user.companyId },
+      data: {
+        onboardingStep: 'PAYMENT',
+      },
+    });
+    // Atualizar subdomain
+    return prisma.branch.update({
+      where: { id: branchId },
+      data: { subdomain },
+      include: { company: { select: { id: true, name: true } } },
+    });
+  }
+
+  async findOne(id: string, userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { company: true, orders: true },
+    });
+
+    if (!user || !user.companyId) {
+      throw new ForbiddenException('Usuário não está associado a uma empresa');
+    }
+
+    const branch = await prisma.branch.findFirst({
+      where: {
+        id,
+        companyId: user.companyId,
+      },
+      include: {
+        company: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (!branch) {
+      throw new NotFoundException('Filia não encontrada');
+    }
+
+    return branch;
+  }
+
+  async updateSchedule(userId: string, dto: BranchScheduleItemDto[]) {
+    // Verificar se branch pertence ao usuário
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user || !user.branchId) {
+      throw new ForbiddenException(
+        'Você não tem permissão para atualizar os horários desta filial',
+      );
+    }
+
+    // Apagar todos os horários existentes da branch
+    await prisma.branchSchedule.deleteMany({
+      where: { branchId: user.branchId },
+    });
+
+    // Criar novamente todos os horários do array
+    const createdSchedules: BranchSchedule[] = [];
+
+    for (const schedule of dto) {
+      const created = await prisma.branchSchedule.create({
+        data: {
+          branchId: user.branchId,
+          day: schedule.day,
+          open: schedule.open,
+          close: schedule.close,
+          closed: schedule.closed,
+          date: schedule.date ? new Date(schedule.date) : null, // opcional
+        },
+      });
+      createdSchedules.push(created);
+    }
+
+    return createdSchedules;
+  }
+
+  async checkSubdomainAvailability(
+    subdomain: string,
+    excludeBranchId?: string,
+  ) {
+    if (!subdomain) {
+      throw new BadRequestException('Subdomínio é obrigatório');
+    }
+
+    const existingBranch = await prisma.branch.findFirst({
+      where: {
+        subdomain,
+        ...(excludeBranchId && {
+          NOT: { id: excludeBranchId },
+        }),
+      },
+      select: { id: true },
+    });
+
+    return {
+      available: !existingBranch,
+    };
+  }
+
   async findAll(userId: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -232,38 +446,6 @@ export class BranchesService {
         },
       },
     });
-  }
-
-  async findOne(id: string, userId: string) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: { company: true, orders: true },
-    });
-
-    if (!user || !user.companyId) {
-      throw new ForbiddenException('Usuário não está associado a uma empresa');
-    }
-
-    const branch = await prisma.branch.findFirst({
-      where: {
-        id,
-        companyId: user.companyId,
-      },
-      include: {
-        company: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
-    });
-
-    if (!branch) {
-      throw new NotFoundException('Filia não encontrada');
-    }
-
-    return branch;
   }
 
   async update(id: string, updateBranchDto: UpdateBranchDto, userId: string) {
