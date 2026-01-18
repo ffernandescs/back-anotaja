@@ -9,7 +9,7 @@
     "postbuild": "node scripts/fix-prisma-path.js",
     "prebuild": "npm run prisma:generate",
     "build": "prisma generate && prisma db push && nest build",
-    "postinstall": "prisma generate",
+    "postinstall": "prisma generate && prisma db push",
     "start": "node -r tsconfig-paths/register dist/src/main.js",
     "start:prod": "node dist/src/main.js",
     "start:dev": "nodemon dist/src/main.js",
