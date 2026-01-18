@@ -51,7 +51,7 @@ export class BillingService {
     }
 
     /** 1️⃣ Criar ou reutilizar customer */
-    let customerId = company.subscription?.strapiCustomerId;
+    let customerId = company.subscription?.stripeCustomerId;
 
     if (!customerId) {
       const customer = await this.stripeService.stripe.customers.create({
@@ -101,13 +101,13 @@ export class BillingService {
       update: {
         status: 'PENDING',
         planId: plan.id,
-        strapiCustomerId: customerId,
+        stripeCustomerId: customerId,
       },
       create: {
         companyId: company.id,
         planId: plan.id,
         status: 'PENDING',
-        strapiCustomerId: customerId,
+        stripeCustomerId: customerId,
       },
     });
 

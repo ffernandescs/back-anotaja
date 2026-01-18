@@ -3,6 +3,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import { AppModule } from './app.module';
+import * as bodyParser from 'body-parser';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -78,6 +79,13 @@ async function bootstrap() {
   );
 
   const port = configService.get<number>('PORT') ?? 3001;
+  app.use(
+    bodyParser.json({
+      verify: (req: any, res, buf) => {
+        req['rawBody'] = buf.toString();
+      },
+    }),
+  );
 
   await app.listen(port);
 

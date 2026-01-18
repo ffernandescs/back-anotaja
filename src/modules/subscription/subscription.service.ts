@@ -95,9 +95,9 @@ export class SubscriptionService {
           ? new Date(createSubscriptionDto.lastBillingDate)
           : null,
         lastBillingAmount: createSubscriptionDto.lastBillingAmount || null,
-        strapiSubscriptionId:
+        stripeSubscriptionId:
           createSubscriptionDto.strapiSubscriptionId || null,
-        strapiCustomerId: createSubscriptionDto.strapiCustomerId || null,
+        stripeCustomerId: createSubscriptionDto.strapiCustomerId || null,
         notes: createSubscriptionDto.notes || null,
       },
       include: {
@@ -362,7 +362,7 @@ export class SubscriptionService {
     }
 
     // Pega subscription atual, incluindo o plan
-    let subscription = await prisma.subscription.findUnique({
+    const subscription = await prisma.subscription.findUnique({
       where: { companyId },
       include: {
         plan: true, // ✅ precisa incluir para ter acesso a subscription.plan
@@ -371,46 +371,12 @@ export class SubscriptionService {
     });
 
     // Se não existir ou não estiver ativa, faz upsert
-    if (!subscription || subscription.status !== 'ACTIVE') {
-      // Você pode usar o planId do metadata da session
-      const planId = session.metadata?.planId as string;
-
-      subscription = await prisma.subscription.upsert({
-        where: { companyId },
-        update: {
-          status: 'ACTIVE',
-          strapiSubscriptionId: subscriptionId,
-          startDate: new Date(),
-          planId,
-        },
-        create: {
-          companyId,
-          planId,
-          status: 'ACTIVE',
-          strapiSubscriptionId: subscriptionId,
-          startDate: new Date(),
-        },
-        include: {
-          plan: true, // ✅ incluímos plan para acessar depois
-          company: true, // opcional
-        },
-      });
-    }
 
     await prisma.company.update({
       where: { id: companyId },
       data: { onboardingStep: 'SCHEDULE' }, // ou o valor exato que você usa no enum/enum-like
     });
     // Retorno limpo pro frontend
-    return {
-      id: subscription.id,
-      companyId: subscription.companyId,
-      planId: subscription.planId,
-      status: subscription.status,
-      startDate: subscription.startDate,
-      nextBillingDate: subscription.nextBillingDate,
-      planName: subscription.plan.name, // agora funciona
-      billingPeriod: subscription.plan.billingPeriod,
-    };
+    return subscription;
   }
 }

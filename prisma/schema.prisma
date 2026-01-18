@@ -68,31 +68,31 @@ enum BillingPeriod {
   ANNUAL // Anual (12 meses)
 }
 model Plan {
-  id                                                                                     String          @id @default(cuid())
-  name                                                                                   String
-  description                                                                            String?
-  type                                                                                   PlanType
-  price         Float // Preço base mensal em R$ (será calculado conforme billingPeriod)
+  id                                                                                   String          @id @default(cuid())
+  name                                                                                 String
+  description                                                                          String?
+  type                                                                                 PlanType
+  price         Int // Preço base mensal em R$ (será calculado conforme billingPeriod)
   // Periodicidade de cobrança
-  billingPeriod                                                                          BillingPeriod   @default(MONTHLY)
+  billingPeriod                                                                        BillingPeriod   @default(MONTHLY)
   // Limites do plano (JSON: { branches: 1, users: 5, products: 100, ordersPerMonth: 1000 })
-  limits                                                                                 String?
+  limits                                                                               String?
   // Recursos incluídos (JSON: ["delivery", "stock", "reports", "api"])
-  features                                                                               String?
+  features                                                                             String?
   // Duração do plano de teste em dias (apenas para TRIAL)
-  trialDays                                                                              Int?            @default(7) // Padrão 7 dias conforme legislação brasileira
+  trialDays                                                                            Int?            @default(7) // Padrão 7 dias conforme legislação brasileira
   // Se o plano está ativo para novos cadastros
-  active                                                                                 Boolean         @default(true)
+  active                                                                               Boolean         @default(true)
   // Se é um plano de teste (gratuito, cumprindo legislação brasileira)
-  isTrial                                                                                Boolean         @default(false)
+  isTrial                                                                              Boolean         @default(false)
   // Se o plano está em destaque (mais escolhido)
-  isFeatured                                                                             Boolean         @default(false)
+  isFeatured                                                                           Boolean         @default(false)
   // Ordem de exibição
-  displayOrder                                                                           Int             @default(0)
-  createdAt                                                                              DateTime        @default(now())
-  updatedAt                                                                              DateTime        @updatedAt
+  displayOrder                                                                         Int             @default(0)
+  createdAt                                                                            DateTime        @default(now())
+  updatedAt                                                                            DateTime        @updatedAt
 
-  subscriptions                                                                          Subscription[]
+  subscriptions                                                                        Subscription[]
 }
 model Subscription {
   id                   String              @id @default(cuid())
@@ -110,11 +110,11 @@ model Subscription {
   // Data do último pagamento
   lastBillingDate      DateTime?
   // ID da assinatura no Strapi
-  strapiSubscriptionId String?
+  stripeSubscriptionId String?
   // ID do cliente no Strapi
-  strapiCustomerId     String?
+  stripeCustomerId     String?
   // Valor pago na última cobrança
-  lastBillingAmount    Float?
+  lastBillingAmount    Int?
   //                   Observações
   notes                String?
   createdAt            DateTime            @default(now())
@@ -133,8 +133,8 @@ model CompanyAddress {
   state        String
   zipCode      String
   reference    String?
-  lat          Float?
-  lng          Float?
+  lat          Int?
+  lng          Int?
   isDefault    Boolean   @default(true)
 
   companyId    String?   @unique
@@ -188,14 +188,14 @@ model Branch {
   // Instagram da filial
   instagram              String?
   // Valor mínimo do pedido
-  minOrderValue          Float?
+  minOrderValue          Int?
   // Mensagem antes de finalizar o pedido
   checkoutMessage        String?
   // Coordenadas para o mapa (lat, lng)
-  latitude               Float?
-  longitude              Float?
+  latitude               Int?
+  longitude              Int?
   // Avaliação média (calculada)
-  rating                 Float?                   @default(0)
+  rating                 Int?                     @default(0)
   // Total de avaliações
   ratingsCount           Int                      @default(0)
   companyId              String
@@ -254,8 +254,8 @@ model BranchAddress {
   state        String
   zipCode      String
   reference    String?
-  lat          Float?
-  lng          Float?
+  lat          Int?
+  lng          Int?
   isDefault    Boolean   @default(true)
 
   branchId     String?   @unique
@@ -301,30 +301,30 @@ enum CashMovementType {
 }
 
 model CashRegister {
-  id                                                       String            @id @default(cuid())
-  branchId                                                 String
+  id                                                     String            @id @default(cuid())
+  branchId                                               String
   openedBy       String // userId que abriu
   closedBy       String? // userId que fechou
-  openingDate                                              DateTime          @default(now())
-  closingDate                                              DateTime?
-  openingAmount  Float // Valor inicial do caixa
-  closingAmount  Float? // Valor final do caixa
-  expectedAmount Float? // Valor esperado (calculado)
-  difference     Float? // Diferença entre esperado e real
-  status                                                   CashMovementType  @default(OPENING) // OPEN, CLOSED
-  notes                                                    String?
-  createdAt                                                DateTime          @default(now())
-  updatedAt                                                DateTime          @updatedAt
+  openingDate                                            DateTime          @default(now())
+  closingDate                                            DateTime?
+  openingAmount  Int // Valor inicial do caixa
+  closingAmount  Int? // Valor final do caixa
+  expectedAmount Int? // Valor esperado (calculado)
+  difference     Int? // Diferença entre esperado e real
+  status                                                 CashMovementType  @default(OPENING) // OPEN, CLOSED
+  notes                                                  String?
+  createdAt                                              DateTime          @default(now())
+  updatedAt                                              DateTime          @updatedAt
 
-  branch                                                   Branch           @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  movements                                                CashMovement[]
+  branch                                                 Branch           @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  movements                                              CashMovement[]
 }
 
 model CashMovement {
   id                                                               String              @id @default(cuid())
   cashRegisterId                                                   String
   type                                                             CashMovementType
-  amount                                                           Float
+  amount                                                           Int
   paymentMethod                                                    PaymentMethodType?  @default(CASH) // CASH, CREDIT_CARD, DEBIT_CARD, PIX, ONLINE - apenas para vendas (SALE)
   description                                                      String?
   orderId        String? // Se for uma venda, referência ao pedido
@@ -417,14 +417,14 @@ model Product {
   id                                                                        String               @id @default(cuid())
   name                                                                      String
   description                                                               String?
-  price                                                                     Float
+  price                                                                     Int
   image                                                                     String?
   active                                                                    Boolean              @default(true)
   featured                                                                  Boolean              @default(false)
 
   //                                                                        Promoção
   hasPromotion                                                              Boolean              @default(false)
-  promotionalPrice                                                          Float?
+  promotionalPrice                                                          Int?
   promotionalType        String?  // FIXED, PERCENTAGE
   promotionalPeriodType  String?  // DATE_RANGE, DAYS_OF_WEEK
   promotionalStartDate                                                      DateTime?
@@ -432,7 +432,7 @@ model Product {
   promotionalDays        String?  // JSON array: ["monday", "tuesday", ...]
 
   //                                                                        Produto
-  weight                 Float?   // Peso em gramas
+  weight                 Int?   // Peso em gramas
   preparationTime        Int?     // Tempo de preparo em minutos
   stockControlEnabled                                                       Boolean              @default(false)
   minStock               Int?     // Estoque mínimo
@@ -443,8 +443,8 @@ model Product {
   //                                                                        Parcelamento
   installmentEnabled                                                        Boolean              @default(false)
   maxInstallments                                                           Int?
-  minInstallmentValue                                                       Float?
-  installmentInterestRate                                                   Float?
+  minInstallmentValue                                                       Int?
+  installmentInterestRate                                                   Int?
   installmentOnPromotionalPrice                                             Boolean              @default(false)
 
   categoryId                                                                String
@@ -464,7 +464,7 @@ model Product {
 model ProductAddition {
   id                                         String                @id @default(cuid())
   name                                       String
-  price                                      Float
+  price                                      Int
   active                                     Boolean               @default(true)
   stockControlEnabled                        Boolean               @default(false) // Controle de estoque ativo/desativado
   minStock            Int? // Estoque mínimo
@@ -506,8 +506,8 @@ model CustomerAddress {
   state        String
   zipCode      String
   reference    String?
-  lat          Float?
-  lng          Float?
+  lat          Int?
+  lng          Int?
 
   isDefault    Boolean   @default(false)
 
@@ -528,12 +528,12 @@ model Order {
   status                                                       OrderStatus          @default(PENDING)
   deliveryType                                                 DeliveryType         @default(DELIVERY)
   paymentStatus                                                String               @default("PENDING") // PENDING, PARTIAL, PAID
-  paidAmount                                                   Float                @default(0) // Valor já pago
-  total                                                        Float
-  subtotal                                                     Float
-  deliveryFee                                                  Float                @default(0)
-  serviceFee                                                   Float                @default(0) // Taxa de serviço (10% para pedidos de mesa)
-  discount                                                     Float                @default(0)
+  paidAmount                                                   Int                  @default(0) // Valor já pago
+  total                                                        Int
+  subtotal                                                     Int
+  deliveryFee                                                  Int                  @default(0)
+  serviceFee                                                   Int                  @default(0) // Taxa de serviço (10% para pedidos de mesa)
+  discount                                                     Int                  @default(0)
   customerId                                                   String?
   customer                                                     Customer?           @relation(fields: [customerId], references: [id], onDelete: SetNull)
   notes                                                        String?
@@ -571,10 +571,10 @@ model OrderPayment {
   id                                                                     String            @id @default(cuid())
   orderId                                                                String
   type              String // CASH, CREDIT_CARD, DEBIT_CARD, PIX, ONLINE
-  amount                                                                 Float
+  amount                                                                 Int
   status                                                                 PaymentStatus     @default(PENDING) // PENDING, PAID, CANCELLED
   paymentMethodId                                                        String
-  change                                                                 Float             @default(0) // Troco (apenas para dinheiro)
+  change                                                                 Int               @default(0) // Troco (apenas para dinheiro)
   createdAt                                                              DateTime          @default(now())
   order                                                                  Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
   billSplitPerson                                                        BillSplitPerson? @relation(fields: [billSplitPersonId], references: [id])
@@ -583,7 +583,7 @@ model OrderPayment {
 model OrderItem {
   id                                                                      String                 @id @default(cuid())
   quantity                                                                Int
-  price                                                                   Float
+  price                                                                   Int
   notes                                                                   String?
   orderId                                                                 String
   productId                                                               String
@@ -658,7 +658,7 @@ model ProductComplement {
 model ComplementOption {
   id                         String                       @id @default(cuid())
   name                       String
-  price                      Float                        @default(0) // Preço adicional (pode ser 0)
+  price                      Int                          @default(0) // Preço adicional (pode ser 0)
   active                     Boolean                      @default(true)
   stockControlEnabled        Boolean                      @default(false) // Controle de estoque ativo/desativado
   minStock                   Int?
@@ -677,8 +677,8 @@ model Coupon {
   id         String      @id @default(cuid())
   code       String      @unique
   type       CouponType
-  value      Float
-  minValue   Float?
+  value      Int
+  minValue   Int?
   maxUses    Int?
   usedCount  Int         @default(0)
   validFrom  DateTime
@@ -694,9 +694,9 @@ model Coupon {
 model PointsConfig {
   id                String    @id @default(cuid())
   branchId          String    @unique
-  pointsPerReal     Float     @default(1) // Pontos ganhos por R$ 1,00 gasto
+  pointsPerReal     Int       @default(1) // Pontos ganhos por R$ 1,00 gasto
   minPointsToRedeem Int       @default(100) // Mínimo de pontos para resgatar
-  realPerPoint      Float     @default(0.01) // R$ por ponto ao resgatar
+  realPerPoint      Int       @default(0) // R$ por ponto ao resgatar
   active            Boolean   @default(true)
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
@@ -733,12 +733,12 @@ model DeliveryArea {
   id                                                               String    @id @default(cuid())
   name                                                             String
   type          String // CIRCLE, POLYGON
-  centerLat     Float? // Para círculo
-  centerLng     Float? // Para círculo
-  radius        Float? // Para círculo (em metros)
+  centerLat     Int? // Para círculo
+  centerLng     Int? // Para círculo
+  radius        Int? // Para círculo (em metros)
   polygon       String? // JSON array de coordenadas para polígono
-  deliveryFee                                                      Float
-  minOrderValue Float? // Valor mínimo do pedido
+  deliveryFee                                                      Int
+  minOrderValue Int? // Valor mínimo do pedido
   estimatedTime Int? // Tempo estimado em minutos
   level                                                            Int       @default(1) // Nível de prioridade (quanto maior, mais prioritário)
   active                                                           Boolean   @default(true)
@@ -753,8 +753,8 @@ model DeliveryRoute {
   name                                                           String
   coordinates   String // JSON array de coordenadas [{lat, lng}]
   level                                                          Int       @default(1) // Nível de prioridade (quanto maior, mais prioritário)
-  deliveryFee                                                    Float
-  minOrderValue                                                  Float?
+  deliveryFee                                                    Int
+  minOrderValue                                                  Int?
   estimatedTime                                                  Int?
   active                                                         Boolean   @default(true)
   branchId                                                       String
@@ -770,7 +770,7 @@ model DeliveryAssignment {
   branchId                                                                             String
   status                                                                               String          @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, CANCELLED
   route             String // JSON array de coordenadas [{lat, lng}] da rota otimizada
-  estimatedDistance Float? // Distância estimada em metros
+  estimatedDistance Int? // Distância estimada em metros
   estimatedTime     Int? // Tempo estimado em minutos
   startedAt                                                                            DateTime?
   completedAt                                                                          DateTime?
@@ -785,9 +785,9 @@ model DeliveryExclusionArea {
   id                                                           String    @id @default(cuid())
   name                                                         String
   type      String // CIRCLE, POLYGON
-  centerLat Float? // Para círculo
-  centerLng Float? // Para círculo
-  radius    Float? // Para círculo (em metros)
+  centerLat Int? // Para círculo
+  centerLng Int? // Para círculo
+  radius    Int? // Para círculo (em metros)
   polygon   String? // JSON array de coordenadas para polígono
   active                                                       Boolean   @default(true)
   branchId                                                     String
@@ -812,14 +812,14 @@ model Ingredient {
   description                                                             String?
   categoryId                                                              String
   unit                String // Unidade de medida (kg, g, L, ml, un, etc)
-  costPrice           Float // Preço de custo
+  costPrice           Int // Preço de custo
   allowNegativeStock                                                      Boolean               @default(false) // Permite estoque negativo
   stockControlEnabled                                                     Boolean               @default(true) // Controle de estoque ativo/desativado
   minStock            Int? // Estoque mínimo
-  currentStock                                                            Float                 @default(0) // Estoque atual (Float para permitir decimais)
-  currentCost         Float? // Custo atual
-  unitCost            Float? // Custo unitário
-  averageCost         Float? // Custo médio
+  currentStock                                                            Int                   @default(0) // Estoque atual (Int para permitir decimais)
+  currentCost         Int? // Custo atual
+  unitCost            Int? // Custo unitário
+  averageCost         Int? // Custo médio
   branchId                                                                String
   createdAt                                                               DateTime              @default(now())
   updatedAt                                                               DateTime              @updatedAt
@@ -833,9 +833,9 @@ model Ingredient {
 model StockMovement {
   id                                                                              String             @id @default(cuid())
   type         String // ENTRY, EXIT, ADJUSTMENT
-  quantity     Float // Quantidade
-  variation    Float // Variação (pode ser positivo ou negativo)
-  unitCost     Float? // Custo unitário no momento da movimentação
+  quantity     Int // Quantidade
+  variation    Int // Variação (pode ser positivo ou negativo)
+  unitCost     Int? // Custo unitário no momento da movimentação
   description  String? // Descrição da movimentação
   ingredientId String? // Movimentação de insumo
   productId    String? // Movimentação de produto
@@ -851,30 +851,30 @@ model StockMovement {
   option                                                                          ComplementOption? @relation(fields: [optionId], references: [id], onDelete: Cascade)
 }
 model ProductIngredient {
-  id                                                                    String      @id @default(cuid())
-  productId                                                             String
-  ingredientId                                                          String
-  quantity     Float // Quantidade do insumo a ser descontada por venda
-  createdAt                                                             DateTime    @default(now())
-  updatedAt                                                             DateTime    @updatedAt
+  id                                                                  String      @id @default(cuid())
+  productId                                                           String
+  ingredientId                                                        String
+  quantity     Int // Quantidade do insumo a ser descontada por venda
+  createdAt                                                           DateTime    @default(now())
+  updatedAt                                                           DateTime    @updatedAt
 
-  product                                                               Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
-  ingredient                                                            Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  product                                                             Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  ingredient                                                          Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
 
-  @@unique([productId,                                                  ingredientId])
+  @@unique([productId,                                                ingredientId])
 }
 model AdditionIngredient {
-  id                                                                    String           @id @default(cuid())
-  additionId                                                            String
-  ingredientId                                                          String
-  quantity     Float // Quantidade do insumo a ser descontada por venda
-  createdAt                                                             DateTime         @default(now())
-  updatedAt                                                             DateTime         @updatedAt
+  id                                                                  String           @id @default(cuid())
+  additionId                                                          String
+  ingredientId                                                        String
+  quantity     Int // Quantidade do insumo a ser descontada por venda
+  createdAt                                                           DateTime         @default(now())
+  updatedAt                                                           DateTime         @updatedAt
 
-  addition                                                              ProductAddition @relation(fields: [additionId], references: [id], onDelete: Cascade)
-  ingredient                                                            Ingredient      @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  addition                                                            ProductAddition @relation(fields: [additionId], references: [id], onDelete: Cascade)
+  ingredient                                                          Ingredient      @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
 
-  @@unique([additionId,                                                 ingredientId])
+  @@unique([additionId,                                               ingredientId])
 }
 
 enum OrderStatus {
@@ -982,7 +982,7 @@ model BillSplitPerson {
   name        String // Nome da pessoa
   phone       String? // Telefone (opcional)
   status                                                          BillSplitPersonStatus  @default(SELECTING) // SELECTING, COMPLETED, PAID
-  total                                                           Float                  @default(0) // Total dos itens atribuídos
+  total                                                           Int                    @default(0) // Total dos itens atribuídos
   payments    OrderPayment[] // Pessoa pode ter vários pagamentos
   createdAt                                                       DateTime               @default(now())
   updatedAt                                                       DateTime               @updatedAt
