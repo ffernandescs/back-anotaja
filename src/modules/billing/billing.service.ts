@@ -4,6 +4,7 @@ import { prisma } from '../../../lib/prisma';
 import { BillingPeriod as BillingPeriodDto } from '../plans/dto/choose-plan.dto';
 import Stripe from 'stripe';
 import { BillingPeriod } from 'generated/prisma';
+import { calculateStripeAmount } from 'src/utils/calculateStripeAmount';
 
 function mapBillingPeriodToStripeInterval(
   period: BillingPeriod,
@@ -79,7 +80,7 @@ export class BillingService {
               name: plan.name,
               description: plan.description ?? '',
             },
-            unit_amount: Math.round(plan.price * 100),
+            unit_amount: calculateStripeAmount(plan.price, plan.discount),
             recurring: {
               interval: mapBillingPeriodToStripeInterval(plan.billingPeriod),
             },

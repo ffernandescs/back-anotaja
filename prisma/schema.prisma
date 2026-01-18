@@ -67,6 +67,8 @@ enum BillingPeriod {
   SEMESTRAL // Semestral (6 meses)
   ANNUAL // Anual (12 meses)
 }
+
+
 model Plan {
   id                                                                                   String          @id @default(cuid())
   name                                                                                 String
@@ -77,6 +79,7 @@ model Plan {
   billingPeriod                                                                        BillingPeriod   @default(MONTHLY)
   // Limites do plano (JSON: { branches: 1, users: 5, products: 100, ordersPerMonth: 1000 })
   limits                                                                               String?
+  discount                                                                             Int             @default(0)
   // Recursos incluídos (JSON: ["delivery", "stock", "reports", "api"])
   features                                                                             String?
   // Duração do plano de teste em dias (apenas para TRIAL)

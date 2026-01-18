@@ -57,9 +57,15 @@ export class StripeWebhookController {
 
       // ✅ Buscar assinatura completa via API do Stripe
       const subscriptionResponse =
-        await this.stripeService.stripe.subscriptions.retrieve(subscriptionId);
+        await this.stripeService.stripe.subscriptions.retrieve(
+          session.subscription as string,
+          { expand: ['items.data.price'] },
+        );
+
       const subscription = subscriptionResponse as any;
 
+      // Pega o preço do item
+      const unitAmount = subscription.items.data[0].price.unit_amount;
       this.logger.log(
         `checkout.session.completed recebido para ${subscription}`,
       );
@@ -89,7 +95,7 @@ export class StripeWebhookController {
           startDate, // Data que a assinatura foi criada
           nextBillingDate, // Próxima data de cobrança
           endDate,
-          lastBillingAmount: session.amount_total || 0,
+          lastBillingAmount: unitAmount || 0,
         },
         create: {
           companyId,
@@ -99,7 +105,7 @@ export class StripeWebhookController {
           startDate,
           nextBillingDate,
           endDate,
-          lastBillingAmount: session.amount_total || 0,
+          lastBillingAmount: unitAmount || 0,
         },
       });
       this.logger.log(

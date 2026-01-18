@@ -46,22 +46,35 @@ export class ComplementsService {
       }
     }
 
+    // Se vier options no body
     if (createComplementDto.options?.length) {
       const optionIds = createComplementDto.options.map((o) => o.id);
 
+      // Buscar apenas options válidas da mesma filial e ativas
       const validOptions = await prisma.complementOption.findMany({
         where: {
           id: { in: optionIds },
           branchId: user.branchId,
           active: true,
         },
-        select: { id: true },
+        select: { id: true, price: true },
       });
 
       if (validOptions.length !== optionIds.length) {
         throw new ForbiddenException(
           'Uma ou mais opções não pertencem à sua filial ou estão inativas',
         );
+      }
+
+      // 🔥 Atualizar price das options se mudou
+      for (const dtoOption of createComplementDto.options) {
+        const optionDb = validOptions.find((o) => o.id === dtoOption.id);
+        if (optionDb && optionDb.price !== dtoOption.price) {
+          await prisma.complementOption.update({
+            where: { id: dtoOption.id },
+            data: { price: dtoOption.price },
+          });
+        }
       }
     }
 
@@ -77,17 +90,18 @@ export class ComplementsService {
         allowRepeat: createComplementDto.allowRepeat ?? false,
         active: createComplementDto.active ?? true,
         displayOrder: createComplementDto.displayOrder ?? null,
-        productId: createComplementDto.productId ?? null,
+        productId: createComplementDto.productId ?? undefined,
         branchId: user.branchId, // Sempre usar branchId do usuário logado
+
+        // Conectar options
         options: createComplementDto.options
           ? {
               connect: createComplementDto.options.map((option) => ({
-                id: option.id, // 👈 SOMENTE ISSO
+                id: option.id,
               })),
             }
           : undefined,
       },
-
       include: {
         product: {
           select: {
@@ -211,7 +225,7 @@ export class ComplementsService {
     userId: string,
   ) {
     // Verificar se o complemento existe e se o usuário tem permissão
-    await this.findOne(id, userId);
+    const complement = await this.findOne(id, userId);
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -236,18 +250,18 @@ export class ComplementsService {
       }
     }
 
-    // Remover options do update (opções são gerenciadas separadamente)
-
+    // Se vier options no body
     if (updateComplementDto.options?.length) {
       const optionIds = updateComplementDto.options.map((o) => o.id);
 
+      // Buscar apenas options válidas da mesma filial e ativas
       const validOptions = await prisma.complementOption.findMany({
         where: {
           id: { in: optionIds },
           branchId: user.branchId,
           active: true,
         },
-        select: { id: true },
+        select: { id: true, price: true },
       });
 
       if (validOptions.length !== optionIds.length) {
@@ -255,9 +269,21 @@ export class ComplementsService {
           'Uma ou mais opções não pertencem à sua filial ou estão inativas',
         );
       }
+
+      // 🔥 Atualizar price das options se mudou
+      for (const dtoOption of updateComplementDto.options) {
+        const optionDb = validOptions.find((o) => o.id === dtoOption.id);
+        if (optionDb && optionDb.price !== dtoOption.price) {
+          await prisma.complementOption.update({
+            where: { id: dtoOption.id },
+            data: { price: dtoOption.price },
+          });
+        }
+      }
     }
 
-    return prisma.productComplement.update({
+    // Atualizar complemento
+    const updatedComplement = await prisma.productComplement.update({
       where: { id },
       data: {
         name: updateComplementDto.name,
@@ -269,13 +295,13 @@ export class ComplementsService {
         allowRepeat: updateComplementDto.allowRepeat ?? false,
         active: updateComplementDto.active ?? true,
         displayOrder: updateComplementDto.displayOrder ?? null,
-        productId: updateComplementDto.productId ?? null,
-        branchId: user.branchId,
+        productId: updateComplementDto.productId ?? undefined,
+        branchId: user.branchId, // nunca null!
 
-        // 🔥 REPLACE TOTAL DAS OPTIONS
+        // Substitui todas as options se vierem no body
         options: updateComplementDto.options
           ? {
-              set: [], // remove todas
+              set: [], // remove todas associações antigas
               connect: updateComplementDto.options.map((option) => ({
                 id: option.id,
               })),
@@ -294,7 +320,10 @@ export class ComplementsService {
         },
       },
     });
+
+    return updatedComplement;
   }
+
   async remove(id: string, userId: string) {
     // Verificar se o complemento existe e se o usuário tem permissão
     await this.findOne(id, userId);
