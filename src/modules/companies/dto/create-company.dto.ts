@@ -28,10 +28,6 @@ export class CreateCompanyDto {
   @IsString()
   password!: string;
 
-  @IsNotEmpty()
-  @IsString()
-  subdomain!: string;
-
   // Dados da primeira branch (matriz)
   // Endereço da branch
   @IsNotEmpty()

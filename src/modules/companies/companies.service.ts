@@ -6,7 +6,13 @@ import {
 import { CreateCompanyDto } from './dto/create-company.dto';
 import * as bcrypt from 'bcrypt';
 import { prisma } from '../../../lib/prisma';
+import { Prisma } from 'generated/prisma';
 
+export type VerifyCompanyExistDto = {
+  phone?: string;
+  document?: string;
+  email?: string;
+};
 @Injectable()
 export class CompaniesService {
   async createCompany(dto: CreateCompanyDto) {
@@ -16,7 +22,6 @@ export class CompaniesService {
       email,
       phone,
       password,
-      subdomain, // ✅ novo campo
       street,
       number,
       complement,
@@ -28,7 +33,7 @@ export class CompaniesService {
     } = dto;
 
     // ✅ Validações básicas
-    if (!name || !document || !email || !phone || !password || !subdomain) {
+    if (!name || !document || !email || !phone || !password) {
       throw new BadRequestException(
         'Todos os campos obrigatórios da empresa devem ser preenchidos.',
       );
@@ -59,14 +64,6 @@ export class CompaniesService {
         message = message.replace(/, $/, ''); // remove última vírgula
         throw new BadRequestException(message);
       }
-
-      const existingSubdomain = await prisma.branch.findFirst({
-        where: { subdomain: subdomain },
-      });
-      if (existingSubdomain) {
-        throw new BadRequestException('Subdomínio já está em uso');
-      }
-
       // 1️⃣ Criar empresa
       const createdCompany = await prisma.company.create({
         data: {
@@ -116,7 +113,6 @@ export class CompaniesService {
           document,
           companyId: createdCompany.id,
           addressId: createdBranchAddress.id,
-          subdomain: subdomain,
         },
       });
 
@@ -139,6 +135,30 @@ export class CompaniesService {
     });
 
     return company;
+  }
+
+  async verifyCompanyExist(dto: VerifyCompanyExistDto): Promise<void> {
+    const { phone, document, email } = dto;
+
+    if (!phone && !document && !email) return;
+
+    const orConditions: Prisma.CompanyWhereInput[] = [];
+
+    if (phone) orConditions.push({ phone });
+    if (document) orConditions.push({ document });
+    if (email) orConditions.push({ email });
+
+    const company = await prisma.company.findFirst({
+      where: {
+        OR: orConditions,
+      },
+    });
+
+    if (company) {
+      throw new BadRequestException(
+        'Já existe uma empresa cadastrada com estes dados',
+      );
+    }
   }
 
   async getOnboardingStatus(userId: string) {

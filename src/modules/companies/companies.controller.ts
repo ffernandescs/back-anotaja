@@ -1,6 +1,6 @@
 // companies.controller.ts
 import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
-import { CompaniesService } from './companies.service';
+import { CompaniesService, VerifyCompanyExistDto } from './companies.service';
 import { CreateCompanyDto } from './dto/create-company.dto';
 import { Public } from 'src/common/decorators/public.decorator';
 import { AuthGuard } from '@nestjs/passport';
@@ -36,5 +36,13 @@ export class CompaniesController {
   @Roles('admin', 'manager')
   completeOnboarding(@Req() req: RequestWithUser) {
     return this.companiesService.completeOnboarding(req.user.userId);
+  }
+
+  @Post('verify-exists')
+  @Public()
+  verifyExists(
+    @Body() body: { email?: string; phone?: string; document?: string },
+  ) {
+    return this.companiesService.verifyCompanyExist(body);
   }
 }
