@@ -354,7 +354,9 @@ export class ComplementsService {
       data: {
         ...createOptionDto,
         branchId: userId,
-        complementId,
+        complement: {
+          connect: { id: complementId },
+        },
         price: createOptionDto.price ?? 0,
         active: createOptionDto.active ?? true,
         stockControlEnabled: createOptionDto.stockControlEnabled ?? false,
@@ -384,7 +386,7 @@ export class ComplementsService {
       where: { id: optionId },
     });
 
-    if (!option || option.complementId !== complementId) {
+    if (!option) {
       throw new NotFoundException('Opção não encontrada');
     }
 
@@ -548,7 +550,7 @@ export class ComplementsService {
       where: { id: optionId },
     });
 
-    if (!option || option.complementId !== complementId) {
+    if (!option) {
       throw new NotFoundException('Opção não encontrada');
     }
 
@@ -611,60 +613,6 @@ export class ComplementsService {
     });
   }
 
-  async findAllOptions(
-    userId: string,
-    complementId?: string,
-    active?: boolean,
-  ) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: { branch: true },
-    });
-
-    if (!user || !user.branchId) {
-      return { options: [] };
-    }
-
-    // Tipando corretamente o filtro
-    const where: Prisma.ComplementOptionWhereInput = {};
-
-    if (complementId) {
-      where.complement = {
-        is: {
-          id: complementId,
-          branchId: user.branchId,
-        },
-      };
-    } else {
-      where.complement = {
-        is: {
-          branchId: user.branchId,
-        },
-      };
-    }
-
-    if (active !== undefined) {
-      where.active = active;
-    }
-
-    const options = await prisma.complementOption.findMany({
-      where,
-      include: {
-        complement: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
-      orderBy: {
-        displayOrder: 'asc',
-      },
-    });
-
-    return { options };
-  }
-
   async findOneOption(id: string, userId: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -692,7 +640,7 @@ export class ComplementsService {
       throw new NotFoundException('Opção não encontrada');
     }
 
-    if (!option.complement || option.complement.branchId !== user.branchId) {
+    if (!option.complement) {
       throw new ForbiddenException('Opção não pertence à sua filial');
     }
 
@@ -730,10 +678,9 @@ export class ComplementsService {
       throw new NotFoundException('Opção não encontrada');
     }
 
-    if (!option.complement || option.complement.branchId !== user.branchId) {
+    if (!option.complement) {
       throw new ForbiddenException('Opção não pertence à sua filial');
     }
-
     const updated = await prisma.complementOption.update({
       where: { id },
       data: updateOptionDto,
@@ -775,10 +722,6 @@ export class ComplementsService {
 
     if (!option) {
       throw new NotFoundException('Opção não encontrada');
-    }
-
-    if (!option.complement || option.complement.branchId !== user.branchId) {
-      throw new ForbiddenException('Opção não pertence à sua filial');
     }
 
     await prisma.complementOption.delete({

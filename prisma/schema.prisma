@@ -666,12 +666,11 @@ model ComplementOption {
   stockControlEnabled        Boolean                      @default(false) // Controle de estoque ativo/desativado
   minStock                   Int?
   displayOrder               Int?
-  complementId               String?
   branchId                   String
   createdAt                  DateTime                     @default(now())
   updatedAt                  DateTime                     @updatedAt
 
-  complement                 ProductComplement?          @relation(fields: [complementId], references: [id], onDelete: Cascade)
+  complement                 ProductComplement[]
   branch                     Branch                      @relation(fields: [branchId], references: [id])
   orderItemComplementOptions OrderItemComplementOption[]
   stockMovements             StockMovement[]

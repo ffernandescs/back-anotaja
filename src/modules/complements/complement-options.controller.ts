@@ -42,21 +42,6 @@ export class ComplementOptionsController {
     );
   }
 
-  @Get()
-  findAll(
-    @Req() req: RequestWithUser,
-    @Query('complementId') complementId?: string,
-    @Query('active') active?: string,
-  ) {
-    const activeFilter =
-      active === 'true' ? true : active === 'false' ? false : undefined;
-    return this.complementsService.findAllOptions(
-      req.user.userId,
-      complementId,
-      activeFilter,
-    );
-  }
-
   @Get(':id')
   findOne(@Param('id') id: string, @Req() req: RequestWithUser) {
     return this.complementsService.findOneOption(id, req.user.userId);

@@ -14,7 +14,5 @@ export class ComplementOptionResponseDto {
   updatedAt!: Date;
   stockControlEnabled!: boolean;
   minStock!: number | null;
-  complementId!: string | null;
-
-  complement?: ComplementSummaryDto;
+  complement?: ComplementSummaryDto[];
 }

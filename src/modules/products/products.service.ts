@@ -67,6 +67,11 @@ export class ProductsService {
             name: true,
           },
         },
+        complements: {
+          include: {
+            options: true,
+          },
+        },
       },
     });
 

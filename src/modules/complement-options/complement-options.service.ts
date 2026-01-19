@@ -61,26 +61,20 @@ export class ComplementOptionsService {
         stockControlEnabled: dto.stockControlEnabled ?? false,
         minStock: dto.minStock,
         displayOrder: dto.displayOrder,
-        complementId: dto.complementId,
+        complement: {
+          connect: {
+            id: dto.complementId,
+          },
+        },
         branchId,
+      },
+      include: {
+        complement: true,
       },
     });
 
     // 4️⃣ Retorno FINAL alinhado com DTO
-    return {
-      id: option.id,
-      name: option.name,
-      price: option.price,
-      active: option.active,
-      displayOrder: option.displayOrder,
-      branchId: option.branchId,
-      createdAt: option.createdAt,
-      updatedAt: option.updatedAt,
-      stockControlEnabled: option.stockControlEnabled,
-      minStock: option.minStock,
-      complementId: option.complementId,
-      complement,
-    };
+    return option;
   }
 
   async findAll(
@@ -111,8 +105,6 @@ export class ComplementOptionsService {
 
       if (!complement)
         throw new NotFoundException('Complemento não encontrado');
-
-      where.complementId = complementId;
     }
 
     // 🔹 Filtro active
@@ -128,26 +120,7 @@ export class ComplementOptionsService {
       },
     });
 
-    return options.map((opt) => ({
-      ...opt,
-      complement: opt.complement
-        ? {
-            id: opt.complement.id,
-            name: opt.complement.name,
-            active: opt.complement.active,
-            displayOrder: opt.complement.displayOrder,
-            createdAt: opt.complement.createdAt,
-            updatedAt: opt.complement.updatedAt,
-            minOptions: opt.complement.minOptions,
-            maxOptions: opt.complement.maxOptions,
-            required: opt.complement.required,
-            allowRepeat: opt.complement.allowRepeat,
-            productId: opt.complement.productId,
-            branchId: opt.complement.branchId,
-            selectionType: opt.complement.selectionType,
-          }
-        : undefined,
-    }));
+    return options;
   }
 
   async findOne(
@@ -175,56 +148,60 @@ export class ComplementOptionsService {
     });
 
     if (!option) throw new NotFoundException('Opção não encontrada');
-    if (option.complement && option.complement.branchId !== user.branchId)
+    if (option.complement)
       throw new ForbiddenException('A opção não pertence à sua filial');
 
     // mapear complement para o tipo correto
     return {
       ...option,
-      complement: option.complement
-        ? {
-            id: option.complement.id,
-            name: option.complement.name,
-            active: option.complement.active,
-            displayOrder: option.complement.displayOrder,
-            createdAt: option.complement.createdAt,
-            updatedAt: option.complement.updatedAt,
-            minOptions: option.complement.minOptions,
-            maxOptions: option.complement.maxOptions,
-            required: option.complement.required,
-            allowRepeat: option.complement.allowRepeat,
-            productId: option.complement.productId,
-            branchId: option.complement.branchId,
-            selectionType: option.complement.selectionType,
-          }
-        : undefined,
+      complement: option.complement,
     };
   }
 
   async update(
     id: string,
-    updateComplementOptionDto: UpdateComplementOptionDto,
+    updateComplementOptionDto: UpdateComplementOptionDto & {
+      complementIds?: string[];
+    },
     userId: string,
-  ): Promise<ComplementOption & { complement?: ProductComplement }> {
+  ): Promise<ComplementOption & { complements?: ProductComplement[] }> {
+    // Verifica se a opção existe e se pertence ao usuário
     await this.findOne(id, userId);
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user?.branchId)
+    if (!user?.branchId) {
       throw new ForbiddenException('Usuário não está associado a uma filial');
-
-    if (updateComplementOptionDto.complementId) {
-      const complement = await prisma.productComplement.findUnique({
-        where: { id: updateComplementOptionDto.complementId },
-      });
-      if (!complement)
-        throw new NotFoundException('Complemento não encontrado');
-      if (complement.branchId !== user.branchId)
-        throw new ForbiddenException('O complemento não pertence à sua filial');
     }
+
+    // Se vier complementIds, verifica cada complemento
+    if (updateComplementOptionDto.complementIds) {
+      for (const complementId of updateComplementOptionDto.complementIds) {
+        const complement = await prisma.productComplement.findUnique({
+          where: { id: complementId },
+        });
+        if (!complement)
+          throw new NotFoundException(
+            `Complemento ${complementId} não encontrado`,
+          );
+        if (complement.branchId !== user.branchId)
+          throw new ForbiddenException(
+            `O complemento ${complementId} não pertence à sua filial`,
+          );
+      }
+    }
+
+    // Se for atualizar outras propriedades da opção
+    const { complementIds, ...dataToUpdate } = updateComplementOptionDto;
 
     const updatedOption = await prisma.complementOption.update({
       where: { id },
-      data: updateComplementOptionDto,
+      data: {
+        ...dataToUpdate,
+        // Atualiza as relações N:N
+        complement: {
+          connect: complementIds?.map((id) => ({ id })),
+        },
+      },
       include: {
         complement: {
           include: {
@@ -234,13 +211,7 @@ export class ComplementOptionsService {
       },
     });
 
-    // mapear para o tipo esperado
-    return {
-      ...updatedOption,
-      complement: updatedOption.complement
-        ? { ...updatedOption.complement }
-        : undefined,
-    };
+    return updatedOption;
   }
 
   async remove(
@@ -251,19 +222,8 @@ export class ComplementOptionsService {
 
     const deletedOption = await prisma.complementOption.delete({
       where: { id },
-      include: {
-        complement: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
     });
 
-    return {
-      ...deletedOption,
-      complement: deletedOption.complement ?? undefined,
-    };
+    return deletedOption;
   }
 }
