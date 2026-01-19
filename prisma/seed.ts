@@ -242,7 +242,11 @@ async function createCategoriesProductsAndComplements(
                   Math.max(0, optionData.price + (Math.random() * 1 - 0.5)),
                 ),
                 active: true,
-                complementId: complement.id,
+                complement: {
+                  connect: {
+                    id: complement.id,
+                  },
+                },
                 stockControlEnabled: false,
               },
             });
