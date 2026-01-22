@@ -26,7 +26,6 @@ interface AuthenticatedSocket extends Socket {
     origin: true,
     credentials: true,
   },
-  // Não especificar namespace usa o padrão '/' automaticamente
   path: '/socket.io',
 })
 export class OrdersWebSocketGateway
@@ -48,7 +47,6 @@ export class OrdersWebSocketGateway
     this.logger.log(`🔌 Path: ${client.handshake.url}`);
 
     try {
-      // Autenticação via token no handshake
       const token: string | undefined =
         typeof client.handshake.auth?.token === 'string'
           ? client.handshake.auth.token
@@ -62,12 +60,10 @@ export class OrdersWebSocketGateway
         return;
       }
 
-      // Verificar e decodificar token
       const payload: JwtPayload = this.jwtService.verify(token, {
         secret: this.configService.get<string>('JWT_SECRET'),
       });
 
-      // Usar sub ou userId (compatibilidade com tokens de store e admin)
       const userId = payload.sub || payload.userId;
       if (!userId) {
         this.logger.warn(
@@ -77,7 +73,6 @@ export class OrdersWebSocketGateway
         return;
       }
 
-      // Buscar usuário no banco para obter branchId
       const user = await prisma.user.findUnique({
         where: { id: userId },
         include: { branch: true },
@@ -91,7 +86,6 @@ export class OrdersWebSocketGateway
         return;
       }
 
-      // Adicionar informações do usuário ao socket
       client.user = {
         userId: user.id,
         email: user.email || undefined,
@@ -99,7 +93,6 @@ export class OrdersWebSocketGateway
         branchId: user.branchId || undefined,
       };
 
-      // Entrar em rooms baseado no branchId
       if (user.branchId) {
         const branchRoom = `branch:${user.branchId}`;
         client.join(branchRoom);
@@ -108,12 +101,10 @@ export class OrdersWebSocketGateway
         );
       }
 
-      // Room específico do usuário
       const userRoom = `user:${user.id}`;
       client.join(userRoom);
       this.logger.log(`✅ User ${user.id} joined personal room: ${userRoom}`);
 
-      // Emitir confirmação de conexão
       void client.emit('connected', {
         userId: user.id,
         branchId: user.branchId,
@@ -146,6 +137,63 @@ export class OrdersWebSocketGateway
   }
 
   /**
+   * Emitir evento de novo pedido criado
+   */
+  emitNewOrder(
+    branchId: string,
+    order: {
+      id: string;
+      orderNumber?: number | null;
+      status: string;
+      deliveryType: string;
+      customer: {
+        name: string;
+        phone: string;
+      };
+      total: number;
+      createdAt: string;
+      [key: string]: any;
+    },
+  ) {
+    if (!this.server || !this.server.sockets) {
+      this.logger.warn(
+        'WebSocket server not initialized, cannot emit new order',
+      );
+      return;
+    }
+
+    const branchRoom = `branch:${branchId}`;
+    const eventData = {
+      event: 'order:created',
+      order,
+    };
+
+    // Contar clientes no room
+    let clientCount = 0;
+    try {
+      if (this.server.sockets.adapter?.rooms) {
+        const clientsInRoom = this.server.sockets.adapter.rooms.get(branchRoom);
+        clientCount = clientsInRoom ? clientsInRoom.size : 0;
+      }
+    } catch (error) {
+      this.logger.debug('Could not count clients in room:', error);
+    }
+
+    // Emitir para todos os clientes da filial
+    this.server.to(branchRoom).emit('order:new', eventData);
+    this.server.to(branchRoom).emit('order:update', eventData);
+
+    this.logger.log(
+      `📤 New order created - Emitted to room ${branchRoom}: Order #${order.orderNumber || order.id.slice(0, 8)}${clientCount > 0 ? ` (${clientCount} clients listening)` : ' (no clients listening)'}`,
+    );
+
+    // Emitir também para o room específico do pedido
+    const orderRoom = `order:${order.id}`;
+    this.server.to(orderRoom).emit('order:new', eventData);
+    this.logger.debug(`📤 Emitted order:new to order room ${orderRoom}`);
+  }
+
+  /**
    * Emitir evento de atualização de pedido
    */
   emitOrderUpdate(
@@ -168,11 +216,9 @@ export class OrdersWebSocketGateway
       order,
     };
 
-    // Emitir para a filial (PRINCIPAL - todos os admins conectados)
     if (order.branchId) {
       const branchRoom = `branch:${order.branchId}`;
 
-      // Verificar se server está inicializado
       if (!this.server || !this.server.sockets) {
         this.logger.warn(
           'WebSocket server not initialized, cannot emit order:update',
@@ -180,7 +226,6 @@ export class OrdersWebSocketGateway
         return;
       }
 
-      // Tentar contar clientes no room (pode não estar disponível em todas as versões)
       let clientCount = 0;
       try {
         if (this.server.sockets.adapter?.rooms) {
@@ -189,7 +234,6 @@ export class OrdersWebSocketGateway
           clientCount = clientsInRoom ? clientsInRoom.size : 0;
         }
       } catch (error) {
-        // Ignorar erro ao contar clientes, não é crítico
         this.logger.debug('Could not count clients in room:', error);
       }
 
@@ -199,7 +243,6 @@ export class OrdersWebSocketGateway
       );
     }
 
-    // Emitir para o entregador se houver
     if (order.deliveryPersonId) {
       const deliveryPersonRoom = `user:${order.deliveryPersonId}`;
       this.server.to(deliveryPersonRoom).emit('order:update', eventData);
@@ -208,11 +251,62 @@ export class OrdersWebSocketGateway
       );
     }
 
-    // Emitir para o room específico do pedido
     if (order.id) {
       const orderRoom = `order:${order.id}`;
       this.server.to(orderRoom).emit('order:update', eventData);
       this.logger.debug(`📤 Emitted order:update to order room ${orderRoom}`);
     }
+  }
+
+  /**
+   * Emitir notificação genérica para uma filial
+   */
+  emitBranchNotification(
+    branchId: string,
+    notification: {
+      type: string;
+      title: string;
+      message: string;
+      data?: any;
+    },
+  ) {
+    if (!this.server || !this.server.sockets) {
+      this.logger.warn(
+        'WebSocket server not initialized, cannot emit notification',
+      );
+      return;
+    }
+
+    const branchRoom = `branch:${branchId}`;
+    this.server.to(branchRoom).emit('notification', notification);
+    this.logger.log(
+      `📤 Notification sent to branch ${branchId}: ${notification.title}`,
+    );
+  }
+
+  /**
+   * Emitir notificação para um usuário específico
+   */
+  emitUserNotification(
+    userId: string,
+    notification: {
+      type: string;
+      title: string;
+      message: string;
+      data?: any;
+    },
+  ) {
+    if (!this.server || !this.server.sockets) {
+      this.logger.warn(
+        'WebSocket server not initialized, cannot emit notification',
+      );
+      return;
+    }
+
+    const userRoom = `user:${userId}`;
+    this.server.to(userRoom).emit('notification', notification);
+    this.logger.log(
+      `📤 Notification sent to user ${userId}: ${notification.title}`,
+    );
   }
 }

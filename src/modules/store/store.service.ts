@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { Prisma, StockMovement } from 'generated/prisma';
+import { Customer, Prisma, StockMovement } from 'generated/prisma';
 import { prisma } from '../../../lib/prisma';
 import {
   DeliveryTypeDto,
@@ -16,11 +16,15 @@ import { SubscriptionStatusDto } from '../subscription/dto/create-subscription.d
 import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
 import { CalculateDeliveryFeeDto } from './dto/calculate-delivery-fee.dto';
 import { CreateCustomerAddressDto } from './dto/create-customer-address.dto';
-import { CreateStoreOrderDto } from './dto/create-store-order.dto';
-import { StoreHomepageDto } from './dto/store-homepage.dto';
+import {
+  CreateStoreOrderDto,
+  PaymentTypeDto,
+} from './dto/create-store-order.dto';
+import { BranchSchedule, StoreHomepageDto } from './dto/store-homepage.dto';
 import { StoreLoginDto } from './dto/store-login.dto';
 import { UpdateCustomerAddressDto } from './dto/update-customer-address.dto';
 import { CepResult, GeoData, LatLng, OrderForStock } from './types';
+import { GetOrdersQueryDto } from './dto/get-orders-query.dto';
 interface PlanLimits {
   branches: number;
   users: number;
@@ -56,9 +60,9 @@ export class StoreService {
       return prisma.branch.findUnique({
         where: { id: branchId },
         include: {
-          company: {
-            include: { address: true },
-          },
+          openingHours: true,
+          paymentMethods: true,
+
           address: true,
           _count: {
             select: {
@@ -108,69 +112,28 @@ export class StoreService {
       throw new NotFoundException(
         'Loja não encontrada para o subdomínio ou filial informada',
       );
-    } // Buscar categorias ativas com produtos
+    }
+
+    // Buscar categorias ativas que tenham pelo menos 1 produto ativo
     const categories = await prisma.category.findMany({
       where: {
         branchId: branch.id,
         active: true,
+        products: { some: { active: true } }, // <--- filtra categorias com produtos ativos
       },
       include: {
         products: {
-          where: {
-            active: true,
-          },
-          select: {
-            id: true,
-            name: true,
-            description: true,
-            price: true,
-            promotionalPrice: true,
-            promotionalPeriodType: true,
-            promotionalStartDate: true,
-            promotionalEndDate: true,
-            promotionalDays: true,
-            image: true,
-            featured: true,
-            active: true,
-            stockControlEnabled: true,
-            minStock: true,
-            installmentEnabled: true,
-            maxInstallments: true,
-            minInstallmentValue: true,
-            installmentInterestRate: true,
-            installmentOnPromotionalPrice: true,
-            filterMetadata: true,
+          where: { active: true },
+          include: {
             additions: {
               where: { active: true },
-              select: {
-                id: true,
-                name: true,
-                price: true,
-                active: true,
-                minQuantity: true,
-              },
             },
             complements: {
               where: { active: true },
-              select: {
-                id: true,
-                name: true,
-                minOptions: true,
-                maxOptions: true,
-                required: true,
-                allowRepeat: true,
-                active: true,
-                displayOrder: true,
+              include: {
                 options: {
                   where: { active: true },
                   orderBy: { displayOrder: 'asc' },
-                  select: {
-                    id: true,
-                    name: true,
-                    price: true,
-                    active: true,
-                    displayOrder: true,
-                  },
                 },
               },
               orderBy: { displayOrder: 'asc' },
@@ -180,18 +143,12 @@ export class StoreService {
         },
         _count: {
           select: {
-            products: {
-              where: { active: true },
-            },
+            products: { where: { active: true } },
           },
         },
       },
       orderBy: [{ featured: 'desc' }, { name: 'asc' }],
     });
-    if (!branch.company) {
-      throw new InternalServerErrorException('Branch sem empresa associada');
-    }
-    const company = branch.company;
 
     const address = await prisma.branchAddress.findUnique({
       where: { id: branch.addressId || undefined },
@@ -200,17 +157,34 @@ export class StoreService {
       throw new NotFoundException('Endereço da loja não encontrado');
     }
 
-    return {
-      company: {
-        id: company.id,
-        name: company.name,
-        email: company.email,
-        phone: company.phone,
+    // Formas de pagamento apenas para delivery
+    const paymentMethodsDelivery = await prisma.branchPaymentMethod.findMany({
+      where: { branchId: branch.id, forDelivery: true },
+      include: { paymentMethod: true },
+    });
+
+    const openingHours = await prisma.branchSchedule.findMany({
+      where: { branchId: branch.id },
+      select: {
+        id: true,
+        day: true,
+        open: true,
+        close: true,
+        closed: true,
+        date: true,
       },
+    });
+
+    const openingHoursDTO: BranchSchedule[] = openingHours.map((item) => ({
+      ...item,
+      date: item.date ? item.date.toISOString() : null,
+    }));
+
+    return {
       branch: {
         address: address,
         id: branch.id,
-        name: branch.name,
+        name: branch.branchName,
         phone: branch.phone,
         email: branch.email,
         subdomain: branch.subdomain || '',
@@ -219,6 +193,8 @@ export class StoreService {
         primaryColor: branch.primaryColor,
         socialMedia: branch.socialMedia,
         document: branch.document,
+        paymentMethods: paymentMethodsDelivery,
+        openingHours: openingHoursDTO,
         description: branch.description,
         instagram: branch.instagram,
         minOrderValue: branch.minOrderValue,
@@ -236,9 +212,7 @@ export class StoreService {
         slug: category.slug,
         image: category.image,
         featured: category.featured,
-        _count: {
-          products: category._count?.products || 0,
-        },
+        _count: { products: category._count?.products || 0 },
         products: category.products.map((product) => ({
           id: product.id,
           name: product.name,
@@ -287,7 +261,6 @@ export class StoreService {
           })),
         })),
       })),
-
       orders: customerPhone
         ? await this.getOrdersForHomepage(branch.id, customerPhone)
         : undefined,
@@ -345,8 +318,15 @@ export class StoreService {
    * Obter informações básicas da loja
    */
   async getInfo(subdomain?: string, branchId?: string) {
-    const branch = await this.getBranch(subdomain, branchId);
-
+    const branch = await prisma.branch.findFirst({
+      where: {
+        subdomain,
+        id: branchId,
+      },
+      include: {
+        company: true,
+      },
+    });
     if (!branch) {
       throw new NotFoundException(
         'Loja não encontrada para o subdomínio ou filial informada',
@@ -370,7 +350,7 @@ export class StoreService {
       },
       branch: {
         id: branch.id,
-        name: branch.name,
+        name: branch.branchName,
         companyAddresses: address,
         phone: branch.phone,
         email: branch.email,
@@ -388,8 +368,6 @@ export class StoreService {
         longitude: branch.longitude,
         rating: branch.rating,
         ratingsCount: branch.ratingsCount,
-        productsCount: branch._count.products,
-        categoriesCount: branch._count.categories,
       },
     };
   }
@@ -636,459 +614,430 @@ export class StoreService {
   /**
    * Criar pedido na loja (checkout)
    */
+  /**
+   * Criar pedido na loja (checkout)
+   */
+
+  /**
+   * Criar pedido na loja (checkout)
+   */
   async createOrder(
     createOrderDto: CreateStoreOrderDto,
     subdomain?: string,
     branchId?: string,
   ) {
-    // Obter branch
+    // 1. Obter branch
     const branch = await this.getBranch(subdomain, branchId);
-
     if (!branch) {
-      throw new NotFoundException(
-        'Loja não encontrada para o subdomínio ou filial informada',
+      throw new NotFoundException('Loja não encontrada');
+    }
+
+    // 2. Validar assinatura da empresa
+    const { limits } = await this.validateSubscription(branch.companyId);
+    await this.validateOrderLimit(branch.companyId, limits);
+
+    const {
+      deliveryType,
+      customerId,
+      customerPhone,
+      address,
+      city,
+      state,
+      zipCode,
+      couponCode,
+      items,
+      payments,
+      change,
+    } = createOrderDto;
+
+    // 3. Validar cliente
+    let customer: Customer | null = null;
+
+    if (customerId) {
+      customer = await prisma.customer.findUnique({
+        where: { id: customerId },
+      });
+
+      if (!customer) {
+        throw new NotFoundException('Cliente não encontrado');
+      }
+    } else if (customerPhone) {
+      customer = await prisma.customer.findFirst({
+        where: {
+          phone: customerPhone,
+          branchId: branch.id,
+        },
+      });
+
+      if (!customer) {
+        throw new BadRequestException(
+          'Cliente não encontrado. Faça login ou cadastro primeiro.',
+        );
+      }
+    } else {
+      throw new BadRequestException(
+        'customerId ou customerPhone é obrigatório',
       );
     }
 
-    // Validar assinatura
-    const { limits, features } = await this.validateSubscription(
-      branch.company.id,
+    // 4. Buscar produtos e calcular subtotal
+    let subtotal = 0;
+    const itemsData = await Promise.all(
+      items.map(async (item) => {
+        const product = await prisma.product.findUnique({
+          where: { id: item.productId },
+          include: {
+            complements: {
+              include: {
+                options: true,
+              },
+            },
+          },
+        });
+
+        if (!product || !product.active) {
+          throw new NotFoundException(
+            `Produto ${item.productId} não encontrado`,
+          );
+        }
+
+        // Calcular preço do item (produto + complementos)
+        let itemPrice = product.price;
+
+        // Calcular preço dos complementos
+        if (item.complements && item.complements.length > 0) {
+          for (const complement of item.complements) {
+            for (const option of complement.options) {
+              const complementOption = await prisma.complementOption.findUnique(
+                {
+                  where: { id: option.optionId },
+                },
+              );
+
+              if (complementOption && complementOption.active) {
+                itemPrice += complementOption.price * (option.quantity || 1);
+              }
+            }
+          }
+        }
+
+        const itemTotal = itemPrice * item.quantity;
+        subtotal += itemTotal;
+
+        return {
+          productId: product.id,
+          quantity: item.quantity,
+          price: itemPrice,
+          notes: item.notes,
+          complements: item.complements,
+        };
+      }),
     );
 
-    // Validar limite de pedidos mensais
-    await this.validateOrderLimit(branch.company.id, limits);
-
-    // Validar feature de delivery
-    if (
-      createOrderDto.deliveryType === DeliveryTypeDto.DELIVERY &&
-      !features.delivery
-    ) {
-      throw new ForbiddenException(
-        'Plano não inclui recurso de entregas. Faça upgrade do seu plano.',
-      );
-    }
-
-    // Validar feature de cupons
-    if (createOrderDto.couponCode && !features.coupons) {
-      throw new ForbiddenException(
-        'Plano não inclui recurso de cupons. Faça upgrade do seu plano.',
-      );
-    }
-
-    // Validar telefone para DELIVERY e PICKUP
-    if (
-      createOrderDto.deliveryType !== DeliveryTypeDto.DINE_IN &&
-      (!createOrderDto.customerPhone ||
-        createOrderDto.customerPhone.length < 10)
-    ) {
-      throw new BadRequestException(
-        'Telefone do cliente é obrigatório e deve ter pelo menos 10 caracteres',
-      );
-    }
-
-    // Validar endereço para DELIVERY
-    if (createOrderDto.deliveryType === DeliveryTypeDto.DELIVERY) {
-      if (
-        !createOrderDto.address ||
-        createOrderDto.address.length < 5 ||
-        !createOrderDto.city ||
-        !createOrderDto.state ||
-        !createOrderDto.zipCode ||
-        createOrderDto.zipCode.length < 8
-      ) {
+    // 5. Calcular taxa de entrega
+    let deliveryFee = 0;
+    if (deliveryType === DeliveryTypeDto.DELIVERY) {
+      if (!address || !city || !state) {
         throw new BadRequestException(
-          'Endereço completo é obrigatório para entrega',
+          'Endereço completo é obrigatório para delivery',
+        );
+      }
+
+      const feeResult = await this.calculateDeliveryFee(
+        {
+          address,
+          city,
+          state,
+          zipCode,
+          subtotal,
+        },
+        subdomain,
+        branchId,
+      );
+
+      if (!feeResult.available) {
+        throw new BadRequestException(
+          feeResult.message || 'Delivery não disponível para este endereço',
+        );
+      }
+
+      deliveryFee = feeResult.deliveryFee;
+    }
+
+    // 6. Calcular taxa de serviço (10% para comer no local)
+    const serviceFee =
+      deliveryType === DeliveryTypeDto.DINE_IN ? Math.round(subtotal * 0.1) : 0;
+
+    // 7. Aplicar cupom de desconto
+    let discount = 0;
+    let couponId: string | null = null;
+
+    if (couponCode) {
+      const coupon = await prisma.coupon.findFirst({
+        where: {
+          code: couponCode,
+          branchId: branch.id,
+          active: true,
+          validFrom: { lte: new Date() },
+          validUntil: { gte: new Date() },
+        },
+      });
+
+      if (coupon) {
+        // Validar uso do cupom
+        if (coupon.maxUses && coupon.usedCount >= coupon.maxUses) {
+          throw new BadRequestException('Cupom esgotado');
+        }
+
+        // Validar valor mínimo
+        if (coupon.minValue && subtotal < coupon.minValue) {
+          throw new BadRequestException(
+            `Valor mínimo do pedido não atingido: ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(coupon.minValue)}`,
+          );
+        }
+
+        // Calcular desconto
+        if (coupon.type === 'PERCENTAGE') {
+          discount = Math.round((subtotal * coupon.value) / 100);
+        } else {
+          discount = coupon.value;
+        }
+
+        couponId = coupon.id;
+
+        // Incrementar contador de uso
+        await prisma.coupon.update({
+          where: { id: coupon.id },
+          data: { usedCount: { increment: 1 } },
+        });
+      }
+    }
+
+    // 8. Calcular total final
+    const total = subtotal + deliveryFee + serviceFee - discount;
+
+    // 9. Validar formas de pagamento
+    if (!payments || payments.length === 0) {
+      throw new BadRequestException(
+        'Ao menos uma forma de pagamento é obrigatória',
+      );
+    }
+
+    // Validar métodos de pagamento
+    for (const payment of payments) {
+      const paymentMethod = await prisma.branchPaymentMethod.findFirst({
+        where: {
+          id: payment.paymentMethodId,
+          branchId: branch.id,
+        },
+        include: {
+          paymentMethod: true,
+        },
+      });
+
+      if (!paymentMethod || !paymentMethod.paymentMethod.isActive) {
+        throw new BadRequestException(
+          'Método de pagamento inválido ou inativo',
         );
       }
     }
 
-    // Validar forma de pagamento
-    if (
-      !createOrderDto.paymentMethod &&
-      (!createOrderDto.payments || createOrderDto.payments.length === 0)
-    ) {
-      throw new BadRequestException(
-        'Selecione pelo menos uma forma de pagamento',
-      );
-    }
+    // 10. Criar pedido
+    const order = await prisma.$transaction(async (tx) => {
+      // Obter próximo número do pedido
+      const lastOrder = await tx.order.findFirst({
+        where: { branchId: branch.id },
+        orderBy: { orderNumber: 'desc' },
+      });
 
-    // Buscar cupom se fornecido
-    let couponId: string | undefined;
-    if (createOrderDto.couponCode) {
-      const coupon = await prisma.coupon.findFirst({
-        where: {
-          code: createOrderDto.couponCode.toUpperCase().trim(),
+      const orderNumber = (lastOrder?.orderNumber || 0) + 1;
+
+      // Criar pedido
+      const newOrder = await tx.order.create({
+        data: {
+          orderNumber,
           branchId: branch.id,
-          active: true,
+          customerId: customer.id,
+          status: 'PENDING',
+          deliveryType: deliveryType as any,
+          subtotal,
+          deliveryFee,
+          serviceFee,
+          discount,
+          total,
+          couponId,
+          items: {
+            create: itemsData.map((item) => ({
+              productId: item.productId,
+              quantity: item.quantity,
+              price: item.price,
+              notes: item.notes,
+              complements: item.complements
+                ? {
+                    create: item.complements.map((comp) => ({
+                      complementId: comp.complementId,
+                      options: {
+                        create: comp.options.map((opt) => ({
+                          optionId: opt.optionId,
+                          quantity: opt.quantity || 1,
+                        })),
+                      },
+                    })),
+                  }
+                : undefined,
+            })),
+          },
+          payments: {
+            create: payments.map((payment) => ({
+              type: payment.type,
+              amount: total, // Backend sempre usa o total calculado
+              paymentMethodId: payment.paymentMethodId,
+              change: payment.type === PaymentTypeDto.CASH ? change || 0 : 0,
+              status: 'PENDING',
+            })),
+          },
+        },
+        include: {
+          customer: true,
+          items: {
+            include: {
+              product: true,
+              complements: {
+                include: {
+                  complement: true,
+                  options: {
+                    include: {
+                      option: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+          payments: true,
+          coupon: true,
         },
       });
-      if (coupon) {
-        couponId = coupon.id;
-      }
-    }
 
-    // Gerar número sequencial global do pedido
-    const lastOrder = await prisma.order.findFirst({
-      orderBy: { orderNumber: 'desc' },
-      select: { orderNumber: true },
+      return newOrder;
     });
-    const nextOrderNumber = lastOrder?.orderNumber
-      ? lastOrder.orderNumber + 1
-      : 1;
 
-    // Validar produtos, complementos e opções
+    // 11. Emitir evento WebSocket
+    this.webSocketGateway.emitNewOrder(branch.id, {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      status: order.status,
+      deliveryType: order.deliveryType,
+      customer: {
+        name: order.customer?.name || '',
+        phone: order.customer?.phone || '',
+      },
+      total: order.total,
+      createdAt: order.createdAt.toISOString(),
+    });
+
+    // 12. Registrar movimentações de estoque
     const productQuantities = new Map<string, number>();
     const optionQuantities = new Map<string, number>();
     const ingredientQuantities = new Map<string, number>();
 
-    for (const item of createOrderDto.items) {
-      // Verificar se o produto existe
-      const product = await prisma.product.findUnique({
-        where: { id: item.productId },
-        include: {
-          ingredients: true,
-        },
-      });
+    // Produtos
+    for (const item of order.items) {
+      const current = productQuantities.get(item.productId) || 0;
+      productQuantities.set(item.productId, current + item.quantity);
 
-      if (!product) {
-        throw new NotFoundException(
-          `Produto não encontrado: ${item.productId}`,
-        );
-      }
-
-      if (product.branchId !== branch.id) {
-        throw new BadRequestException(
-          `Produto não pertence a esta filial: ${item.productId}`,
-        );
-      }
-
-      // Acumular quantidade do produto
-      productQuantities.set(
-        item.productId,
-        (productQuantities.get(item.productId) || 0) + item.quantity,
-      );
-
-      // Acumular insumos da ficha técnica
-      if (product.ingredients && product.ingredients.length > 0) {
-        for (const ingredient of product.ingredients) {
-          const totalQuantity = item.quantity * ingredient.quantity;
-          ingredientQuantities.set(
-            ingredient.ingredientId,
-            (ingredientQuantities.get(ingredient.ingredientId) || 0) +
-              totalQuantity,
-          );
-        }
-      }
-
-      // Validar complementos e opções
-      if (item.complements && item.complements.length > 0) {
-        for (const complement of item.complements) {
-          const complementExists = await prisma.productComplement.findUnique({
-            where: { id: complement.complementId },
-          });
-          if (!complementExists) {
-            throw new NotFoundException(
-              `Complemento não encontrado: ${complement.complementId}`,
-            );
-          }
-
-          if (complement.options && complement.options.length > 0) {
-            for (const option of complement.options) {
-              const optionExists = await prisma.complementOption.findUnique({
-                where: { id: option.optionId },
-              });
-              if (!optionExists) {
-                throw new NotFoundException(
-                  `Opção não encontrada: ${option.optionId}`,
-                );
-              }
-
-              optionQuantities.set(
-                option.optionId,
-                (optionQuantities.get(option.optionId) || 0) + item.quantity,
-              );
-            }
-          }
+      // Opções de complemento
+      for (const comp of item.complements || []) {
+        for (const opt of comp.options || []) {
+          const currentOpt = optionQuantities.get(opt.optionId) || 0;
+          optionQuantities.set(opt.optionId, currentOpt + opt.quantity);
         }
       }
     }
 
-    // Determinar paymentMethod (usar o primeiro pagamento com valor > 0 se houver múltiplos)
-    const finalPaymentMethod =
-      createOrderDto.payments && createOrderDto.payments.length > 0
-        ? createOrderDto.payments.find((p) => p.amount > 0)?.type ||
-          createOrderDto.payments[0].type
-        : createOrderDto.paymentMethod;
-
-    // Criar pedido com status PENDING e paymentStatus PENDING
-    const order = await prisma.order.create({
-      data: {
-        branchId: branch.id,
-        couponId,
-        orderNumber: nextOrderNumber,
-        customerId: createOrderDto.customerId || null,
-        deliveryType: createOrderDto.deliveryType,
-
-        tableNumber: createOrderDto.tableNumber || null,
-        tableId: createOrderDto.tableId || null,
-        notes: createOrderDto.notes || null,
-        subtotal: createOrderDto.subtotal,
-        deliveryFee: createOrderDto.deliveryFee,
-        serviceFee: createOrderDto.serviceFee || 0,
-        discount: createOrderDto.discount,
-        total: createOrderDto.total,
-        status: OrderStatusDto.PENDING,
-        paymentStatus: 'PENDING',
-        paidAmount: 0,
-
-        payments:
-          createOrderDto.payments && createOrderDto.payments.length > 0
-            ? {
-                create: createOrderDto.payments
-                  .filter((payment) => payment.amount > 0) // Filtrar apenas pagamentos com valor > 0
-                  .map((payment) => ({
-                    type: payment.type,
-                    paymentMethodId: payment.paymentMethodId,
-                    amount: payment.amount,
-                    change:
-                      payment.type === 'CASH' && createOrderDto.change
-                        ? createOrderDto.change
-                        : 0,
-                  })),
-              }
-            : undefined,
-        items: {
-          create: createOrderDto.items.map((item) => ({
-            productId: item.productId,
-            quantity: item.quantity,
-            price: item.price,
-            notes: item.notes || null,
-            preparationStatus: 'PENDING',
-            dispatchStatus: 'PENDING',
-            additions:
-              item.additions && item.additions.length > 0
-                ? {
-                    create: item.additions.map((add) => ({
-                      additionId: add.additionId,
-                    })),
-                  }
-                : undefined,
-            complements:
-              item.complements && item.complements.length > 0
-                ? {
-                    create: item.complements
-                      .filter(
-                        (complement) =>
-                          complement.options && complement.options.length > 0,
-                      )
-                      .map((complement) => {
-                        // Agrupar opções repetidas e contar quantidade
-                        const optionsMap = new Map<string, number>();
-                        complement.options.forEach((option) => {
-                          const currentQuantity =
-                            optionsMap.get(option.optionId) || 0;
-                          optionsMap.set(option.optionId, currentQuantity + 1);
-                        });
-
-                        const optionsWithQuantity = Array.from(
-                          optionsMap.entries(),
-                        ).map(([optionId, quantity]) => ({
-                          optionId,
-                          quantity,
-                        }));
-
-                        return {
-                          complementId: complement.complementId,
-                          options: {
-                            create: optionsWithQuantity,
-                          },
-                        };
-                      }),
-                  }
-                : undefined,
-          })),
-        },
-      },
-      include: {
-        branch: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        items: {
-          include: {
-            product: {
-              select: {
-                id: true,
-                name: true,
-                image: true,
-              },
-            },
-            additions: {
-              include: {
-                addition: {
-                  select: {
-                    id: true,
-                    name: true,
-                    price: true,
-                  },
-                },
-              },
-            },
-            complements: {
-              include: {
-                complement: {
-                  select: {
-                    id: true,
-                    name: true,
-                  },
-                },
-                options: {
-                  include: {
-                    option: {
-                      select: {
-                        id: true,
-                        name: true,
-                        price: true,
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-        coupon: {
-          select: {
-            id: true,
-            code: true,
-            type: true,
-            value: true,
-          },
-        },
-        payments: {
-          orderBy: {
-            createdAt: 'desc',
-          },
-        },
+    // Buscar insumos da ficha técnica dos produtos
+    const productIngredients = await prisma.productIngredient.findMany({
+      where: {
+        productId: { in: Array.from(productQuantities.keys()) },
       },
     });
 
-    // Registrar movimentações de estoque (em background, não bloquear criação do pedido)
-    this.registerStockMovements(
+    for (const pi of productIngredients) {
+      const productQty = productQuantities.get(pi.productId) || 0;
+      const ingredientQty = pi.quantity * productQty;
+      const current = ingredientQuantities.get(pi.ingredientId) || 0;
+      ingredientQuantities.set(pi.ingredientId, current + ingredientQty);
+    }
+
+    // Registrar movimentações
+    await this.registerStockMovements(
       branch.id,
-      {
-        id: order.id,
-        orderNumber: order.orderNumber ?? undefined, // transforma null em undefined
-      },
+      order,
       productQuantities,
       optionQuantities,
       ingredientQuantities,
-    ).catch((error) => {
-      console.error('Erro ao registrar movimentações de estoque:', error);
-      // Não falhar criação do pedido se houver erro de estoque
-    });
+    );
 
-    // Incrementar contador de uso do cupom
-    if (couponId) {
-      prisma.coupon
-        .update({
-          where: { id: couponId },
-          data: {
-            usedCount: {
-              increment: 1,
-            },
-          },
-        })
-        .catch((error) => {
-          console.error('Erro ao incrementar contador de uso do cupom:', error);
-        });
-    }
-
-    // Buscar pedido completo para emitir no WebSocket
-    const fullOrder = await prisma.order.findUnique({
-      where: { id: order.id },
-      include: {
-        items: {
-          include: {
-            product: {
-              select: {
-                id: true,
-                name: true,
-                image: true,
-              },
-            },
-            additions: {
-              include: {
-                addition: {
-                  select: {
-                    id: true,
-                    name: true,
-                    price: true,
-                  },
-                },
-              },
-            },
-            complements: {
-              include: {
-                complement: {
-                  select: {
-                    id: true,
-                    name: true,
-                  },
-                },
-                options: {
-                  include: {
-                    option: {
-                      select: {
-                        id: true,
-                        name: true,
-                        price: true,
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
+    return {
+      success: true,
+      order: {
+        id: order.id,
+        orderNumber: order.orderNumber,
+        status: order.status,
+        deliveryType: order.deliveryType,
+        total: order.total,
+        subtotal: order.subtotal,
+        deliveryFee: order.deliveryFee,
+        serviceFee: order.serviceFee,
+        discount: order.discount,
+        createdAt: order.createdAt.toISOString(),
+        customer: {
+          id: order.customer?.id,
+          name: order.customer?.name,
+          phone: order.customer?.phone,
         },
-        branch: {
-          select: {
-            id: true,
-            name: true,
+        items: order.items.map((item) => ({
+          id: item.id,
+          quantity: item.quantity,
+          price: item.price,
+          notes: item.notes,
+          product: {
+            id: item.product.id,
+            name: item.product.name,
+            image: item.product.image,
           },
-        },
-        payments: {
-          orderBy: {
-            createdAt: 'desc',
-          },
-        },
+          complements: item.complements?.map((comp) => ({
+            id: comp.id,
+            complement: {
+              id: comp.complement.id,
+              name: comp.complement.name,
+            },
+            options: comp.options.map((opt) => ({
+              id: opt.id,
+              quantity: opt.quantity,
+              option: {
+                id: opt.option.id,
+                name: opt.option.name,
+                price: opt.option.price,
+              },
+            })),
+          })),
+        })),
+        payments: order.payments.map((payment) => ({
+          id: payment.id,
+          type: payment.type,
+          amount: payment.amount,
+          change: payment.change,
+          status: payment.status,
+        })),
+        coupon: order.coupon
+          ? {
+              id: order.coupon.id,
+              code: order.coupon.code,
+            }
+          : null,
       },
-    });
-
-    // Emitir evento WebSocket com pedido completo
-    if (fullOrder) {
-      this.webSocketGateway.emitOrderUpdate(
-        {
-          id: fullOrder.id,
-          status: fullOrder.status,
-          branchId: fullOrder.branchId,
-          deliveryPersonId: fullOrder.deliveryPersonId,
-          tableId: fullOrder.tableId,
-          total: fullOrder.total,
-          deliveryType: fullOrder.deliveryType,
-          createdAt: fullOrder.createdAt,
-          orderNumber: fullOrder.orderNumber,
-          items: fullOrder.items,
-          branch: fullOrder.branch,
-          payments: fullOrder.payments,
-        },
-        'order:created',
-      );
-    }
-
-    return { order };
+    };
   }
 
   /**
@@ -1207,11 +1156,15 @@ export class StoreService {
    */
 
   async getOrders(
-    subdomain?: string,
-    branchId?: string,
-    customerPhone?: string,
+    subdomain: string | undefined,
+    query?: GetOrdersQueryDto,
+    customerId?: string,
   ) {
-    const branch = await this.getBranch(subdomain, branchId);
+    if (!query) {
+      query = {};
+    }
+
+    const branch = await this.getBranch(subdomain);
 
     if (!branch) {
       throw new NotFoundException(
@@ -1219,40 +1172,145 @@ export class StoreService {
       );
     }
 
-    // Tipando corretamente o filtro
+    // ⭐ PAGINAÇÃO
+    const page = query.page || 1;
+    const limit = query.limit || 10;
+    const skip = (page - 1) * limit;
+
+    // ⭐ WHERE TIPADO CORRETAMENTE
     const where: Prisma.OrderWhereInput = {
       branchId: branch.id,
-    };
 
-    if (customerPhone) {
-      // Filtra usando a relação com customer
-      where.customer = {
-        phone: customerPhone,
-      };
-    }
+      ...(customerId && { customerId }),
 
-    const orders = await prisma.order.findMany({
-      where,
-      include: {
-        customer: true, // incluir dados do cliente se quiser
-        items: {
-          include: {
-            product: {
-              select: {
-                name: true,
-                image: true,
+      ...(query.status && {
+        status: query.status, // ✅ agora funciona
+      }),
+
+      ...(query.search && {
+        OR: [
+          {
+            id: {
+              contains: query.search,
+              mode: 'insensitive',
+            },
+          },
+          ...(isNaN(Number(query.search))
+            ? []
+            : [
+                {
+                  orderNumber: {
+                    equals: Number(query.search),
+                  },
+                },
+              ]),
+          {
+            items: {
+              some: {
+                product: {
+                  name: {
+                    contains: query.search,
+                    mode: 'insensitive',
+                  },
+                },
               },
             },
           },
-        },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-      take: 50, // Limitar a 50 pedidos mais recentes
-    });
+          {
+            customer: {
+              name: {
+                contains: query.search,
+                mode: 'insensitive',
+              },
+            },
+          },
+        ],
+      }),
+    };
 
-    return { orders };
+    // ⭐ BUSCA + COUNT EM PARALELO
+    const [orders, total] = await Promise.all([
+      prisma.order.findMany({
+        where,
+        include: {
+          customer: {
+            select: {
+              id: true,
+              name: true,
+              phone: true,
+              email: true,
+              branchId: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          },
+          items: {
+            include: {
+              product: {
+                select: {
+                  name: true,
+                  image: true,
+                },
+              },
+              additions: {
+                include: {
+                  addition: {
+                    select: {
+                      name: true,
+                      price: true,
+                    },
+                  },
+                },
+              },
+              complements: {
+                include: {
+                  complement: {
+                    select: {
+                      name: true,
+                    },
+                  },
+                  options: {
+                    include: {
+                      option: {
+                        select: {
+                          name: true,
+                          price: true,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          coupon: {
+            select: {
+              code: true,
+            },
+          },
+          payments: true,
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+        skip,
+        take: limit,
+      }),
+
+      prisma.order.count({ where }),
+    ]);
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      orders,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
+    };
   }
 
   /**

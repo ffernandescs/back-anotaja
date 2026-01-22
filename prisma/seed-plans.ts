@@ -19,12 +19,49 @@ enum BillingPeriodDiscount {
   ANNUAL = 20, // 20% de desconto
 }
 
+export enum PaymentMethodType {
+  CASH = 'CASH',
+  CREDIT = 'CREDIT',
+  DEBIT = 'DEBIT',
+  PIX = 'PIX',
+  BOLETO = 'BOLETO',
+  MEAL_VOUCHER = 'MEAL_VOUCHER', // VA
+  FOOD_VOUCHER = 'FOOD_VOUCHER', // VE
+  OTHER = 'OTHER',
+  ONLINE = 'ONLINE',
+}
+
 const paymentMethods = [
-  { id: 'cash', name: 'Dinheiro', isActive: true },
-  { id: 'credit_card', name: 'Cartão de Crédito', isActive: true },
-  { id: 'debit_card', name: 'Cartão de Débito', isActive: true },
-  { id: 'pix', name: 'PIX', isActive: true },
-  { id: 'online', name: 'Pagamento Online', isActive: true },
+  {
+    id: PaymentMethodType.CASH,
+    name: 'Dinheiro',
+    isActive: true,
+    type: PaymentMethodType.CASH,
+  },
+  {
+    id: PaymentMethodType.CREDIT,
+    name: 'Cartão de Crédito',
+    isActive: true,
+    type: PaymentMethodType.CREDIT,
+  },
+  {
+    id: PaymentMethodType.DEBIT,
+    name: 'Cartão de Débito',
+    isActive: true,
+    type: PaymentMethodType.DEBIT,
+  },
+  {
+    id: PaymentMethodType.PIX,
+    name: 'PIX',
+    isActive: true,
+    type: PaymentMethodType.PIX,
+  },
+  {
+    id: PaymentMethodType.ONLINE,
+    name: 'Pagamento Online',
+    isActive: true,
+    type: PaymentMethodType.ONLINE,
+  },
 ];
 
 // Preços base mensais (valores inteiros)

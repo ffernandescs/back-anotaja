@@ -14,6 +14,10 @@ export class CreateCompanyDto {
 
   @IsNotEmpty()
   @IsString()
+  companyName!: string;
+
+  @IsNotEmpty()
+  @IsString()
   document!: string;
 
   @IsNotEmpty()

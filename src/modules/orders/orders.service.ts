@@ -125,7 +125,7 @@ export class OrdersService {
         branch: {
           select: {
             id: true,
-            name: true,
+            branchName: true,
             address: true,
           },
         },
@@ -337,7 +337,7 @@ export class OrdersService {
       take: limit,
       orderBy,
       include: {
-        branch: { select: { id: true, name: true, address: true } },
+        branch: { select: { id: true, branchName: true, address: true } },
         user: { select: { id: true, name: true, email: true } },
         customer: true,
         items: {
@@ -420,7 +420,7 @@ export class OrdersService {
         branch: {
           select: {
             id: true,
-            name: true,
+            branchName: true,
             address: true,
           },
         },
@@ -588,7 +588,7 @@ export class OrdersService {
         branch: {
           select: {
             id: true,
-            name: true,
+            branchName: true,
           },
         },
         items: {
@@ -713,7 +713,7 @@ export class OrdersService {
         branch: {
           select: {
             id: true,
-            name: true,
+            branchName: true,
           },
         },
         items: {
@@ -767,7 +767,7 @@ export class OrdersService {
         branch: {
           select: {
             id: true,
-            name: true,
+            branchName: true,
           },
         },
       },

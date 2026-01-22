@@ -1,12 +1,26 @@
 import { BranchAddress, CompanyAddress } from 'generated/prisma';
+import { Branch } from 'src/modules/branches/entities/branch.entity';
+import { PaymentMethod } from 'src/modules/payment-methods/entities/payment-method.entity';
+
+export interface BranchPaymentMethod {
+  id: string;
+  branchId: string;
+  paymentMethodId: string;
+  forDineIn: boolean;
+  forDelivery: boolean;
+  paymentMethod?: PaymentMethod;
+}
+
+export interface BranchSchedule {
+  id: string;
+  day: string;
+  open: string;
+  close: string;
+  closed: boolean;
+  date: string | null;
+}
 
 export class StoreHomepageDto {
-  company!: {
-    id: string;
-    name: string;
-    email: string;
-    phone: string;
-  };
   branch!: {
     id: string;
     name: string;
@@ -17,9 +31,9 @@ export class StoreHomepageDto {
     logoUrl?: string | null;
     bannerUrl?: string | null;
     primaryColor?: string | null;
-    openingHours?: string | null;
+    paymentMethods?: BranchPaymentMethod[];
+    openingHours?: BranchSchedule[];
     socialMedia?: string | null;
-    paymentMethods?: string | null;
     document?: string | null;
     description?: string | null;
     instagram?: string | null;

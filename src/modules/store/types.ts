@@ -63,9 +63,13 @@ export type CategoryWithProductsAndCount = {
   };
 };
 
+/**
+ * Tipo para pedido usado no registro de estoque
+ * Aceita tanto null quanto undefined para compatibilidade com Prisma
+ */
 export type OrderForStock = {
   id: string;
-  orderNumber?: number;
+  orderNumber?: number | null; // Aceita null do Prisma e undefined do código
 };
 
 export type LatLng = { lat: number; lng: number };
@@ -81,3 +85,18 @@ export type CepResult = {
   uf?: string;
   erro?: boolean;
 };
+
+/**
+ * Payload JWT para autenticação
+ */
+export interface JwtPayload {
+  sub?: string;
+  userId?: string;
+  email?: string;
+  role?: string;
+  phone?: string;
+  branchId?: string;
+  companyId?: string;
+  iat?: number;
+  exp?: number;
+}

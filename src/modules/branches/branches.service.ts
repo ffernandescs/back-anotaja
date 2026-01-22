@@ -341,7 +341,7 @@ export class BranchesService {
 
     return prisma.branch.findMany({
       where: { companyId: user.companyId },
-      orderBy: { name: 'asc' },
+      orderBy: { branchName: 'asc' },
       include: {
         company: {
           select: {

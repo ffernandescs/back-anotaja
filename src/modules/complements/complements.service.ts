@@ -112,7 +112,7 @@ export class ComplementsService {
         branch: {
           select: {
             id: true,
-            name: true,
+            branchName: true,
           },
         },
         options: {
@@ -203,7 +203,7 @@ export class ComplementsService {
         branch: {
           select: {
             id: true,
-            name: true,
+            branchName: true,
           },
         },
         options: {

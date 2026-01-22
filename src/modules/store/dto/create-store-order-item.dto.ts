@@ -13,19 +13,11 @@ import { Type } from 'class-transformer';
 class OrderItemAdditionDto {
   @IsString()
   additionId!: string;
-
-  @IsNumber()
-  @IsPositive()
-  price!: number;
 }
 
 class OrderItemComplementOptionDto {
   @IsString()
   optionId!: string;
-
-  @IsNumber()
-  @Min(0)
-  price!: number;
 }
 
 class OrderItemComplementDto {

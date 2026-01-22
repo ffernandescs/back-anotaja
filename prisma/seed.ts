@@ -20,7 +20,7 @@ interface ProductSeed {
 }
 
 export interface BranchSeed {
-  name: string;
+  branchName: string;
   address: string;
   city: string;
   state: string;
@@ -34,6 +34,7 @@ export interface BranchSeed {
 
 export interface CompanySeed {
   name: string;
+  companyName: string;
   document: string;
   email: string;
   phone: string;
@@ -435,7 +436,8 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
   [BusinessSegment.HAMBURGUERIA]: [
     {
       name: 'Tio Armênio',
-      document: '12345678000190',
+      companyName: 'Tio Armênio',
+      document: '12345678013190',
       email: 'contato@tioarmenio.com.br',
       phone: '81987654321',
       logo: 'https://tioarmenio.com.br/wp-content/uploads/2023/01/logo-tio-armenio.png',
@@ -443,23 +445,23 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
         'https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=1200&h=400&fit=crop&q=80',
       branches: [
         {
-          name: 'Tio Armênio - Boa Viagem',
+          branchName: 'Tio Armênio - Boa Viagem',
           address: 'Av. Conselheiro Aguiar, 3150',
           city: 'Recife',
           state: 'PE',
           zipCode: '51021-020',
-          document: '123456781012190',
+          document: '123421781012190',
           phone: '8132657070',
           subdomain: 'tioarmenioboaviagem',
           lat: -8.1223,
           lng: -34.9028,
         },
         {
-          name: 'Tio Armênio - Espinheiro',
+          branchName: 'Tio Armênio - Espinheiro',
           address: 'Rua Benfica, 234',
           city: 'Recife',
           state: 'PE',
-          document: '123456781012191',
+          document: '121256781012191',
           zipCode: '52020-080',
           phone: '8132418585',
           subdomain: 'tioarmenioespinheiro',
@@ -470,6 +472,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
     },
     {
       name: 'Burger Station',
+      companyName: 'Burger Station',
       document: '12345678000191',
       email: 'contato@burgerstation.com.br',
       phone: '81987654323',
@@ -478,7 +481,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
         'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=1200&h=400&fit=crop&q=80',
       branches: [
         {
-          name: 'Burger Station - Recife Antigo',
+          branchName: 'Burger Station - Recife Antigo',
           address: 'Rua do Bom Jesus, 120',
           city: 'Recife',
           state: 'PE',
@@ -493,6 +496,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
     },
     {
       name: 'Cão Véio',
+      companyName: 'Cão Véio',
       document: '12345228000192',
       email: 'contato@caoveio.com.br',
       phone: '81987654325',
@@ -501,7 +505,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
         'https://images.unsplash.com/photo-1550547660-d9450f859349?w=1200&h=400&fit=crop&q=80',
       branches: [
         {
-          name: 'Cão Véio - Boa Viagem',
+          branchName: 'Cão Véio - Boa Viagem',
           address: 'Av. Boa Viagem, 3600',
           city: 'Recife',
           state: 'PE',
@@ -516,6 +520,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
     },
     {
       name: 'Five Burger',
+      companyName: 'Five Burger',
       document: '12345678000201',
       email: 'contato@fiveburger.com.br',
       phone: '81987654350',
@@ -524,7 +529,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
         'https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=1200&h=400&fit=crop&q=80',
       branches: [
         {
-          name: 'Five Burger - Casa Forte',
+          branchName: 'Five Burger - Casa Forte',
           address: 'Praça de Casa Forte, 65',
           city: 'Recife',
           state: 'PE',
@@ -541,6 +546,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
   [BusinessSegment.PIZZARIA]: [
     {
       name: 'Atlântico Pizzaria',
+      companyName: 'Atlântico Pizzaria',
       document: '12345678000192',
       email: 'contato@atlanticopizzaria.com.br',
       phone: '8134633434',
@@ -549,7 +555,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
         'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=1200&h=400&fit=crop&q=80',
       branches: [
         {
-          name: 'Atlântico Pizzaria - Boa Viagem',
+          branchName: 'Atlântico Pizzaria - Boa Viagem',
           address: 'Av. Boa Viagem, 5000',
           city: 'Recife',
           state: 'PE',
@@ -564,6 +570,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
     },
     {
       name: 'Donna Pizza',
+      companyName: 'Donna Pizza',
       document: '1234528001191',
       email: 'contato@donnapizza.com.br',
       phone: '8133267878',
@@ -572,7 +579,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
         'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=1200&h=400&fit=crop&q=80',
       branches: [
         {
-          name: 'Donna Pizza - Espinheiro',
+          branchName: 'Donna Pizza - Espinheiro',
           address: 'Rua Real da Torre, 567',
           city: 'Recife',
           state: 'PE',
@@ -587,6 +594,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
     },
     {
       name: 'Pizza Hut Recife',
+      companyName: 'Pizza Hut Recife',
       document: '123223678000192',
       email: 'contato@pizzahutrecife.com.br',
       phone: '8140208080',
@@ -595,7 +603,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
         'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=1200&h=400&fit=crop&q=80',
       branches: [
         {
-          name: 'Pizza Hut - Shopping Recife',
+          branchName: 'Pizza Hut - Shopping Recife',
           address: 'Rua Padre Carapuceiro, 777',
           city: 'Recife',
           state: 'PE',
@@ -610,6 +618,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
     },
     {
       name: 'Forno & Forneria',
+      companyName: 'Forno & Forneria',
       document: '12345678000213',
       email: 'contato@fornoeforneria.com.br',
       phone: '8133421919',
@@ -618,7 +627,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
         'https://images.unsplash.com/photo-1571997478779-2adcbbe9ab2f?w=1200&h=400&fit=crop&q=80',
       branches: [
         {
-          name: 'Forno & Forneria - Boa Viagem',
+          branchName: 'Forno & Forneria - Boa Viagem',
           address: 'Av. Conselheiro Aguiar, 1472',
           city: 'Recife',
           document: '123456781012198',
@@ -635,6 +644,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
   [BusinessSegment.DEPOSITO_BEBIDAS]: [
     {
       name: 'Adega 31',
+      companyName: 'Adega 31',
       document: '12345678000301',
       email: 'contato@adega31.com.br',
       phone: '8133261234',
@@ -643,7 +653,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
         'https://images.unsplash.com/photo-1551538827-9c037cb4f32a?w=1200&h=400&fit=crop&q=80',
       branches: [
         {
-          name: 'Adega 31 - Boa Viagem',
+          branchName: 'Adega 31 - Boa Viagem',
           address: 'Av. Boa Viagem, 3100',
           city: 'Recife',
           state: 'PE',
@@ -658,6 +668,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
     },
     {
       name: 'Depósito Recife',
+      companyName: 'Depósito Recife',
       document: '12345678000302',
       email: 'contato@depositorecife.com.br',
       phone: '8133455678',
@@ -666,7 +677,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
         'https://images.unsplash.com/photo-1572490122747-3968b75cc699?w=1200&h=400&fit=crop&q=80',
       branches: [
         {
-          name: 'Depósito Recife - Casa Forte',
+          branchName: 'Depósito Recife - Casa Forte',
           address: 'Rua Benfica, 789',
           city: 'Recife',
           state: 'PE',
@@ -684,6 +695,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
   [BusinessSegment.CANOZES]: [
     {
       name: 'Caldos do Neguinho',
+      companyName: 'Caldos do Neguinho',
       document: '12345678000601',
       email: 'contato@caldosdoneguinho.com.br',
       phone: '8133881122',
@@ -692,7 +704,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
         'https://images.unsplash.com/photo-1547592166-23ac45744acd?w=1200&h=400&fit=crop&q=80',
       branches: [
         {
-          name: 'Caldos do Neguinho - Boa Viagem',
+          branchName: 'Caldos do Neguinho - Boa Viagem',
           address: 'Av. Boa Viagem, 5523',
           city: 'Recife',
           state: 'PE',
@@ -707,6 +719,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
     },
     {
       name: 'Caldo de Sururu do Edu',
+      companyName: 'Caldo de Sururu do Edu',
       document: '12345678000602',
       email: 'contato@caldosururudoedu.com.br',
       phone: '8133992233',
@@ -715,7 +728,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
         'https://images.unsplash.com/photo-1578474846511-04ba529f0b88?w=1200&h=400&fit=crop&q=80',
       branches: [
         {
-          name: 'Caldo de Sururu do Edu - Pina',
+          branchName: 'Caldo de Sururu do Edu - Pina',
           address: 'Rua do Pina, 450',
           city: 'Recife',
           state: 'PE',
@@ -730,6 +743,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
     },
     {
       name: 'Canjas & Caldos da Vovó',
+      companyName: 'Canjas & Caldos da Vovó',
       document: '12345678000603',
       email: 'contato@canjasdavovo.com.br',
       phone: '8134003344',
@@ -738,7 +752,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
         'https://images.unsplash.com/photo-1547592166-23ac45744acd?w=1200&h=400&fit=crop&q=80',
       branches: [
         {
-          name: 'Canjas & Caldos da Vovó - Casa Amarela',
+          branchName: 'Canjas & Caldos da Vovó - Casa Amarela',
           address: 'Estrada do Arraial, 1234',
           city: 'Recife',
           state: 'PE',
@@ -753,6 +767,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
     },
     {
       name: 'Caldo Bom Demais',
+      companyName: 'Caldo Bom Demais',
       document: '12345678000604',
       email: 'contato@caldobomdemais.com.br',
       phone: '8134114455',
@@ -761,7 +776,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
         'https://images.unsplash.com/photo-1547592166-23ac45744acd?w=1200&h=400&fit=crop&q=80',
       branches: [
         {
-          name: 'Caldo Bom Demais - Torre',
+          branchName: 'Caldo Bom Demais - Torre',
           address: 'Rua da Torre, 789',
           city: 'Recife',
           state: 'PE',
@@ -777,6 +792,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
   ],
   [BusinessSegment.RESTAURANTE]: [
     {
+      companyName: 'Parraxaxá',
       name: 'Parraxaxá',
       document: '12345678000401',
       email: 'contato@parraxaxa.com.br',
@@ -786,7 +802,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
         'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=1200&h=400&fit=crop&q=80',
       branches: [
         {
-          name: 'Parraxaxá - Boa Viagem',
+          branchName: 'Parraxaxá - Boa Viagem',
           address: 'Av. Fernando Simões Barbosa, 1200',
           city: 'Recife',
           state: 'PE',
@@ -801,6 +817,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
     },
     {
       name: 'Bode do Nô',
+      companyName: 'Bode do Nô',
       document: '12345678000402',
       email: 'contato@bodedono.com.br',
       phone: '8133271818',
@@ -809,7 +826,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
         'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=1200&h=400&fit=crop&q=80',
       branches: [
         {
-          name: 'Bode do Nô - Boa Viagem',
+          branchName: 'Bode do Nô - Boa Viagem',
           address: 'Rua Baltazar Pereira, 32',
           city: 'Recife',
           state: 'PE',
@@ -824,6 +841,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
     },
     {
       name: 'Oficina do Sabor',
+      companyName: 'Oficina do Sabor',
       document: '12345678000403',
       email: 'contato@oficinadosabor.com.br',
       phone: '8130352147',
@@ -832,7 +850,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
         'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=1200&h=400&fit=crop&q=80',
       branches: [
         {
-          name: 'Oficina do Sabor - Poço',
+          branchName: 'Oficina do Sabor - Poço',
           address: 'Rua do Poço, 65',
           city: 'Recife',
           state: 'PE',
@@ -4000,106 +4018,39 @@ function normalize(text: string) {
     .replace(/\s+/g, '')
     .toUpperCase();
 }
+
+function generateRandomDocument(length = 14) {
+  return Array.from({ length }, () => Math.floor(Math.random() * 10)).join('');
+}
+
+function generateCompanyEmail(name: string) {
+  const slug = name
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '');
+
+  return `${slug}-${Date.now()}@anotaja.com`;
+}
+
+function generateUniquePhone() {
+  return `11${Math.floor(900000000 + Math.random() * 99999999)}`;
+}
+
+function generateSubdomain(name: string) {
+  const slug = name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/g, '');
+
+  return `${slug}-${Date.now()}`;
+}
+
 async function main() {
   console.log('🌱 Iniciando seed do banco de dados...');
 
   // Limpar banco de dados
   console.log('🧹 Limpando banco de dados...');
-  await prisma.customer.deleteMany();
-  await prisma.table.deleteMany();
-  await prisma.category.deleteMany();
-  await prisma.product.deleteMany();
-  await prisma.productComplement.deleteMany();
-  await prisma.complementOption.deleteMany();
-  await prisma.productAddition.deleteMany();
-  await prisma.additionIngredient.deleteMany();
-  await prisma.order.deleteMany();
-  await prisma.orderItem.deleteMany();
-  await prisma.orderItemComplement.deleteMany();
-  await prisma.orderItemComplementOption.deleteMany();
-  await prisma.orderItemAddition.deleteMany();
-  await prisma.orderPayment.deleteMany();
-
-  await prisma.subscription.deleteMany();
-  await prisma.plan.deleteMany();
-  await prisma.orderPayment.deleteMany();
-  await prisma.orderItemComplementOption.deleteMany();
-  await prisma.orderItemComplement.deleteMany();
-  await prisma.orderItemAddition.deleteMany();
-  await prisma.orderItem.deleteMany();
-  await prisma.order.deleteMany();
-  await prisma.cashMovement.deleteMany();
-  await prisma.cashRegister.deleteMany();
-  await prisma.stockMovement.deleteMany();
-  await prisma.productIngredient.deleteMany();
-  await prisma.additionIngredient.deleteMany();
-  await prisma.complementOption.deleteMany();
-  await prisma.productComplement.deleteMany();
-  await prisma.productAddition.deleteMany();
-  await prisma.product.deleteMany();
-  await prisma.category.deleteMany();
-  await prisma.coupon.deleteMany();
-  await prisma.deliveryExclusionArea.deleteMany();
-  await prisma.deliveryRoute.deleteMany();
-  await prisma.deliveryArea.deleteMany();
-  await prisma.deliveryAssignment.deleteMany();
-  await prisma.deliveryPerson.deleteMany();
-  await prisma.customerAddress.deleteMany();
-  await prisma.ingredient.deleteMany();
-  await prisma.ingredientCategory.deleteMany();
-  await prisma.user.deleteMany();
-  await prisma.paymentMethod.deleteMany();
-  await prisma.branch.deleteMany();
-  await prisma.company.deleteMany();
-  await prisma.masterUser.deleteMany();
-  await prisma.plan.deleteMany();
-  await prisma.subscription.deleteMany();
-  await prisma.orderPayment.deleteMany();
-  await prisma.orderItemComplementOption.deleteMany();
-  await prisma.orderItemComplement.deleteMany();
-  await prisma.orderItemAddition.deleteMany();
-  await prisma.orderItem.deleteMany();
-  await prisma.order.deleteMany();
-  await prisma.cashMovement.deleteMany();
-  await prisma.cashRegister.deleteMany();
-  await prisma.stockMovement.deleteMany();
-  await prisma.productIngredient.deleteMany();
-  await prisma.additionIngredient.deleteMany();
-  await prisma.complementOption.deleteMany();
-  await prisma.productComplement.deleteMany();
-  await prisma.productAddition.deleteMany();
-  await prisma.product.deleteMany();
-  await prisma.category.deleteMany();
-  await prisma.coupon.deleteMany();
-  await prisma.deliveryExclusionArea.deleteMany();
-  await prisma.deliveryRoute.deleteMany();
-  await prisma.deliveryArea.deleteMany();
-  await prisma.deliveryAssignment.deleteMany();
-  await prisma.deliveryPerson.deleteMany();
-  await prisma.customerAddress.deleteMany();
-  await prisma.ingredient.deleteMany();
-  await prisma.ingredientCategory.deleteMany();
-  await prisma.user.deleteMany();
-  await prisma.paymentMethod.deleteMany();
-  await prisma.branch.deleteMany();
-  await prisma.company.deleteMany();
-  await prisma.masterUser.deleteMany();
-  await prisma.plan.deleteMany();
-  await prisma.subscription.deleteMany();
-  await prisma.orderPayment.deleteMany();
-  await prisma.orderItemComplementOption.deleteMany();
-  await prisma.orderItemComplement.deleteMany();
-  await prisma.orderItemAddition.deleteMany();
-  await prisma.orderItem.deleteMany();
-  await prisma.order.deleteMany();
-  await prisma.cashMovement.deleteMany();
-  await prisma.cashRegister.deleteMany();
-  await prisma.stockMovement.deleteMany();
-  await prisma.productIngredient.deleteMany();
-  await prisma.additionIngredient.deleteMany();
-  await prisma.complementOption.deleteMany();
-  await prisma.productComplement.deleteMany();
-  await prisma.productAddition.deleteMany();
 
   const hashedPassword = await generateHashedPassword('123456');
 
@@ -4114,10 +4065,11 @@ async function main() {
 
       const company = await prisma.company.create({
         data: {
+          companyName: companyData.name,
           name: companyData.name,
-          document: companyData.document,
-          email: companyData.email,
-          phone: companyData.phone,
+          document: generateRandomDocument(14),
+          email: generateCompanyEmail(companyData.email),
+          phone: generateUniquePhone(),
           active: true,
         },
       });
@@ -4160,17 +4112,13 @@ async function main() {
 
         const branch = await prisma.branch.create({
           data: {
-            name: isMatriz ? `Matriz - ${companyData.name}` : branchData.name,
+            branchName: isMatriz
+              ? `Matriz - ${companyData.companyName}`
+              : branchData.branchName,
             document: isMatriz ? companyData.document : branchData.document,
             addressId: createBranchAddress.id,
             phone: branchData.phone,
-            subdomain:
-              branchData.subdomain ||
-              branchData.name
-                .toLowerCase()
-                .normalize('NFD')
-                .replace(/[\u0300-\u036f]/g, '')
-                .replace(/[^a-z0-9]/g, ''),
+            subdomain: generateSubdomain(companyData.name),
             logoUrl: companyData.logo || null,
             bannerUrl: companyData.banner || null,
             companyId: company.id,
@@ -4241,15 +4189,6 @@ async function main() {
         await seedTablesForBranch(branch.id, adminUser.id);
 
         console.log('💰 Criando métodos de pagamento para a filial matriz...');
-        await prisma.paymentMethod.createMany({
-          data: defaultPaymentMethods.map((method) => ({
-            name: method.name,
-            forDineIn: method.forDineIn,
-            forDelivery: method.forDelivery,
-            isActive: method.isActive,
-            branchId: branch.id,
-          })),
-        });
 
         // Criar dados para a filial matriz (categorias, produtos, complementos, opções, cupons, entregadores, caixa)
         const companyType = type as keyof typeof categoriesData;
@@ -4268,7 +4207,7 @@ async function main() {
 
           await prisma.deliveryArea.create({
             data: {
-              name: `Área ${i + 1} - ${branch.name}`,
+              name: `Área ${i + 1} - ${branch.branchName}`,
               type: 'CIRCLE',
               centerLat: firstBranchData.lat,
               centerLng: firstBranchData.lng,
@@ -4313,7 +4252,7 @@ async function main() {
             openedBy: adminUser.id, // Admin abre o caixa da filial matriz
             openingAmount: openingAmount,
             status: 'OPENING',
-            notes: `Caixa aberto automaticamente pelo seed para ${branch.name}`,
+            notes: `Caixa aberto automaticamente pelo seed para ${branch.branchName}`,
           },
         });
 
@@ -4326,7 +4265,7 @@ async function main() {
             cashRegisterId: cashRegister.id,
             type: 'OPENING',
             amount: openingAmount,
-            description: `Abertura de caixa - ${branch.name}`,
+            description: `Abertura de caixa - ${branch.branchName}`,
             userId: adminUser.id,
           },
         });

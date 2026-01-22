@@ -64,7 +64,7 @@ export class ProductsService {
         branch: {
           select: {
             id: true,
-            name: true,
+            branchName: true,
           },
         },
         complements: {
@@ -174,7 +174,7 @@ export class ProductsService {
         branch: {
           select: {
             id: true,
-            name: true,
+            branchName: true,
           },
         },
         additions: {
@@ -251,7 +251,7 @@ export class ProductsService {
         branch: {
           select: {
             id: true,
-            name: true,
+            branchName: true,
           },
         },
       },
@@ -285,7 +285,7 @@ export class ProductsService {
       data: updateData,
       include: {
         category: { select: { id: true, name: true } },
-        branch: { select: { id: true, name: true } },
+        branch: { select: { id: true, branchName: true } },
       },
     });
   }

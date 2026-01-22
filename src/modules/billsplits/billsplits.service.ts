@@ -117,7 +117,7 @@ export class BillSplitsService {
         branch: {
           select: {
             id: true,
-            name: true,
+            branchName: true,
             address: true,
           },
         },

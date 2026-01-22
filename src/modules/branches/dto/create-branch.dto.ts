@@ -21,7 +21,7 @@ export enum PaymentMethodTypeDto {
 }
 export class CreateBranchDto {
   @IsString()
-  name!: string;
+  branchName!: string;
 
   @IsString()
   address!: string;

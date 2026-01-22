@@ -1,18 +1,15 @@
-import {
-  IsString,
-  IsOptional,
-  IsEnum,
-  IsNumber,
-  IsArray,
-  ValidateNested,
-  Min,
-  IsPositive,
-  IsEmail,
-  ArrayMinSize,
-  MinLength,
-} from 'class-validator';
 import { Type } from 'class-transformer';
-import { CreateStoreOrderItemDto } from './create-store-order-item.dto';
+import {
+  IsArray,
+  IsEnum,
+  IsInt,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 import { DeliveryTypeDto } from 'src/modules/orders/dto/create-order-item.dto';
 
 class PaymentDto {
@@ -34,112 +31,133 @@ class PaymentDto {
   paymentMethodId!: string;
 }
 
-export class CreateStoreOrderDto {
+export enum PaymentTypeDto {
+  CASH = 'CASH',
+  CREDIT = 'CREDIT',
+  DEBIT = 'DEBIT',
+  PIX = 'PIX',
+  BOLETO = 'BOLETO',
+  MEAL_VOUCHER = 'MEAL_VOUCHER',
+  FOOD_VOUCHER = 'FOOD_VOUCHER',
+  OTHER = 'OTHER',
+  ONLINE = 'ONLINE',
+}
+
+// Opção de complemento selecionada
+export class ComplementOptionDto {
   @IsString()
+  @IsNotEmpty()
+  optionId!: string;
+
   @IsOptional()
-  customerId?: string;
+  @IsInt()
+  @Min(1)
+  quantity?: number;
+}
+
+// Complemento selecionado
+export class OrderItemComplementDto {
+  @IsString()
+  @IsNotEmpty()
+  complementId!: string;
 
   @IsArray()
-  @ArrayMinSize(1)
   @ValidateNested({ each: true })
-  @Type(() => CreateStoreOrderItemDto)
-  items!: CreateStoreOrderItemDto[];
+  @Type(() => ComplementOptionDto)
+  options!: ComplementOptionDto[];
+}
 
-  @IsEnum(DeliveryTypeDto)
-  deliveryType!: DeliveryTypeDto;
-
-  @IsOptional()
-  @IsEnum([
-    'CASH',
-    'CREDIT_CARD',
-    'DEBIT_CARD',
-    'PIX',
-    'ONLINE',
-    'MEAL_VOUCHER',
-  ])
-  paymentMethod?: string; // Mantido para compatibilidade - validação no service
-
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => PaymentDto)
-  payments?: PaymentDto[];
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  cashReceived?: number;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  change?: number;
-
+// Item do pedido
+export class CreateOrderItemDto {
   @IsString()
-  @MinLength(3, { message: 'Nome deve ter no mínimo 3 caracteres' })
-  customerName!: string;
+  @IsNotEmpty()
+  productId!: string;
 
-  @IsString()
-  @MinLength(10, {
-    message:
-      'Telefone do cliente é obrigatório e deve ter pelo menos 10 caracteres',
-  })
-  customerPhone?: string;
-
-  @IsOptional()
-  @IsEmail({}, { message: 'Email inválido' })
-  customerEmail?: string;
-
-  @IsString()
-  @MinLength(5, { message: 'Endereço completo é obrigatório para entrega' })
-  address?: string;
-
-  @IsString()
-  @MinLength(2, { message: 'Cidade é obrigatória para entrega' })
-  city?: string;
-
-  @IsString()
-  @MinLength(2, { message: 'Estado é obrigatório para entrega' })
-  state?: string;
-
-  @IsString()
-  @MinLength(8, { message: 'CEP é obrigatório para entrega' })
-  zipCode?: string;
-
-  @IsOptional()
-  @IsString()
-  tableNumber?: string;
-
-  @IsOptional()
-  @IsString()
-  tableId?: string;
+  @IsInt()
+  @Min(1)
+  quantity!: number;
 
   @IsOptional()
   @IsString()
   notes?: string;
 
-  @IsNumber()
-  @Min(0)
-  subtotal!: number;
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => OrderItemComplementDto)
+  complements?: OrderItemComplementDto[];
+}
 
-  @IsNumber()
-  @Min(0)
-  deliveryFee!: number;
+// Pagamento
+export class OrderPaymentDto {
+  @IsEnum(PaymentTypeDto)
+  type!: PaymentTypeDto;
+
+  @IsString()
+  @IsNotEmpty()
+  paymentMethodId!: string;
 
   @IsOptional()
-  @IsNumber()
+  @IsInt()
   @Min(0)
-  serviceFee?: number;
+  amount?: number;
+}
 
-  @IsNumber()
-  @Min(0)
-  discount!: number;
-
-  @IsNumber()
-  @IsPositive()
-  total!: number;
+// DTO principal de criação do pedido
+export class CreateStoreOrderDto {
+  @IsEnum(DeliveryTypeDto)
+  deliveryType!: DeliveryTypeDto;
 
   @IsOptional()
   @IsString()
+  customerId?: string;
+
+  @IsOptional()
+  @IsString()
+  customerPhone?: string;
+
+  // Campos de endereço (obrigatórios apenas para DELIVERY)
+  @IsOptional()
+  @IsString()
+  address?: string;
+
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  state?: string;
+
+  @IsOptional()
+  @IsString()
+  zipCode?: string;
+
+  // Cupom de desconto
+  @IsOptional()
+  @IsString()
   couponCode?: string;
+
+  // Items do pedido
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateOrderItemDto)
+  items!: CreateOrderItemDto[];
+
+  // Pagamentos
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => OrderPaymentDto)
+  payments!: OrderPaymentDto[];
+
+  // Troco (apenas para pagamento em dinheiro)
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  change?: number;
+
+  // Observações gerais do pedido
+  @IsOptional()
+  @IsString()
+  notes?: string;
 }

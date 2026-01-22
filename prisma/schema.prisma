@@ -32,6 +32,7 @@ enum OnboardingStep {
 model Company {
   id                  String           @id @default(cuid())
   name                String
+  companyName         String
   document            String           @unique
   email               String           @unique
   phone               String           @unique
@@ -171,7 +172,7 @@ model SystemConfig {
 
 model Branch {
   id                     String                   @id @default(cuid())
-  name                   String
+  branchName             String
   phone                  String                   @unique
   document               String                   @unique
   email                  String?                  @unique
@@ -268,13 +269,7 @@ model BranchAddress {
   branches     Branch[]
 }
 
-enum PaymentMethodType {
-  CASH
-  CREDIT_CARD
-  DEBIT_CARD
-  PIX
-  ONLINE
-}
+
 
 model Announcement {
   id            String    @id @default(cuid())
@@ -501,7 +496,8 @@ model Customer {
 }
 model CustomerAddress {
   id           String    @id @default(cuid())
-  address      String
+  label        String
+  street       String
   number       String?
   complement   String?
   neighborhood String?
@@ -525,6 +521,7 @@ model CustomerAddress {
   @@index([customerId])
   @@index([branchId])
 }
+
 model Order {
   id                                                           String               @id @default(cuid())
   orderNumber                                                  Int?                 @unique // Número sequencial do pedido
@@ -995,9 +992,22 @@ model BillSplitPerson {
   items                                                           BillSplitItem[]
 }
 
+enum PaymentMethodType {
+  CASH
+  CREDIT 
+  DEBIT
+  PIX
+  BOLETO
+  MEAL_VOUCHER // VA
+  FOOD_VOUCHER // VE
+  OTHER
+  ONLINE
+}
+
 model PaymentMethod {
   id             String                 @id @default(cuid())
   name           String
+  type           PaymentMethodType      @default(CASH)
   isActive       Boolean                @default(true)
   branchPayments BranchPaymentMethod[]
   createdAt      DateTime               @default(now())

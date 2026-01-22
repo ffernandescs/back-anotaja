@@ -14,7 +14,7 @@ export class CreateCustomerAddressDto {
 
   @IsString()
   @MinLength(5, { message: 'Endereço deve ter no mínimo 5 caracteres' })
-  address!: string;
+  street!: string;
 
   @IsOptional()
   @IsString()

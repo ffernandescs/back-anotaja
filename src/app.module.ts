@@ -25,6 +25,7 @@ import { BillsplitsModule } from './modules/billsplits/billsplits.module';
 import { CashRegisterModule } from './modules/cash-register/cash-register.module';
 import { CompaniesModule } from './modules/companies/companies.module';
 import { BillingModule } from './modules/billing/billing.module';
+import { GeocodingModule } from './modules/geocoding/geocoding.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { BillingModule } from './modules/billing/billing.module';
     CashRegisterModule,
     CompaniesModule,
     BillingModule,
+    GeocodingModule,
   ],
   providers: [
     {

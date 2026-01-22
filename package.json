@@ -23,6 +23,7 @@
     "prisma:db:push:dev": "dotenv -e environments/.env.dev -- npx prisma db push",
     "prisma:db:push:prod": "dotenv -e environments/.env.prod -- npx prisma db push",
     "db:seed": "tsx prisma/seed.ts",
+    "db:seed:dev": "dotenv -e environments/.env.dev -- tsx prisma/seed.ts",
     "db:seed-plans:dev": "dotenv -e environments/.env.dev -- tsx prisma/seed-plans.ts",
     "db:seed-plans:prod": "dotenv -e environments/.env.prod -- tsx prisma/seed-plans.ts",
     "prisma:push": "node scripts/prisma-push.js",

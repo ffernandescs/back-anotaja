@@ -22,6 +22,7 @@ export class CompaniesService {
       email,
       phone,
       password,
+      companyName,
       street,
       number,
       complement,
@@ -33,7 +34,7 @@ export class CompaniesService {
     } = dto;
 
     // ✅ Validações básicas
-    if (!name || !document || !email || !phone || !password) {
+    if (!name || !document || !email || !phone || !password || !companyName) {
       throw new BadRequestException(
         'Todos os campos obrigatórios da empresa devem ser preenchidos.',
       );
@@ -67,6 +68,7 @@ export class CompaniesService {
       // 1️⃣ Criar empresa
       const createdCompany = await prisma.company.create({
         data: {
+          companyName,
           name,
           document,
           email,
@@ -108,7 +110,7 @@ export class CompaniesService {
       // 3️⃣ Criar branch
       const createdBranch = await prisma.branch.create({
         data: {
-          name: createdCompany.name,
+          branchName: createdCompany.companyName,
           phone: createdCompany.phone,
           document,
           companyId: createdCompany.id,

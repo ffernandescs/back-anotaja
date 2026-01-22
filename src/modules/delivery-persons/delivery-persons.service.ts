@@ -105,7 +105,7 @@ export class DeliveryPersonsService {
         branch: {
           select: {
             id: true,
-            name: true,
+            branchName: true,
           },
         },
         _count: {
@@ -210,7 +210,7 @@ export class DeliveryPersonsService {
         branch: {
           select: {
             id: true,
-            name: true,
+            branchName: true,
           },
         },
         _count: {
@@ -245,7 +245,7 @@ export class DeliveryPersonsService {
           branch: {
             select: {
               id: true,
-              name: true,
+              branchName: true,
             },
           },
         },
@@ -258,7 +258,7 @@ export class DeliveryPersonsService {
         branch: {
           select: {
             id: true,
-            name: true,
+            branchName: true,
           },
         },
       },
@@ -290,7 +290,7 @@ export class DeliveryPersonsService {
         branch: {
           select: {
             id: true,
-            name: true,
+            branchName: true,
           },
         },
         _count: {
@@ -313,7 +313,7 @@ export class DeliveryPersonsService {
         branch: {
           select: {
             id: true,
-            name: true,
+            branchName: true,
           },
         },
       },

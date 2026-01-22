@@ -24,6 +24,9 @@ import { UpdateCustomerAddressDto } from './dto/update-customer-address.dto';
 import { CalculateDeliveryFeeDto } from './dto/calculate-delivery-fee.dto';
 import { StoreLoginDto } from './dto/store-login.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { JwtCustomerAuthGuard } from 'src/common/guards/jwt-customer.guard';
+import { GetOrdersQueryDto } from './dto/get-orders-query.dto';
+import { GetCustomer } from './decorators/get-customer.decorator';
 
 interface RequestWithUser extends Request {
   user?: {
@@ -178,8 +181,9 @@ export class StoreController {
   /**
    * Criar pedido na loja (checkout)
    */
-  @Post('orders')
   @Public()
+  @UseGuards(JwtCustomerAuthGuard)
+  @Post('orders')
   @HttpCode(HttpStatus.CREATED)
   async createOrder(
     @Body() createOrderDto: CreateStoreOrderDto,
@@ -203,25 +207,19 @@ export class StoreController {
   /**
    * Listar pedidos da loja (público, por telefone do cliente)
    */
-  @Get('orders')
   @Public()
+  @UseGuards(JwtCustomerAuthGuard)
+  @Get('orders')
   async getOrders(
-    @Query('branchId') branchId?: string,
-    @Query('phone') customerPhone?: string,
     @Headers('x-tenant') xTenant?: string,
     @Req() req?: Request,
+    @Query() query?: GetOrdersQueryDto,
+    @GetCustomer('id') customerId?: string, // Pega ID do customer do JWT
   ) {
     const hostname = req?.headers?.host || '';
-    const { subdomain, branchId: headerBranchId } = this.extractSubdomain(
-      hostname,
-      xTenant,
-    );
+    const { subdomain } = this.extractSubdomain(hostname, xTenant);
 
-    return await this.storeService.getOrders(
-      subdomain,
-      branchId || headerBranchId,
-      customerPhone || undefined,
-    );
+    return await this.storeService.getOrders(subdomain, query, customerId);
   }
 
   /**

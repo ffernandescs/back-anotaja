@@ -49,7 +49,7 @@ export class CategoriesService {
         branch: {
           select: {
             id: true,
-            name: true,
+            branchName: true,
           },
         },
         _count: {
@@ -136,7 +136,7 @@ export class CategoriesService {
         branch: {
           select: {
             id: true,
-            name: true,
+            branchName: true,
           },
         },
         products: {
@@ -190,7 +190,7 @@ export class CategoriesService {
         branch: {
           select: {
             id: true,
-            name: true,
+            branchName: true,
           },
         },
         products: {
@@ -260,7 +260,7 @@ export class CategoriesService {
         branch: {
           select: {
             id: true,
-            name: true,
+            branchName: true,
           },
         },
         _count: {
@@ -347,7 +347,7 @@ export class CategoriesService {
           branch: {
             select: {
               id: true,
-              name: true,
+              branchName: true,
             },
           },
         },
