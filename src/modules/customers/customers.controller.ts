@@ -17,8 +17,8 @@ import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { LoginCustomerDto } from './dto/login-customer.dto';
-import { Public } from 'src/common/decorators/public.decorator';
-import { JwtCustomerAuthGuard } from 'src/common/guards/jwt-customer.guard';
+import { Public } from '../../common/decorators/public.decorator';
+import { JwtCustomerAuthGuard } from '../../common/guards/jwt-customer.guard';
 import { CreateCustomerAddressDto } from './dto/create-customer-address.dto';
 
 interface RequestWithUser extends Request {

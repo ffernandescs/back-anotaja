@@ -24,7 +24,7 @@ import { UpdateCustomerAddressDto } from './dto/update-customer-address.dto';
 import { CalculateDeliveryFeeDto } from './dto/calculate-delivery-fee.dto';
 import { StoreLoginDto } from './dto/store-login.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { JwtCustomerAuthGuard } from 'src/common/guards/jwt-customer.guard';
+import { JwtCustomerAuthGuard } from '../../common/guards/jwt-customer.guard';
 import { GetOrdersQueryDto } from './dto/get-orders-query.dto';
 import { GetCustomer } from './decorators/get-customer.decorator';
 
