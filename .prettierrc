@@ -1,4 +1,9 @@
 {
-  "singleQuote": true,
-  "trailingComma": "all"
+  "semi": true,                   // Adiciona ponto e vírgula no final das instruções
+  "singleQuote": true,            // Usa aspas simples
+  "trailingComma": "all",         // Adiciona vírgula final em objetos e arrays
+  "tabWidth": 2,                  // Tamanho da tabulação (2 espaços)
+  "bracketSpacing": true,         // Espaço dentro das chaves ({ foo: bar })
+  "printWidth": 100,              // Largura máxima da linha antes de quebrar
+  "endOfLine": "auto"             // Faz o Prettier se ajustar ao fim de linha do sistema (Windows/Mac/Linux)
 }

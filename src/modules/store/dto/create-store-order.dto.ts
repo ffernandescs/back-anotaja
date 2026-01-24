@@ -114,26 +114,12 @@ export class CreateStoreOrderDto {
 
   @IsOptional()
   @IsString()
+  addressId?: string;
+
+  @IsOptional()
+  @IsString()
   customerPhone?: string;
 
-  // Campos de endereço (obrigatórios apenas para DELIVERY)
-  @IsOptional()
-  @IsString()
-  address?: string;
-
-  @IsOptional()
-  @IsString()
-  city?: string;
-
-  @IsOptional()
-  @IsString()
-  state?: string;
-
-  @IsOptional()
-  @IsString()
-  zipCode?: string;
-
-  // Cupom de desconto
   @IsOptional()
   @IsString()
   couponCode?: string;

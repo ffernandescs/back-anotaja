@@ -292,7 +292,20 @@ export class AuthService {
             subscription: true,
           },
         },
-        branch: true,
+        branch: {
+          include:{
+            orders: {
+              include: {
+                customer: {
+                  include: {
+                  addresses: true
+                  }
+                },
+                customerAddress: true
+              }
+            }
+          }
+        },
       },
     });
 

@@ -11,13 +11,13 @@ datasource db {
 }
 
 model MasterUser {
-  id        String    @id @default(cuid())
+  id        String   @id @default(cuid())
   name      String
-  email     String    @unique
+  email     String   @unique
   password  String
-  active    Boolean   @default(true)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 enum OnboardingStep {
@@ -28,25 +28,25 @@ enum OnboardingStep {
   COMPLETED
 }
 
-
 model Company {
-  id                  String           @id @default(cuid())
+  id                  String         @id @default(cuid())
   name                String
   companyName         String
-  document            String           @unique
-  email               String           @unique
-  phone               String           @unique
-  active              Boolean          @default(true)
-  onboardingStep      OnboardingStep   @default(PLAN)
-  onboardingCompleted Boolean          @default(false)
-  createdAt           DateTime         @default(now())
-  updatedAt           DateTime         @updatedAt
+  document            String         @unique
+  email               String         @unique
+  phone               String         @unique
+  active              Boolean        @default(true)
+  onboardingStep      OnboardingStep @default(PLAN)
+  onboardingCompleted Boolean        @default(false)
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
 
-  branches            Branch[]
-  users               User[]
-  subscription        Subscription?
-  address             CompanyAddress? @relation("CompanyAddress")
+  branches     Branch[]
+  users        User[]
+  subscription Subscription?
+  address      CompanyAddress? @relation("CompanyAddress")
 }
+
 enum PlanType {
   TRIAL // Plano de teste (gratuito, cumprindo legislação brasileira)
   BASIC // Plano básico
@@ -55,7 +55,7 @@ enum PlanType {
 }
 
 enum SubscriptionStatus {
-  PENDING   // Pendente
+  PENDING // Pendente
   ACTIVE // Ativa
   INACTIVE // Inativa
   CANCELLED // Cancelada
@@ -69,44 +69,44 @@ enum BillingPeriod {
   ANNUAL // Anual (12 meses)
 }
 
-
 model Plan {
-  id                                                                                   String          @id @default(cuid())
-  name                                                                                 String
-  description                                                                          String?
-  type                                                                                 PlanType
+  id            String        @id @default(cuid())
+  name          String
+  description   String?
+  type          PlanType
   price         Int // Preço base mensal em R$ (será calculado conforme billingPeriod)
   // Periodicidade de cobrança
-  billingPeriod                                                                        BillingPeriod   @default(MONTHLY)
+  billingPeriod BillingPeriod @default(MONTHLY)
   // Limites do plano (JSON: { branches: 1, users: 5, products: 100, ordersPerMonth: 1000 })
-  limits                                                                               String?
-  discount                                                                             Int             @default(0)
+  limits        String?
+  discount      Int           @default(0)
   // Recursos incluídos (JSON: ["delivery", "stock", "reports", "api"])
-  features                                                                             String?
+  features      String?
   // Duração do plano de teste em dias (apenas para TRIAL)
-  trialDays                                                                            Int?            @default(7) // Padrão 7 dias conforme legislação brasileira
+  trialDays     Int?          @default(7) // Padrão 7 dias conforme legislação brasileira
   // Se o plano está ativo para novos cadastros
-  active                                                                               Boolean         @default(true)
+  active        Boolean       @default(true)
   // Se é um plano de teste (gratuito, cumprindo legislação brasileira)
-  isTrial                                                                              Boolean         @default(false)
+  isTrial       Boolean       @default(false)
   // Se o plano está em destaque (mais escolhido)
-  isFeatured                                                                           Boolean         @default(false)
+  isFeatured    Boolean       @default(false)
   // Ordem de exibição
-  displayOrder                                                                         Int             @default(0)
-  createdAt                                                                            DateTime        @default(now())
-  updatedAt                                                                            DateTime        @updatedAt
+  displayOrder  Int           @default(0)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
-  subscriptions                                                                        Subscription[]
+  subscriptions Subscription[]
 }
+
 model Subscription {
-  id                   String              @id @default(cuid())
-  companyId            String              @unique
+  id                   String             @id @default(cuid())
+  companyId            String             @unique
   planId               String
-  status               SubscriptionStatus  @default(ACTIVE)
+  status               SubscriptionStatus @default(ACTIVE)
   // Periodicidade de cobrança da assinatura
-  billingPeriod        BillingPeriod       @default(MONTHLY)
+  billingPeriod        BillingPeriod      @default(MONTHLY)
   // Data de início da assinatura
-  startDate            DateTime            @default(now())
+  startDate            DateTime           @default(now())
   // Data de término (null = sem término)
   endDate              DateTime?
   // Data do próximo pagamento
@@ -121,14 +121,15 @@ model Subscription {
   lastBillingAmount    Int?
   //                   Observações
   notes                String?
-  createdAt            DateTime            @default(now())
-  updatedAt            DateTime            @updatedAt
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
 
-  company              Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  plan                 Plan               @relation(fields: [planId], references: [id])
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  plan    Plan    @relation(fields: [planId], references: [id])
 }
+
 model CompanyAddress {
-  id           String    @id @default(cuid())
+  id           String  @id @default(cuid())
   street       String
   number       String?
   complement   String?
@@ -137,74 +138,73 @@ model CompanyAddress {
   state        String
   zipCode      String
   reference    String?
-  lat          Int?
-  lng          Int?
-  isDefault    Boolean   @default(true)
+  lat          Float?
+  lng          Float?
+  isDefault    Boolean @default(true)
 
-  companyId    String?   @unique
-  company      Company? @relation("CompanyAddress", fields: [companyId], references: [id], onDelete: Cascade)
+  companyId String?  @unique
+  company   Company? @relation("CompanyAddress", fields: [companyId], references: [id], onDelete: Cascade)
 
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model PasswordResetToken {
-  id        String    @id @default(uuid())
+  id        String   @id @default(uuid())
   email     String
   otp       String
   expiresAt DateTime
-  used      Boolean   @default(false)
-  createdAt DateTime  @default(now())
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
 
   @@index([email])
 }
 
-
 // Configurações globais do sistema (apenas master pode editar)
 model SystemConfig {
-  id                                                         String    @id @default(cuid())
-  key                                                        String    @unique // Ex: "strapi_url", "strapi_api_token", etc.
+  id        String   @id @default(cuid())
+  key       String   @unique // Ex: "strapi_url", "strapi_api_token", etc.
   value     String? // Valor da configuração (pode ser JSON)
-  encrypted                                                  Boolean   @default(false) // Se o valor deve ser criptografado
-  createdAt                                                  DateTime  @default(now())
-  updatedAt                                                  DateTime  @updatedAt
+  encrypted Boolean  @default(false) // Se o valor deve ser criptografado
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Branch {
-  id                     String                   @id @default(cuid())
-  branchName             String
-  phone                  String                   @unique
-  document               String                   @unique
-  email                  String?                  @unique
-  subdomain              String?                  @unique
-  logoUrl                String?
-  bannerUrl              String?
-  active                 Boolean                  @default(true)
+  id              String   @id @default(cuid())
+  branchName      String
+  phone           String   @unique
+  document        String   @unique
+  email           String?  @unique
+  subdomain       String?  @unique
+  logoUrl         String?
+  bannerUrl       String?
+  active          Boolean  @default(true)
   // Cor primária da loja (hex: #000000)
-  primaryColor           String?                  @default("#3B82F6")
+  primaryColor    String?  @default("#3B82F6")
   // Horários de funcionamento (JSON: { monday: { open: "08:00", close: "22:00" }, ... })
   // Redes sociais (JSON: { instagram: "...", facebook: "...", whatsapp: "..." })
-  socialMedia            String?
+  socialMedia     String?
   // Formas de pagamento aceitas (JSON: ["CASH", "CREDIT_CARD", "DEBIT_CARD", "PIX", "ONLINE"])
   // CNPJ da filial
   // Descrição da filial
-  description            String?
+  description     String?
   // Instagram da filial
-  instagram              String?
+  instagram       String?
   // Valor mínimo do pedido
-  minOrderValue          Int?
+  minOrderValue   Int?
   // Mensagem antes de finalizar o pedido
-  checkoutMessage        String?
+  checkoutMessage String?
   // Coordenadas para o mapa (lat, lng)
-  latitude               Int?
-  longitude              Int?
+  latitude        Float?
+  longitude       Float?
   // Avaliação média (calculada)
-  rating                 Int?                     @default(0)
+  rating          Int?     @default(0)
   // Total de avaliações
-  ratingsCount           Int                      @default(0)
-  companyId              String
-  createdAt              DateTime                 @default(now())
-  updatedAt              DateTime                 @updatedAt
+  ratingsCount    Int      @default(0)
+  companyId       String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   openingHours           BranchSchedule[]
   customers              Customer[]
@@ -237,19 +237,20 @@ model Branch {
 }
 
 model BranchSchedule {
-  id        String     @id @default(cuid())
+  id        String    @id @default(cuid())
   day       String
   open      String
   close     String
-  closed    Boolean    @default(false)
+  closed    Boolean   @default(false)
   branchId  String
   date      DateTime?
   branch    Branch    @relation(fields: [branchId], references: [id])
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 }
+
 model BranchAddress {
-  id           String    @id @default(cuid())
+  id           String  @id @default(cuid())
   street       String
   number       String?
   complement   String?
@@ -260,34 +261,32 @@ model BranchAddress {
   reference    String?
   lat          Int?
   lng          Int?
-  isDefault    Boolean   @default(true)
+  isDefault    Boolean @default(true)
 
-  branchId     String?   @unique
+  branchId String? @unique
 
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  branches     Branch[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  branches  Branch[]
 }
 
-
-
 model Announcement {
-  id            String    @id @default(cuid())
+  id            String   @id @default(cuid())
   title         String
   message       String
-  type          String    @default("INFO") // INFO, WARNING, SUCCESS, PROMOTION
-  active        Boolean   @default(true)
+  type          String   @default("INFO") // INFO, WARNING, SUCCESS, PROMOTION
+  active        Boolean  @default(true)
   // Período de exibição (JSON: { startDate: "2024-01-01", endDate: "2024-01-31", startTime: "08:00", endTime: "22:00" })
   displayPeriod String?
   // Dias da semana para exibir (JSON: ["monday", "tuesday", ...])
   displayDays   String?
   // Ordem de exibição
-  displayOrder  Int       @default(0)
+  displayOrder  Int      @default(0)
   branchId      String
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  branch        Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 }
 
 enum CashMovementType {
@@ -299,85 +298,85 @@ enum CashMovementType {
 }
 
 model CashRegister {
-  id                                                     String            @id @default(cuid())
-  branchId                                               String
+  id             String           @id @default(cuid())
+  branchId       String
   openedBy       String // userId que abriu
   closedBy       String? // userId que fechou
-  openingDate                                            DateTime          @default(now())
-  closingDate                                            DateTime?
+  openingDate    DateTime         @default(now())
+  closingDate    DateTime?
   openingAmount  Int // Valor inicial do caixa
   closingAmount  Int? // Valor final do caixa
   expectedAmount Int? // Valor esperado (calculado)
   difference     Int? // Diferença entre esperado e real
-  status                                                 CashMovementType  @default(OPENING) // OPEN, CLOSED
-  notes                                                  String?
-  createdAt                                              DateTime          @default(now())
-  updatedAt                                              DateTime          @updatedAt
+  status         CashMovementType @default(OPENING) // OPEN, CLOSED
+  notes          String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
 
-  branch                                                 Branch           @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  movements                                              CashMovement[]
+  branch    Branch         @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  movements CashMovement[]
 }
 
 model CashMovement {
-  id                                                               String              @id @default(cuid())
-  cashRegisterId                                                   String
-  type                                                             CashMovementType
-  amount                                                           Int
-  paymentMethod                                                    PaymentMethodType?  @default(CASH) // CASH, CREDIT_CARD, DEBIT_CARD, PIX, ONLINE - apenas para vendas (SALE)
-  description                                                      String?
+  id             String             @id @default(cuid())
+  cashRegisterId String
+  type           CashMovementType
+  amount         Int
+  paymentMethod  PaymentMethodType? @default(CASH) // CASH, CREDIT_CARD, DEBIT_CARD, PIX, ONLINE - apenas para vendas (SALE)
+  description    String?
   orderId        String? // Se for uma venda, referência ao pedido
   userId         String // Usuário que fez a movimentação
-  createdAt                                                        DateTime            @default(now())
+  createdAt      DateTime           @default(now())
 
-  cashRegister                                                     CashRegister       @relation(fields: [cashRegisterId], references: [id], onDelete: Cascade)
-  order                                                            Order?             @relation(fields: [orderId], references: [id], onDelete: SetNull)
-  user                                                             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cashRegister CashRegister @relation(fields: [cashRegisterId], references: [id], onDelete: Cascade)
+  order        Order?       @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model User {
-  id                                                                                                                              String               @id @default(cuid())
-  name                                                                                                                            String
-  email                                                                                                                           String?              @unique
-  phone                                                                                                                           String               @unique
-  password                                                                                                                        String?
+  id        String   @id @default(cuid())
+  name      String
+  email     String?  @unique
+  phone     String   @unique
+  password  String?
   role      String // admin, manager, customer (master removido - agora é MasterUser, delivery removido - agora é DeliveryPerson)
-  active                                                                                                                          Boolean              @default(true)
-  companyId                                                                                                                       String?
-  branchId                                                                                                                        String?
-  createdAt                                                                                                                       DateTime             @default(now())
-  updatedAt                                                                                                                       DateTime             @updatedAt
+  active    Boolean  @default(true)
+  companyId String?
+  branchId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  company                                                                                                                         Company?            @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  branch                                                                                                                          Branch?             @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  orders                                                                                                                          Order[]
-  cashMovements                                                                                                                   CashMovement[]
-  pointsTransactions                                                                                                              PointsTransaction[] @relation("PointsTransactions")
-  customerPoints                                                                                                                  CustomerPoints?     @relation("CustomerPoints")
-  refreshTokens                                                                                                                   RefreshToken[]
-  notificationReads                                                                                                               NotificationRead[]
-  tables                                                                                                                          Table[]
-  billSplits                                                                                                                      BillSplit[]
+  company            Company?            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  branch             Branch?             @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  orders             Order[]
+  cashMovements      CashMovement[]
+  pointsTransactions PointsTransaction[] @relation("PointsTransactions")
+  customerPoints     CustomerPoints?     @relation("CustomerPoints")
+  refreshTokens      RefreshToken[]
+  notificationReads  NotificationRead[]
+  tables             Table[]
+  billSplits         BillSplit[]
 }
 
 model RefreshToken {
-  id        String    @id @default(cuid())
-  token     String    @unique
+  id        String   @id @default(cuid())
+  token     String   @unique
   userId    String
   expiresAt DateTime
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("refresh_tokens")
 }
 
 model DeliveryPerson {
-  id                        String                @id @default(cuid())
+  id                        String    @id @default(cuid())
   name                      String
   email                     String?
   phone                     String
-  active                    Boolean               @default(true)
+  active                    Boolean   @default(true)
   branchId                  String
   // Senha temporária de 6 dígitos para entregador
   deliveryPassword          String?
@@ -386,105 +385,107 @@ model DeliveryPerson {
   // Data de expiração da senha
   deliveryPasswordExpiresAt DateTime?
   // Status online/offline do entregador
-  isOnline                  Boolean               @default(false)
-  createdAt                 DateTime              @default(now())
-  updatedAt                 DateTime              @updatedAt
+  isOnline                  Boolean   @default(false)
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
 
-  branch                    Branch               @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  deliveryOrders            Order[]
-  deliveryAssignments       DeliveryAssignment[]
+  branch              Branch               @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  deliveryOrders      Order[]
+  deliveryAssignments DeliveryAssignment[]
 }
 
 model Category {
-  id          String     @id @default(cuid())
+  id          String   @id @default(cuid())
   name        String
   slug        String
   description String?
   image       String?
-  active      Boolean    @default(true)
-  featured    Boolean    @default(false)
+  active      Boolean  @default(true)
+  featured    Boolean  @default(false)
   branchId    String
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  branch      Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  products    Product[]
+  branch   Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  products Product[]
 }
 
 model Product {
-  id                                                                        String               @id @default(cuid())
-  name                                                                      String
-  description                                                               String?
-  price                                                                     Int
-  image                                                                     String?
-  active                                                                    Boolean              @default(true)
-  featured                                                                  Boolean              @default(false)
+  id          String  @id @default(cuid())
+  name        String
+  description String?
+  price       Int
+  image       String?
+  active      Boolean @default(true)
+  featured    Boolean @default(false)
 
   //                                                                        Promoção
-  hasPromotion                                                              Boolean              @default(false)
-  promotionalPrice                                                          Int?
-  promotionalType        String?  // FIXED, PERCENTAGE
-  promotionalPeriodType  String?  // DATE_RANGE, DAYS_OF_WEEK
-  promotionalStartDate                                                      DateTime?
-  promotionalEndDate                                                        DateTime?
-  promotionalDays        String?  // JSON array: ["monday", "tuesday", ...]
+  hasPromotion          Boolean   @default(false)
+  promotionalPrice      Int?
+  promotionalType       String? // FIXED, PERCENTAGE
+  promotionalPeriodType String? // DATE_RANGE, DAYS_OF_WEEK
+  promotionalStartDate  DateTime?
+  promotionalEndDate    DateTime?
+  promotionalDays       String? // JSON array: ["monday", "tuesday", ...]
 
   //                                                                        Produto
-  weight                 Int?   // Peso em gramas
-  preparationTime        Int?     // Tempo de preparo em minutos
-  stockControlEnabled                                                       Boolean              @default(false)
-  minStock               Int?     // Estoque mínimo
-  tags                   String?  // Tags separadas por vírgula
-  filterMetadata         String?  // JSON com metadados
-  displayOrder           Int?     // Ordem de exibição
+  weight              Int? // Peso em gramas
+  preparationTime     Int? // Tempo de preparo em minutos
+  stockControlEnabled Boolean @default(false)
+  minStock            Int? // Estoque mínimo
+  tags                String? // Tags separadas por vírgula
+  filterMetadata      String? // JSON com metadados
+  displayOrder        Int? // Ordem de exibição
 
   //                                                                        Parcelamento
-  installmentEnabled                                                        Boolean              @default(false)
-  maxInstallments                                                           Int?
-  minInstallmentValue                                                       Int?
-  installmentInterestRate                                                   Int?
-  installmentOnPromotionalPrice                                             Boolean              @default(false)
+  installmentEnabled            Boolean @default(false)
+  maxInstallments               Int?
+  minInstallmentValue           Int?
+  installmentInterestRate       Int?
+  installmentOnPromotionalPrice Boolean @default(false)
 
-  categoryId                                                                String
-  branchId                                                                  String
-  createdAt                                                                 DateTime             @default(now())
-  updatedAt                                                                 DateTime             @updatedAt
+  categoryId String
+  branchId   String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  category                                                                  Category            @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  branch                                                                    Branch              @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  branch   Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
-  orderItems                                                                OrderItem[]
-  additions                                                                 ProductAddition[]
-  complements                                                               ProductComplement[]
-  ingredients                                                               ProductIngredient[]
-  stockMovements                                                            StockMovement[]
+  orderItems     OrderItem[]
+  additions      ProductAddition[]
+  complements    ProductComplement[]
+  ingredients    ProductIngredient[]
+  stockMovements StockMovement[]
 }
+
 model ProductAddition {
-  id                                         String                @id @default(cuid())
-  name                                       String
-  price                                      Int
-  active                                     Boolean               @default(true)
-  stockControlEnabled                        Boolean               @default(false) // Controle de estoque ativo/desativado
+  id                  String   @id @default(cuid())
+  name                String
+  price               Int
+  active              Boolean  @default(true)
+  stockControlEnabled Boolean  @default(false) // Controle de estoque ativo/desativado
   minStock            Int? // Estoque mínimo
-  minQuantity                                Int                   @default(0) // Quantidade mínima obrigatória (se > 0, é obrigatório)
-  productId                                  String
-  createdAt                                  DateTime              @default(now())
-  updatedAt                                  DateTime              @updatedAt
+  minQuantity         Int      @default(0) // Quantidade mínima obrigatória (se > 0, é obrigatório)
+  productId           String
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
-  product                                    Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
-  orderItemAdditions                         OrderItemAddition[]
-  ingredients                                AdditionIngredient[]
-  stockMovements                             StockMovement[]
+  product            Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
+  orderItemAdditions OrderItemAddition[]
+  ingredients        AdditionIngredient[]
+  stockMovements     StockMovement[]
 }
-model Customer {
-  id               String             @id @default(cuid())
-  name             String
-  phone            String
-  email            String?
-  branchId         String
 
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
+model Customer {
+  id       String  @id @default(cuid())
+  name     String
+  phone    String
+  email    String?
+  branchId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   addresses        CustomerAddress[]
   orders           Order[]
@@ -494,8 +495,9 @@ model Customer {
 
   @@unique([phone, branchId])
 }
+
 model CustomerAddress {
-  id           String    @id @default(cuid())
+  id           String  @id @default(cuid())
   label        String
   street       String
   number       String?
@@ -505,61 +507,64 @@ model CustomerAddress {
   state        String
   zipCode      String
   reference    String?
-  lat          Int?
-  lng          Int?
+  lat          Float?
+  lng          Float?
 
-  isDefault    Boolean   @default(false)
+  isDefault Boolean @default(false)
 
-  customerId   String
-  branchId     String
+  customerId String
+  branchId   String
 
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  customer     Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  orders   Order[]
 
   @@index([customerId])
   @@index([branchId])
 }
 
 model Order {
-  id                                                           String               @id @default(cuid())
-  orderNumber                                                  Int?                 @unique // Número sequencial do pedido
-  status                                                       OrderStatus          @default(PENDING)
-  deliveryType                                                 DeliveryType         @default(DELIVERY)
-  paymentStatus                                                String               @default("PENDING") // PENDING, PARTIAL, PAID
-  paidAmount                                                   Int                  @default(0) // Valor já pago
-  total                                                        Int
-  subtotal                                                     Int
-  deliveryFee                                                  Int                  @default(0)
-  serviceFee                                                   Int                  @default(0) // Taxa de serviço (10% para pedidos de mesa)
-  discount                                                     Int                  @default(0)
-  customerId                                                   String?
-  customer                                                     Customer?           @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  notes                                                        String?
-  branchId                                                     String
-  userId                                                       String?
-  couponId                                                     String?
-  deliveryPersonId String? // Entregador associado ao pedido
-  tableNumber      String? // Para pedidos "Comer no local"
-  tableId                                                      String?
-  createdAt                                                    DateTime             @default(now())
-  updatedAt                                                    DateTime             @updatedAt
+  id                String       @id @default(cuid())
+  orderNumber       Int?         @unique // Número sequencial do pedido
+  status            OrderStatus  @default(PENDING)
+  deliveryType      DeliveryType @default(DELIVERY)
+  paymentStatus     String       @default("PENDING") // PENDING, PARTIAL, PAID
+  paidAmount        Int          @default(0) // Valor já pago
+  total             Int
+  subtotal          Int
+  deliveryFee       Int          @default(0)
+  serviceFee        Int          @default(0) // Taxa de serviço (10% para pedidos de mesa)
+  discount          Int          @default(0)
+  customerId        String?
+  customer          Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  notes             String?
+  branchId          String
+  userId            String?
+  couponId          String?
+  customerAddressId String?
+  deliveryPersonId  String? // Entregador associado ao pedido
+  tableNumber       String? // Para pedidos "Comer no local"
+  tableId           String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
 
-  table                                                        Table?              @relation(fields: [tableId], references: [id], onDelete: SetNull)
-  branch                                                       Branch              @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  user                                                         User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
-  coupon                                                       Coupon?             @relation(fields: [couponId], references: [id], onDelete: SetNull)
-  deliveryPerson                                               DeliveryPerson?     @relation(fields: [deliveryPersonId], references: [id], onDelete: SetNull)
-  deliveryAssignment                                           DeliveryAssignment? @relation(fields: [deliveryAssignmentId], references: [id], onDelete: SetNull)
-  deliveryAssignmentId                                         String?
-  billSplitId                                                  String?
-  billSplit                                                    BillSplit?          @relation(fields: [billSplitId], references: [id], onDelete: SetNull)
-  items                                                        OrderItem[]
+  customerAddress      CustomerAddress?    @relation(fields: [customerAddressId], references: [id], onDelete: SetNull)
+  table                Table?              @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  branch               Branch              @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  user                 User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
+  coupon               Coupon?             @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  deliveryPerson       DeliveryPerson?     @relation(fields: [deliveryPersonId], references: [id], onDelete: SetNull)
+  deliveryAssignment   DeliveryAssignment? @relation(fields: [deliveryAssignmentId], references: [id], onDelete: SetNull)
+  deliveryAssignmentId String?
+  billSplitId          String?
+  billSplit            BillSplit?          @relation(fields: [billSplitId], references: [id], onDelete: SetNull)
+  items                OrderItem[]
   payments             OrderPayment[] // Pagamentos realizados
-  cashMovements                                                CashMovement[]
-  pointsTransactions                                           PointsTransaction[]
-  billSplitPersons                                             BillSplitPerson[]
+  cashMovements        CashMovement[]
+  pointsTransactions   PointsTransaction[]
+  billSplitPersons     BillSplitPerson[]
 }
 
 enum PaymentStatus {
@@ -567,67 +572,72 @@ enum PaymentStatus {
   PAID
   CANCELLED
 }
-model OrderPayment {
-  id                                                                     String            @id @default(cuid())
-  orderId                                                                String
-  type              String // CASH, CREDIT_CARD, DEBIT_CARD, PIX, ONLINE
-  amount                                                                 Int
-  status                                                                 PaymentStatus     @default(PENDING) // PENDING, PAID, CANCELLED
-  paymentMethodId                                                        String
-  change                                                                 Int               @default(0) // Troco (apenas para dinheiro)
-  createdAt                                                              DateTime          @default(now())
-  order                                                                  Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  billSplitPerson                                                        BillSplitPerson? @relation(fields: [billSplitPersonId], references: [id])
-  billSplitPersonId                                                      String?
-}
-model OrderItem {
-  id                                                                      String                 @id @default(cuid())
-  quantity                                                                Int
-  price                                                                   Int
-  notes                                                                   String?
-  orderId                                                                 String
-  productId                                                               String
-  // Status de preparo do item (PENDING, PREPARING, READY)
-  preparationStatus                                                       OrderStatus            @default(PENDING)
-  // Status de despacho do item (PENDING, DISPATCHED) - usado no modo de despacho
-  dispatchStatus                                                          OrderStatus            @default(PENDING)
-  createdAt                                                               DateTime               @default(now())
-  updatedAt                                                               DateTime               @updatedAt
 
-  order                                                                   Order                 @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product                                                                 Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
-  billSplitItems BillSplitItem[] // Itens atribuídos em divisões de conta
-  additions                                                               OrderItemAddition[]
-  complements                                                             OrderItemComplement[]
+model OrderPayment {
+  id                String           @id @default(cuid())
+  orderId           String
+  type              String // CASH, CREDIT_CARD, DEBIT_CARD, PIX, ONLINE
+  amount            Int
+  status            PaymentStatus    @default(PENDING) // PENDING, PAID, CANCELLED
+  paymentMethodId   String
+  change            Int              @default(0) // Troco (apenas para dinheiro)
+  createdAt         DateTime         @default(now())
+  order             Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  billSplitPerson   BillSplitPerson? @relation(fields: [billSplitPersonId], references: [id])
+  billSplitPersonId String?
 }
+
+model OrderItem {
+  id                String      @id @default(cuid())
+  quantity          Int
+  price             Int
+  notes             String?
+  orderId           String
+  productId         String
+  // Status de preparo do item (PENDING, PREPARING, READY)
+  preparationStatus OrderStatus @default(PENDING)
+  // Status de despacho do item (PENDING, DISPATCHED) - usado no modo de despacho
+  dispatchStatus    OrderStatus @default(PENDING)
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  order          Order                 @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product        Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
+  billSplitItems BillSplitItem[] // Itens atribuídos em divisões de conta
+  additions      OrderItemAddition[]
+  complements    OrderItemComplement[]
+}
+
 model OrderItemAddition {
-  id          String           @id @default(cuid())
+  id          String   @id @default(cuid())
   orderItemId String
   additionId  String
-  createdAt   DateTime         @default(now())
+  createdAt   DateTime @default(now())
 
-  orderItem   OrderItem       @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
-  addition    ProductAddition @relation(fields: [additionId], references: [id], onDelete: Cascade)
+  orderItem OrderItem       @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  addition  ProductAddition @relation(fields: [additionId], references: [id], onDelete: Cascade)
 }
+
 model OrderItemComplement {
-  id           String                       @id @default(cuid())
+  id           String   @id @default(cuid())
   orderItemId  String
   complementId String
-  createdAt    DateTime                     @default(now())
+  createdAt    DateTime @default(now())
 
-  orderItem    OrderItem                   @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
-  complement   ProductComplement           @relation(fields: [complementId], references: [id], onDelete: Cascade)
-  options      OrderItemComplementOption[]
+  orderItem  OrderItem                   @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  complement ProductComplement           @relation(fields: [complementId], references: [id], onDelete: Cascade)
+  options    OrderItemComplementOption[]
 }
+
 model OrderItemComplementOption {
-  id                    String               @id @default(cuid())
+  id                    String   @id @default(cuid())
   orderItemComplementId String
   optionId              String
-  quantity              Int                  @default(1) // Quantidade da mesma opção (se allowRepeat = true)
-  createdAt             DateTime             @default(now())
+  quantity              Int      @default(1) // Quantidade da mesma opção (se allowRepeat = true)
+  createdAt             DateTime @default(now())
 
-  orderItemComplement   OrderItemComplement @relation(fields: [orderItemComplementId], references: [id], onDelete: Cascade)
-  option                ComplementOption    @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  orderItemComplement OrderItemComplement @relation(fields: [orderItemComplementId], references: [id], onDelete: Cascade)
+  option              ComplementOption    @relation(fields: [optionId], references: [id], onDelete: Cascade)
 }
 
 enum SelectionType {
@@ -635,202 +645,217 @@ enum SelectionType {
   MULTIPLE_NO_REPEAT
   MULTIPLE_REPEAT
 }
-model ProductComplement {
-  id                                                                        String                 @id @default(cuid())
-  name          String // Nome do complemento (ex: "Tamanho", "Adicionais")
-  minOptions                                                                Int                    @default(0) // Mínimo de opções a selecionar
-  maxOptions                                                                Int                    @default(1) // Máximo de opções (null = ilimitado)
-  required                                                                  Boolean                @default(false) // Se é obrigatório
-  allowRepeat                                                               Boolean                @default(false) // Se permite repetir a mesma opção
-  active                                                                    Boolean                @default(true)
-  displayOrder  Int? // Ordem de exibição
-  productId                                                                 String?
-  selectionType                                                             SelectionType          @default(SINGLE) // SINGLE, MULTIPLE_NO_REPEAT, MULTIPLE_REPEAT
-  branchId                                                                  String
-  createdAt                                                                 DateTime               @default(now())
-  updatedAt                                                                 DateTime               @updatedAt
 
-  product                                                                   Product?              @relation(fields: [productId], references: [id], onDelete: SetNull)
-  branch                                                                    Branch                @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  options                                                                   ComplementOption[]
-  orderItemComplements                                                      OrderItemComplement[]
+model ProductComplement {
+  id            String        @id @default(cuid())
+  name          String // Nome do complemento (ex: "Tamanho", "Adicionais")
+  minOptions    Int           @default(0) // Mínimo de opções a selecionar
+  maxOptions    Int           @default(1) // Máximo de opções (null = ilimitado)
+  required      Boolean       @default(false) // Se é obrigatório
+  allowRepeat   Boolean       @default(false) // Se permite repetir a mesma opção
+  active        Boolean       @default(true)
+  displayOrder  Int? // Ordem de exibição
+  productId     String?
+  selectionType SelectionType @default(SINGLE) // SINGLE, MULTIPLE_NO_REPEAT, MULTIPLE_REPEAT
+  branchId      String
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  product              Product?              @relation(fields: [productId], references: [id], onDelete: SetNull)
+  branch               Branch                @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  options              ComplementOption[]
+  orderItemComplements OrderItemComplement[]
 }
+
 model ComplementOption {
-  id                         String                       @id @default(cuid())
-  name                       String
-  price                      Int                          @default(0) // Preço adicional (pode ser 0)
-  active                     Boolean                      @default(true)
-  stockControlEnabled        Boolean                      @default(false) // Controle de estoque ativo/desativado
-  minStock                   Int?
-  displayOrder               Int?
-  branchId                   String
-  createdAt                  DateTime                     @default(now())
-  updatedAt                  DateTime                     @updatedAt
+  id                  String   @id @default(cuid())
+  name                String
+  price               Int      @default(0) // Preço adicional (pode ser 0)
+  active              Boolean  @default(true)
+  stockControlEnabled Boolean  @default(false) // Controle de estoque ativo/desativado
+  minStock            Int?
+  displayOrder        Int?
+  branchId            String
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   complement                 ProductComplement[]
   branch                     Branch                      @relation(fields: [branchId], references: [id])
   orderItemComplementOptions OrderItemComplementOption[]
   stockMovements             StockMovement[]
 }
+
 model Coupon {
-  id         String      @id @default(cuid())
-  code       String      @unique
+  id         String     @id @default(cuid())
+  code       String     @unique
   type       CouponType
   value      Int
   minValue   Int?
   maxUses    Int?
-  usedCount  Int         @default(0)
+  usedCount  Int        @default(0)
   validFrom  DateTime
   validUntil DateTime
-  active     Boolean     @default(true)
+  active     Boolean    @default(true)
   branchId   String?
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
 
-  branch     Branch?    @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  orders     Order[]
+  branch Branch? @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  orders Order[]
 }
+
 model PointsConfig {
-  id                String    @id @default(cuid())
-  branchId          String    @unique
-  pointsPerReal     Int       @default(1) // Pontos ganhos por R$ 1,00 gasto
-  minPointsToRedeem Int       @default(100) // Mínimo de pontos para resgatar
-  realPerPoint      Int       @default(0) // R$ por ponto ao resgatar
-  active            Boolean   @default(true)
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  id                String   @id @default(cuid())
+  branchId          String   @unique
+  pointsPerReal     Int      @default(1) // Pontos ganhos por R$ 1,00 gasto
+  minPointsToRedeem Int      @default(100) // Mínimo de pontos para resgatar
+  realPerPoint      Int      @default(0) // R$ por ponto ao resgatar
+  active            Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  branch            Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 }
+
 model PointsTransaction {
-  id                                                            String    @id @default(cuid())
-  userId                                                        String
-  branchId                                                      String
-  orderId                                                       String?
+  id          String   @id @default(cuid())
+  userId      String
+  branchId    String
+  orderId     String?
   points      Int // Positivo para ganho, negativo para resgate
   type        String // EARNED, REDEEMED
-  description                                                   String
-  createdAt                                                     DateTime  @default(now())
+  description String
+  createdAt   DateTime @default(now())
 
-  user                                                          User     @relation("PointsTransactions", fields: [userId], references: [id], onDelete: Cascade)
-  branch                                                        Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  order                                                         Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  user   User   @relation("PointsTransactions", fields: [userId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  order  Order? @relation(fields: [orderId], references: [id], onDelete: SetNull)
 }
+
 model CustomerPoints {
-  id            String    @id @default(cuid())
-  userId        String    @unique
+  id            String   @id @default(cuid())
+  userId        String   @unique
   branchId      String
-  balance       Int       @default(0) // Saldo atual de pontos
-  totalEarned   Int       @default(0) // Total de pontos ganhos
-  totalRedeemed Int       @default(0) // Total de pontos resgatados
-  updatedAt     DateTime  @updatedAt
+  balance       Int      @default(0) // Saldo atual de pontos
+  totalEarned   Int      @default(0) // Total de pontos ganhos
+  totalRedeemed Int      @default(0) // Total de pontos resgatados
+  updatedAt     DateTime @updatedAt
 
-  user          User     @relation("CustomerPoints", fields: [userId], references: [id], onDelete: Cascade)
-  branch        Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  user   User   @relation("CustomerPoints", fields: [userId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 }
+
 model DeliveryArea {
-  id                                                               String    @id @default(cuid())
-  name                                                             String
+  id            String   @id @default(cuid())
+  name          String
   type          String // CIRCLE, POLYGON
-  centerLat     Int? // Para círculo
-  centerLng     Int? // Para círculo
-  radius        Int? // Para círculo (em metros)
+  centerLat     Float? // Para círculo
+  centerLng     Float? // Para círculo
+  radius        Float? // Para círculo (em metros)
   polygon       String? // JSON array de coordenadas para polígono
-  deliveryFee                                                      Int
+  deliveryFee   Int
   minOrderValue Int? // Valor mínimo do pedido
   estimatedTime Int? // Tempo estimado em minutos
-  level                                                            Int       @default(1) // Nível de prioridade (quanto maior, mais prioritário)
-  active                                                           Boolean   @default(true)
-  branchId                                                         String
-  createdAt                                                        DateTime  @default(now())
-  updatedAt                                                        DateTime  @updatedAt
+  level         Int      @default(1) // Nível de prioridade (quanto maior, mais prioritário)
+  active        Boolean  @default(true)
+  branchId      String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  branch                                                           Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([branchId, level])
 }
+
 model DeliveryRoute {
-  id                                                             String    @id @default(cuid())
-  name                                                           String
+  id            String   @id @default(cuid())
+  name          String
   coordinates   String // JSON array de coordenadas [{lat, lng}]
-  level                                                          Int       @default(1) // Nível de prioridade (quanto maior, mais prioritário)
-  deliveryFee                                                    Int
-  minOrderValue                                                  Int?
-  estimatedTime                                                  Int?
-  active                                                         Boolean   @default(true)
-  branchId                                                       String
-  createdAt                                                      DateTime  @default(now())
-  updatedAt                                                      DateTime  @updatedAt
+  level         Int      @default(1) // Nível de prioridade (quanto maior, mais prioritário)
+  deliveryFee   Int
+  minOrderValue Int?
+  estimatedTime Int?
+  active        Boolean  @default(true)
+  branchId      String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  branch                                                         Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 }
+
 model DeliveryAssignment {
-  id                                                                                   String          @id @default(cuid())
+  id                String    @id @default(cuid())
   name              String? // Nome opcional da rota
-  deliveryPersonId                                                                     String
-  branchId                                                                             String
-  status                                                                               String          @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, CANCELLED
+  deliveryPersonId  String
+  branchId          String
+  status            String    @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, CANCELLED
   route             String // JSON array de coordenadas [{lat, lng}] da rota otimizada
   estimatedDistance Int? // Distância estimada em metros
   estimatedTime     Int? // Tempo estimado em minutos
-  startedAt                                                                            DateTime?
-  completedAt                                                                          DateTime?
-  createdAt                                                                            DateTime        @default(now())
-  updatedAt                                                                            DateTime        @updatedAt
+  startedAt         DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
-  deliveryPerson                                                                       DeliveryPerson @relation(fields: [deliveryPersonId], references: [id], onDelete: Cascade)
-  branch                                                                               Branch         @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  orders                                                                               Order[]
+  deliveryPerson DeliveryPerson @relation(fields: [deliveryPersonId], references: [id], onDelete: Cascade)
+  branch         Branch         @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  orders         Order[]
 }
+
 model DeliveryExclusionArea {
-  id                                                           String    @id @default(cuid())
-  name                                                         String
+  id        String   @id @default(cuid())
+  name      String
   type      String // CIRCLE, POLYGON
-  centerLat Int? // Para círculo
-  centerLng Int? // Para círculo
-  radius    Int? // Para círculo (em metros)
+  centerLat Float? // Para círculo
+  centerLng Float? // Para círculo
+  radius    Float? // Para círculo (em metros)
   polygon   String? // JSON array de coordenadas para polígono
-  active                                                       Boolean   @default(true)
-  branchId                                                     String
-  createdAt                                                    DateTime  @default(now())
-  updatedAt                                                    DateTime  @updatedAt
+  active    Boolean  @default(true)
+  branchId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  branch                                                       Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 }
+
 model IngredientCategory {
-  id          String        @id @default(cuid())
-  name        String
-  branchId    String
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id        String   @id @default(cuid())
+  name      String
+  branchId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   branch      Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
   ingredients Ingredient[]
 }
+
 model Ingredient {
-  id                                                                      String                @id @default(cuid())
-  name                                                                    String
-  description                                                             String?
-  categoryId                                                              String
+  id                  String   @id @default(cuid())
+  name                String
+  description         String?
+  categoryId          String
   unit                String // Unidade de medida (kg, g, L, ml, un, etc)
   costPrice           Int // Preço de custo
-  allowNegativeStock                                                      Boolean               @default(false) // Permite estoque negativo
-  stockControlEnabled                                                     Boolean               @default(true) // Controle de estoque ativo/desativado
+  allowNegativeStock  Boolean  @default(false) // Permite estoque negativo
+  stockControlEnabled Boolean  @default(true) // Controle de estoque ativo/desativado
   minStock            Int? // Estoque mínimo
-  currentStock                                                            Int                   @default(0) // Estoque atual (Int para permitir decimais)
+  currentStock        Int      @default(0) // Estoque atual (Int para permitir decimais)
   currentCost         Int? // Custo atual
   unitCost            Int? // Custo unitário
   averageCost         Int? // Custo médio
-  branchId                                                                String
-  createdAt                                                               DateTime              @default(now())
-  updatedAt                                                               DateTime              @updatedAt
+  branchId            String
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
-  branch                                                                  Branch               @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  category                                                                IngredientCategory   @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  movements                                                               StockMovement[]
-  products                                                                ProductIngredient[]
-  additions                                                               AdditionIngredient[]
+  branch    Branch               @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  category  IngredientCategory   @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  movements StockMovement[]
+  products  ProductIngredient[]
+  additions AdditionIngredient[]
 }
+
 model StockMovement {
-  id                                                                              String             @id @default(cuid())
+  id           String   @id @default(cuid())
   type         String // ENTRY, EXIT, ADJUSTMENT
   quantity     Int // Quantidade
   variation    Int // Variação (pode ser positivo ou negativo)
@@ -840,40 +865,42 @@ model StockMovement {
   productId    String? // Movimentação de produto
   additionId   String? // Movimentação de opção (ProductAddition)
   optionId     String? // Movimentação de opção de complemento (ComplementOption)
-  branchId                                                                        String
-  createdAt                                                                       DateTime           @default(now())
+  branchId     String
+  createdAt    DateTime @default(now())
 
-  branch                                                                          Branch            @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  ingredient                                                                      Ingredient?       @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
-  product                                                                         Product?          @relation(fields: [productId], references: [id], onDelete: Cascade)
-  addition                                                                        ProductAddition?  @relation(fields: [additionId], references: [id], onDelete: Cascade)
-  option                                                                          ComplementOption? @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  branch     Branch            @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  ingredient Ingredient?       @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  product    Product?          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  addition   ProductAddition?  @relation(fields: [additionId], references: [id], onDelete: Cascade)
+  option     ComplementOption? @relation(fields: [optionId], references: [id], onDelete: Cascade)
 }
+
 model ProductIngredient {
-  id                                                                  String      @id @default(cuid())
-  productId                                                           String
-  ingredientId                                                        String
+  id           String   @id @default(cuid())
+  productId    String
+  ingredientId String
   quantity     Int // Quantidade do insumo a ser descontada por venda
-  createdAt                                                           DateTime    @default(now())
-  updatedAt                                                           DateTime    @updatedAt
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  product                                                             Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
-  ingredient                                                          Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  product    Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
 
-  @@unique([productId,                                                ingredientId])
+  @@unique([productId, ingredientId])
 }
+
 model AdditionIngredient {
-  id                                                                  String           @id @default(cuid())
-  additionId                                                          String
-  ingredientId                                                        String
+  id           String   @id @default(cuid())
+  additionId   String
+  ingredientId String
   quantity     Int // Quantidade do insumo a ser descontada por venda
-  createdAt                                                           DateTime         @default(now())
-  updatedAt                                                           DateTime         @updatedAt
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  addition                                                            ProductAddition @relation(fields: [additionId], references: [id], onDelete: Cascade)
-  ingredient                                                          Ingredient      @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  addition   ProductAddition @relation(fields: [additionId], references: [id], onDelete: Cascade)
+  ingredient Ingredient      @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
 
-  @@unique([additionId,                                               ingredientId])
+  @@unique([additionId, ingredientId])
 }
 
 enum OrderStatus {
@@ -908,26 +935,27 @@ enum TableStatus {
   CLOSING
   ALL
 }
+
 // Mesas do estabelecimento
 model Table {
-  id                                                                 String       @id @default(cuid())
+  id             String      @id @default(cuid())
   number         String // Número da mesa (ex: "1", "2", "Mesa VIP")
-  status                                                             TableStatus  @default(CLOSED) // FECHADA, ABERTA, FECHANDO_CONTA, PAGA
+  status         TableStatus @default(CLOSED) // FECHADA, ABERTA, FECHANDO_CONTA, PAGA
   numberofpeople Int? // Quantidade de pessoas na mesa
   identification String? // Identificação opcional da mesa
   userId         String // Atendente responsável pela mesa
   customerId     String? // Cliente associado à mesa
-  branchId                                                           String
-  orderId                                                            String?
-  activeOrderId                                                      String?
+  branchId       String
+  orderId        String?
+  activeOrderId  String?
   attendantId    String? // Atendente responsável pela mesa
-  createdAt                                                          DateTime     @default(now())
-  updatedAt                                                          DateTime     @updatedAt
-  branch                                                             Branch      @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  branch         Branch      @relation(fields: [branchId], references: [id], onDelete: Cascade)
   billSplits     BillSplit[] // Divisões de conta da mesa
-  user                                                               User        @relation(fields: [userId], references: [id])
-  customer                                                           Customer?   @relation(fields: [customerId], references: [id])
-  orders                                                             Order[]
+  user           User        @relation(fields: [userId], references: [id])
+  customer       Customer?   @relation(fields: [customerId], references: [id])
+  orders         Order[]
 
   @@unique([branchId, number]) // Número da mesa deve ser único por filial
 }
@@ -949,22 +977,22 @@ enum BillSplitType {
 }
 
 model BillSplit {
-  id                                                   String             @id @default(cuid())
-  orderId                                              String
-  branchId                                             String
-  userId                                               String
-  splitType                                            BillSplitType      @default(SINGLE)
+  id             String          @id @default(cuid())
+  orderId        String
+  branchId       String
+  userId         String
+  splitType      BillSplitType   @default(SINGLE)
   tableId        String? // Mesa associada (se houver)
   numberOfPeople Int // Quantidade total de pessoas
-  status                                               BillSplitStatus    @default(IN_PROGRESS) // IN_PROGRESS, COMPLETED, CANCELLED
-  createdAt                                            DateTime           @default(now())
-  updatedAt                                            DateTime           @updatedAt
+  status         BillSplitStatus @default(IN_PROGRESS) // IN_PROGRESS, COMPLETED, CANCELLED
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
 
-  branch                                               Branch            @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  user                                                 User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  table                                                Table?            @relation(fields: [tableId], references: [id], onDelete: SetNull)
-  persons                                              BillSplitPerson[]
-  orders                                               Order[]
+  branch  Branch            @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  user    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  table   Table?            @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  persons BillSplitPerson[]
+  orders  Order[]
 }
 
 enum BillSplitPersonStatus {
@@ -974,27 +1002,27 @@ enum BillSplitPersonStatus {
 }
 
 model BillSplitPerson {
-  id                                                              String                 @id @default(cuid())
-  billSplitId                                                     String
-  orderId                                                         String
+  id          String                @id @default(cuid())
+  billSplitId String
+  orderId     String
   customerId  String? // Cliente associado (opcional)
   name        String // Nome da pessoa
   phone       String? // Telefone (opcional)
-  status                                                          BillSplitPersonStatus  @default(SELECTING) // SELECTING, COMPLETED, PAID
-  total                                                           Int                    @default(0) // Total dos itens atribuídos
+  status      BillSplitPersonStatus @default(SELECTING) // SELECTING, COMPLETED, PAID
+  total       Int                   @default(0) // Total dos itens atribuídos
   payments    OrderPayment[] // Pessoa pode ter vários pagamentos
-  createdAt                                                       DateTime               @default(now())
-  updatedAt                                                       DateTime               @updatedAt
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
 
-  billSplit                                                       BillSplit             @relation(fields: [billSplitId], references: [id], onDelete: Cascade)
-  customer                                                        Customer?             @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  order                                                           Order                 @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  items                                                           BillSplitItem[]
+  billSplit BillSplit       @relation(fields: [billSplitId], references: [id], onDelete: Cascade)
+  customer  Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  order     Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  items     BillSplitItem[]
 }
 
 enum PaymentMethodType {
   CASH
-  CREDIT 
+  CREDIT
   DEBIT
   PIX
   BOLETO
@@ -1005,31 +1033,30 @@ enum PaymentMethodType {
 }
 
 model PaymentMethod {
-  id             String                 @id @default(cuid())
+  id             String                @id @default(cuid())
   name           String
-  type           PaymentMethodType      @default(CASH)
-  isActive       Boolean                @default(true)
+  type           PaymentMethodType     @default(CASH)
+  isActive       Boolean               @default(true)
   branchPayments BranchPaymentMethod[]
-  createdAt      DateTime               @default(now())
-  updatedAt      DateTime               @updatedAt
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
 }
 
 model BranchPaymentMethod {
-  id              String         @id @default(cuid())
+  id              String  @id @default(cuid())
   branchId        String
   paymentMethodId String
-  forDineIn       Boolean        @default(false)
-  forDelivery     Boolean        @default(false)
+  forDineIn       Boolean @default(false)
+  forDelivery     Boolean @default(false)
 
-  branch          Branch        @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  paymentMethod   PaymentMethod @relation(fields: [paymentMethodId], references: [id], onDelete: Cascade)
+  branch        Branch        @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  paymentMethod PaymentMethod @relation(fields: [paymentMethodId], references: [id], onDelete: Cascade)
 
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([branchId, paymentMethodId])
 }
-
 
 enum BillSplitItemStatus {
   SELECTING
@@ -1038,33 +1065,33 @@ enum BillSplitItemStatus {
 }
 
 model BillSplitItem {
-  id                                                          String               @id @default(cuid())
-  billSplitPersonId                                           String
-  orderItemId                                                 String
+  id                String              @id @default(cuid())
+  billSplitPersonId String
+  orderItemId       String
   quantity          Int // Quantidade atribuída a esta pessoa
-  createdAt                                                   DateTime             @default(now())
-  status                                                      BillSplitItemStatus  @default(SELECTING) // SELECTING, COMPLETED, PAID
-  billSplitPerson                                             BillSplitPerson     @relation(fields: [billSplitPersonId], references: [id], onDelete: Cascade)
-  orderItem                                                   OrderItem           @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  createdAt         DateTime            @default(now())
+  status            BillSplitItemStatus @default(SELECTING) // SELECTING, COMPLETED, PAID
+  billSplitPerson   BillSplitPerson     @relation(fields: [billSplitPersonId], references: [id], onDelete: Cascade)
+  orderItem         OrderItem           @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
 
   @@unique([billSplitPersonId, orderItemId]) // Uma pessoa não pode ter o mesmo item duplicado
 }
 
 // Sistema de notificações lidas (escalável para diferentes tipos de notificações)
 model NotificationRead {
-  id                                                     String    @id @default(cuid())
-  userId                                                 String
+  id         String   @id @default(cuid())
+  userId     String
   // Tipo da entidade notificada (ORDER, SYSTEM, ANNOUNCEMENT, etc.)
   entityType String // ORDER, SYSTEM, ANNOUNCEMENT, etc.
   // ID da entidade notificada (ex: orderId, announcementId, etc.)
-  entityId                                               String
+  entityId   String
   // Metadados adicionais (JSON opcional)
-  metadata                                               String?
-  readAt                                                 DateTime  @default(now())
-  createdAt                                              DateTime  @default(now())
-  updatedAt                                              DateTime  @updatedAt
+  metadata   String?
+  readAt     DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  user                                                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // Uma notificação só pode ser marcada como lida uma vez por usuário
   @@unique([userId, entityType, entityId])

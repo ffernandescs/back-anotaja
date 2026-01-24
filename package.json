@@ -5,6 +5,7 @@
   "author": "",
   "private": true,
   "license": "UNLICENSED",
+
   "scripts": {
     "postbuild": "node scripts/fix-prisma-path.js",
     "prebuild": "npm run prisma:generate",
