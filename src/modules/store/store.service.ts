@@ -982,6 +982,7 @@ export class StoreService {
       ingredientQuantities,
     );
 
+
     return {
       success: true,
       order: {
@@ -1355,6 +1356,7 @@ export class StoreService {
             email: true,
           },
         },
+        customerAddress:true,
         items: {
           select: {
             id: true,

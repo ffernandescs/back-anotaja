@@ -170,6 +170,25 @@ model SystemConfig {
   updatedAt DateTime @updatedAt
 }
 
+enum DeliveryPersonAvailability {
+  DELIVERED // Entregador disponível quando todos pedidos estiverem entregues
+  COMPLETED // Entregador disponível quando rota estiver finalizada
+}
+
+model AutoRouteConfig {
+  id                      String                     @id @default(cuid())
+  branchId                String                     @unique
+  autoDispatch            Boolean                    @default(false) // Despacho automático
+  maxDeliveriesPerTrip    Int                        @default(5) // Máximo de entregas por viagem
+  maxDistanceToGroup      Int                        @default(3000) // Distância máxima em metros
+  maxTimeToGroup          Int                        @default(30) // Tempo máximo em minutos
+  deliveryPersonAvailable DeliveryPersonAvailability @default(DELIVERED) // Quando entregador fica disponível
+  createdAt               DateTime                   @default(now())
+  updatedAt               DateTime                   @updatedAt
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+}
+
 model Branch {
   id              String   @id @default(cuid())
   branchName      String
@@ -234,6 +253,7 @@ model Branch {
   complementOptions      ComplementOption[]
   address                BranchAddress?          @relation(fields: [addressId], references: [id], onDelete: Restrict)
   addressId              String?
+  autoRouteConfig        AutoRouteConfig?
 }
 
 model BranchSchedule {
