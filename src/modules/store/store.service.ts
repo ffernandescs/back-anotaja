@@ -1283,19 +1283,13 @@ export class StoreService {
     }
 
     // ===============================
-    // 8️⃣ PEDIDO MÍNIMO
+    // 8️⃣ PEDIDO MÍNIMO (APENAS INFORMATIVO)
     // ===============================
-    if (matched.minOrderValue && subtotal < matched.minOrderValue) {
-      return {
-        available: false,
-        deliveryFee: matched.deliveryFee,
-        minOrderValue: matched.minOrderValue,
-        message: `Pedido mínimo de R$ ${(matched.minOrderValue / 100).toFixed(2)}`,
-      };
-    }
+    // Nota: Não bloqueia a seleção do endereço, apenas informa o valor mínimo
+    // A validação real do pedido mínimo acontece no createOrder
 
     // ===============================
-    // 9️⃣ SUCESSO
+    // 9️⃣ SUCESSO - SEMPRE DISPONÍVEL SE DENTRO DA ÁREA
     // ===============================
     return {
       available: true,
@@ -2247,5 +2241,77 @@ export class StoreService {
       }
       throw new BadRequestException('Erro ao buscar CEP. Tente novamente.');
     }
+  }
+
+  /**
+   * Validar cupom de desconto
+   */
+  async validateCoupon(
+    code: string,
+    subtotal: number,
+    subdomain?: string,
+    branchId?: string,
+  ) {
+    const branch = await this.getBranch(subdomain, branchId);
+    if (!branch) {
+      throw new NotFoundException('Loja não encontrada');
+    }
+
+    const coupon = await prisma.coupon.findFirst({
+      where: {
+        code: code.toUpperCase(),
+        branchId: branch.id,
+        active: true,
+        validFrom: { lte: new Date() },
+        validUntil: { gte: new Date() },
+      },
+    });
+
+    if (!coupon) {
+      return {
+        valid: false,
+        message: 'Cupom inválido ou expirado',
+      };
+    }
+
+    // Validar uso do cupom
+    if (coupon.maxUses && coupon.usedCount >= coupon.maxUses) {
+      return {
+        valid: false,
+        message: 'Cupom esgotado',
+      };
+    }
+
+    // Validar valor mínimo - só avisa se o subtotal atual não atingir
+    if (coupon.minValue && subtotal < coupon.minValue) {
+      const valorFaltante = coupon.minValue - subtotal;
+      return {
+        valid: false,
+        message: `Adicione mais ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorFaltante)} para atingir o pedido mínimo de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(coupon.minValue)}`,
+      };
+    }
+
+    // Calcular desconto
+    let discount = 0;
+    if (coupon.type === 'PERCENTAGE') {
+      discount = Math.round((subtotal * coupon.value) / 100);
+      // Aplicar desconto máximo se houver
+      if (coupon.maxDiscount && discount > coupon.maxDiscount) {
+        discount = coupon.maxDiscount;
+      }
+    } else {
+      discount = coupon.value;
+    }
+
+    return {
+      valid: true,
+      discount,
+      message: `Cupom aplicado com sucesso! Desconto de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(discount)}`,
+      coupon: {
+        code: coupon.code,
+        type: coupon.type,
+        value: coupon.value,
+      },
+    };
   }
 }

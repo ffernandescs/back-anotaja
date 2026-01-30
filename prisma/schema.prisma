@@ -708,19 +708,20 @@ model ComplementOption {
 }
 
 model Coupon {
-  id         String     @id @default(cuid())
-  code       String     @unique
-  type       CouponType
-  value      Int
-  minValue   Int?
-  maxUses    Int?
-  usedCount  Int        @default(0)
-  validFrom  DateTime
-  validUntil DateTime
-  active     Boolean    @default(true)
-  branchId   String?
-  createdAt  DateTime   @default(now())
-  updatedAt  DateTime   @updatedAt
+  id          String     @id @default(cuid())
+  code        String     @unique
+  type        CouponType
+  value       Int
+  minValue    Int?
+  maxDiscount Int?       // Desconto máximo em centavos (para cupons percentuais)
+  maxUses     Int?
+  usedCount   Int        @default(0)
+  validFrom   DateTime
+  validUntil  DateTime
+  active      Boolean    @default(true)
+  branchId    String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
 
   branch Branch? @relation(fields: [branchId], references: [id], onDelete: Cascade)
   orders Order[]

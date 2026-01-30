@@ -444,4 +444,29 @@ export class StoreController {
     }
     return await this.storeService.searchCep(zipCode);
   }
+
+  /**
+   * Validar cupom de desconto (público)
+   */
+  @Post('validate-coupon')
+  @Public()
+  async validateCoupon(
+    @Body() body: { code: string; subtotal: number },
+    @Query('branchId') branchId?: string,
+    @Headers('x-tenant') xTenant?: string,
+    @Req() req?: Request,
+  ) {
+    const hostname = req?.headers?.host || '';
+    const { subdomain, branchId: headerBranchId } = this.extractSubdomain(
+      hostname,
+      xTenant,
+    );
+
+    return await this.storeService.validateCoupon(
+      body.code,
+      body.subtotal,
+      subdomain,
+      branchId || headerBranchId,
+    );
+  }
 }

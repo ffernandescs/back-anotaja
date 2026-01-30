@@ -244,9 +244,12 @@ export class CustomersService {
       throw new NotFoundException('Filial não encontrada');
     }
 
-    // Busca o cliente pelo telefone
+    // Busca o cliente pelo telefone E branchId para garantir associação correta
     const customer = await prisma.customer.findFirst({
-      where: { phone: dto.phone },
+      where: { 
+        phone: dto.phone,
+        branchId: branch.id,
+      },
     });
 
     // Se não existir, retorna erro
@@ -254,9 +257,13 @@ export class CustomersService {
       throw new NotFoundException('Cliente não encontrado');
     }
 
-    // Gera JWT
+    // Gera JWT incluindo branchId no payload
     const token = this.jwtService.sign(
-      { userId: customer.id, phone: customer.phone },
+      { 
+        userId: customer.id, 
+        phone: customer.phone,
+        branchId: customer.branchId,
+      },
       { secret: process.env.JWT_CUSTOMER_SECRET, expiresIn: '7d' },
     );
 
