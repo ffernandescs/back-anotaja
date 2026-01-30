@@ -549,7 +549,7 @@ model CustomerAddress {
 
 model Order {
   id                String       @id @default(cuid())
-  orderNumber       Int?         @unique // Número sequencial do pedido
+  orderNumber       Int? // Número sequencial do pedido
   status            OrderStatus  @default(PENDING)
   deliveryType      DeliveryType @default(DELIVERY)
   paymentStatus     String       @default("PENDING") // PENDING, PARTIAL, PAID
@@ -587,6 +587,8 @@ model Order {
   cashMovements        CashMovement[]
   pointsTransactions   PointsTransaction[]
   billSplitPersons     BillSplitPerson[]
+
+  @@unique([orderNumber, branchId]) // Número único por filial
 }
 
 enum PaymentStatus {
