@@ -246,7 +246,7 @@ export class CustomersService {
 
     // Busca o cliente pelo telefone E branchId para garantir associação correta
     const customer = await prisma.customer.findFirst({
-      where: { 
+      where: {
         phone: dto.phone,
         branchId: branch.id,
       },
@@ -259,8 +259,8 @@ export class CustomersService {
 
     // Gera JWT incluindo branchId no payload
     const token = this.jwtService.sign(
-      { 
-        userId: customer.id, 
+      {
+        userId: customer.id,
         phone: customer.phone,
         branchId: customer.branchId,
       },

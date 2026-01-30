@@ -3,19 +3,28 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
-import { CreateCouponDto } from './dto/create-coupon.dto';
+import { CouponType, CreateCouponDto } from './dto/create-coupon.dto';
 import { UpdateCouponDto } from './dto/update-coupon.dto';
+import { prisma } from '../../../lib/prisma';
 
 @Injectable()
 export class CouponsService {
-  constructor(private readonly prisma: PrismaService) {}
-
   async create(createCouponDto: CreateCouponDto) {
-    const { code, type, value, minValue, maxDiscount, maxUses, validFrom, validUntil, branchId, active } = createCouponDto;
+    const {
+      code,
+      type,
+      value,
+      minValue,
+      maxDiscount,
+      maxUses,
+      validFrom,
+      validUntil,
+      branchId,
+      active,
+    } = createCouponDto;
 
     // Validar se já existe cupom com o mesmo código
-    const existingCoupon = await this.prisma.coupon.findFirst({
+    const existingCoupon = await prisma.coupon.findFirst({
       where: {
         code: code.toUpperCase(),
         branchId: branchId || null,
@@ -27,7 +36,7 @@ export class CouponsService {
     }
 
     // Validar percentual
-    if (type === 'PERCENTAGE' && value > 100) {
+    if (type === CouponType.PERCENTAGE && value > 100) {
       throw new BadRequestException('Percentual não pode ser maior que 100%');
     }
 
@@ -36,10 +45,12 @@ export class CouponsService {
     const validUntilDate = new Date(validUntil);
 
     if (validFromDate >= validUntilDate) {
-      throw new BadRequestException('Data de início deve ser anterior à data de término');
+      throw new BadRequestException(
+        'Data de início deve ser anterior à data de término',
+      );
     }
 
-    const coupon = await this.prisma.coupon.create({
+    const coupon = await prisma.coupon.create({
       data: {
         code: code.toUpperCase(),
         type,
@@ -54,12 +65,7 @@ export class CouponsService {
         active: active !== undefined ? active : true,
       },
       include: {
-        branch: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
+        branch: true,
         _count: {
           select: {
             orders: true,
@@ -82,15 +88,10 @@ export class CouponsService {
       where.active = active;
     }
 
-    const coupons = await this.prisma.coupon.findMany({
+    const coupons = await prisma.coupon.findMany({
       where,
       include: {
-        branch: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
+        branch: true,
         _count: {
           select: {
             orders: true,
@@ -106,15 +107,11 @@ export class CouponsService {
   }
 
   async findOne(id: string) {
-    const coupon = await this.prisma.coupon.findUnique({
+    const coupon = await prisma.coupon.findUnique({
       where: { id },
       include: {
-        branch: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
+        branch: true,
+
         _count: {
           select: {
             orders: true,
@@ -131,7 +128,7 @@ export class CouponsService {
   }
 
   async update(id: string, updateCouponDto: UpdateCouponDto) {
-    const existingCoupon = await this.prisma.coupon.findUnique({
+    const existingCoupon = await prisma.coupon.findUnique({
       where: { id },
     });
 
@@ -139,11 +136,22 @@ export class CouponsService {
       throw new NotFoundException('Cupom não encontrado');
     }
 
-    const { code, type, value, minValue, maxDiscount, maxUses, validFrom, validUntil, branchId, active } = updateCouponDto;
+    const {
+      code,
+      type,
+      value,
+      minValue,
+      maxDiscount,
+      maxUses,
+      validFrom,
+      validUntil,
+      branchId,
+      active,
+    } = updateCouponDto;
 
     // Validar código duplicado (se estiver mudando)
     if (code && code.toUpperCase() !== existingCoupon.code) {
-      const duplicateCoupon = await this.prisma.coupon.findFirst({
+      const duplicateCoupon = await prisma.coupon.findFirst({
         where: {
           code: code.toUpperCase(),
           branchId: branchId !== undefined ? branchId : existingCoupon.branchId,
@@ -157,7 +165,7 @@ export class CouponsService {
     }
 
     // Validar percentual
-    if (type === 'PERCENTAGE' && value && value > 100) {
+    if (type === CouponType.PERCENTAGE && value && value > 100) {
       throw new BadRequestException('Percentual não pode ser maior que 100%');
     }
 
@@ -167,7 +175,9 @@ export class CouponsService {
       const validUntilDate = new Date(validUntil);
 
       if (validFromDate >= validUntilDate) {
-        throw new BadRequestException('Data de início deve ser anterior à data de término');
+        throw new BadRequestException(
+          'Data de início deve ser anterior à data de término',
+        );
       }
     }
 
@@ -184,16 +194,12 @@ export class CouponsService {
     if (branchId !== undefined) updateData.branchId = branchId;
     if (active !== undefined) updateData.active = active;
 
-    const coupon = await this.prisma.coupon.update({
+    const coupon = await prisma.coupon.update({
       where: { id },
       data: updateData,
       include: {
-        branch: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
+        branch: true,
+
         _count: {
           select: {
             orders: true,
@@ -206,7 +212,7 @@ export class CouponsService {
   }
 
   async remove(id: string) {
-    const coupon = await this.prisma.coupon.findUnique({
+    const coupon = await prisma.coupon.findUnique({
       where: { id },
       include: {
         _count: {
@@ -228,7 +234,7 @@ export class CouponsService {
       );
     }
 
-    await this.prisma.coupon.delete({
+    await prisma.coupon.delete({
       where: { id },
     });
 
