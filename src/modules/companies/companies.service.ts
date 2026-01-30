@@ -7,6 +7,7 @@ import { CreateCompanyDto } from './dto/create-company.dto';
 import * as bcrypt from 'bcrypt';
 import { prisma } from '../../../lib/prisma';
 import { Prisma } from 'generated/prisma';
+import { GeocodingService } from '../geocoding/geocoding.service';
 
 export type VerifyCompanyExistDto = {
   phone?: string;
@@ -15,6 +16,8 @@ export type VerifyCompanyExistDto = {
 };
 @Injectable()
 export class CompaniesService {
+  constructor(private readonly geocodingService: GeocodingService) {}
+
   async createCompany(dto: CreateCompanyDto) {
     const {
       name,
@@ -48,6 +51,29 @@ export class CompaniesService {
 
     // Criptografar senha
     const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Buscar coordenadas do endereço
+    const cleanZipCode = zipCode.replace(/-/g, '');
+    let lat: number | null = null;
+    let lng: number | null = null;
+
+    try {
+      const coordinates = await this.geocodingService.getCoordinates(
+        street,
+        number || '',
+        city,
+        cleanZipCode,
+        state,
+      );
+
+      if (coordinates) {
+        lat = coordinates.lat;
+        lng = coordinates.lng;
+        console.log(`Coordenadas encontradas para empresa: lat=${lat}, lng=${lng}`);
+      }
+    } catch (error) {
+      console.warn('Erro ao buscar coordenadas da empresa:', error);
+    }
 
     const company = await prisma.$transaction(async (prisma) => {
       // ✅ Verificar duplicidade de document, email, phone e subdomain
@@ -90,6 +116,8 @@ export class CompaniesService {
           zipCode,
           isDefault: true,
           reference,
+          lat,
+          lng,
           companyId: createdCompany.id,
         },
       });
@@ -104,6 +132,8 @@ export class CompaniesService {
           state,
           zipCode,
           reference,
+          lat,
+          lng,
           isDefault: true,
         },
       });
@@ -113,6 +143,8 @@ export class CompaniesService {
           branchName: createdCompany.companyName,
           phone: createdCompany.phone,
           document,
+          latitude: lat,
+          longitude: lng,
           companyId: createdCompany.id,
           addressId: createdBranchAddress.id,
         },

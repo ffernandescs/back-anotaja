@@ -10,9 +10,12 @@ import { prisma } from '../../../lib/prisma';
 import { BranchScheduleItemDto } from './dto/create-branch-schedule.dto';
 import { CreateBranchDto } from './dto/create-branch.dto';
 import { UpdateBranchDto } from './dto/update-branch.dto';
+import { GeocodingService } from '../geocoding/geocoding.service';
 
 @Injectable()
 export class BranchesService {
+  constructor(private readonly geocodingService: GeocodingService) {}
+
   async create(createBranchDto: CreateBranchDto, userId: string) {
     // Buscar usuário com sua empresa
     const user = await prisma.user.findUnique({
@@ -47,6 +50,31 @@ export class BranchesService {
       ...branchData
     } = createBranchDto;
 
+    // Buscar coordenadas do endereço se não foram fornecidas
+    let lat = latitude;
+    let lng = longitude;
+
+    if (!lat || !lng) {
+      const cleanZipCode = zipCode?.replace(/-/g, '') || '';
+      try {
+        const coordinates = await this.geocodingService.getCoordinates(
+          address || '',
+          createBranchDto.number || '',
+          city || '',
+          cleanZipCode,
+          state,
+        );
+
+        if (coordinates) {
+          lat = coordinates.lat;
+          lng = coordinates.lng;
+          console.log(`Coordenadas encontradas para branch: lat=${lat}, lng=${lng}`);
+        }
+      } catch (error) {
+        console.warn('Erro ao buscar coordenadas da branch:', error);
+      }
+    }
+
     // Criar branch e endereço em transação
     const branch = await prisma.$transaction(async (prisma) => {
       if (!user.companyId)
@@ -66,8 +94,8 @@ export class BranchesService {
           zipCode,
           isDefault: true,
           reference,
-          lat: latitude,
-          lng: longitude,
+          lat,
+          lng,
           companyId: user.companyId,
         },
       });
@@ -77,6 +105,8 @@ export class BranchesService {
           ...branchData,
           document: createBranchDto.document ?? '',
           phone: createBranchDto.phone,
+          latitude: lat,
+          longitude: lng,
           companyId: user.companyId,
           addressId: createAddress.id,
           paymentMethods: {
@@ -98,8 +128,8 @@ export class BranchesService {
           complement,
           neighborhood,
           reference,
-          lat: latitude,
-          lng: longitude,
+          lat,
+          lng,
           branchId: createdBranch.id,
           isDefault: true,
         },
