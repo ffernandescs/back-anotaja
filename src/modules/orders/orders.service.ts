@@ -11,7 +11,7 @@ import { QueryOrdersDto } from './dto/query-orders.dto';
 import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
 import { prisma } from '../../../lib/prisma';
 import { DeliveryTypeDto, OrderStatusDto } from './dto/create-order-item.dto';
-import { Prisma } from 'generated/prisma';
+import { OrderStatus, Prisma } from 'generated/prisma';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { money } from '../../utils/money';
 
@@ -340,6 +340,7 @@ export class OrdersService {
         branch: { select: { id: true, branchName: true, address: true } },
         user: { select: { id: true, name: true, email: true } },
         customer: true,
+        customerAddress: true,
         items: {
           include: {
             product: {
@@ -703,8 +704,52 @@ export class OrdersService {
   }
 
   async updateStatus(id: string, status: OrderStatusDto, userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        role: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
     // Verificar se o pedido existe e se o usuário tem permissão
-    await this.findOne(id, userId);
+    const order = await this.findOne(id, userId);
+
+    if (user.role === 'delivery') {
+      const allowedStatuses = [
+        OrderStatusDto.DELIVERING,
+        OrderStatusDto.DELIVERED,
+      ];
+
+      if (!allowedStatuses.includes(status)) {
+        throw new ForbiddenException(
+          'Entregadores só podem atualizar para DELIVERING ou DELIVERED',
+        );
+      }
+
+      const statusFlow: OrderStatusDto[] = [
+        OrderStatusDto.PENDING,
+        OrderStatusDto.CONFIRMED,
+        OrderStatusDto.PREPARING,
+        OrderStatusDto.READY,
+        OrderStatusDto.DELIVERING,
+        OrderStatusDto.DELIVERED,
+        OrderStatusDto.CANCELLED,
+      ];
+
+      const currentIndex = statusFlow.indexOf(order.status as OrderStatusDto);
+      const nextIndex = statusFlow.indexOf(status);
+
+      if (nextIndex < currentIndex) {
+        throw new ForbiddenException(
+          'Não é possível retroceder o status do pedido',
+        );
+      }
+    }
 
     const updatedOrder = await prisma.order.update({
       where: { id },
@@ -728,6 +773,42 @@ export class OrdersService {
         },
       },
     });
+
+    if (
+      status === OrderStatusDto.DELIVERED &&
+      updatedOrder.deliveryAssignmentId
+    ) {
+      // Buscar todos os pedidos da mesma rota
+      const ordersFromRoute = await prisma.order.findMany({
+        where: {
+          deliveryAssignmentId: updatedOrder.deliveryAssignmentId,
+        },
+        select: {
+          id: true,
+          status: true,
+        },
+      });
+
+      // Verificar se TODOS estão DELIVERED
+      const allDelivered = ordersFromRoute.every(
+        (order) => order.status === OrderStatus.DELIVERED,
+      );
+
+      if (allDelivered) {
+        // 🔹 Atualiza o status da rota
+        await prisma.deliveryAssignment.update({
+          where: {
+            id: updatedOrder.deliveryAssignmentId,
+          },
+          data: {
+            status: 'COMPLETED',
+            completedAt: new Date(),
+          },
+        });
+
+        // 🔹 (Opcional) aqui você pode disparar evento websocket da rota
+      }
+    }
 
     // Emitir evento de mudança de status via WebSocket
     this.webSocketGateway.emitOrderUpdate(

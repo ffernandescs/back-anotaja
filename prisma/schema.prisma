@@ -406,6 +406,8 @@ model DeliveryPerson {
   deliveryPasswordExpiresAt DateTime?
   // Status online/offline do entregador
   isOnline                  Boolean   @default(false)
+  // Último heartbeat de presença do entregador
+  lastOnlineAt              DateTime?
   createdAt                 DateTime  @default(now())
   updatedAt                 DateTime  @updatedAt
 

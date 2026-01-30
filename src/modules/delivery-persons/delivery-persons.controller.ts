@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { DeliveryPersonsService } from './delivery-persons.service';
 import { CreateDeliveryPersonDto } from './dto/create-delivery-person.dto';
+import { GenerateDeliveryPasswordDto } from './dto/generate-delivery-password.dto';
 import { UpdateDeliveryPersonDto } from './dto/update-delivery-person.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -41,6 +42,25 @@ export class DeliveryPersonsController {
     return this.deliveryPersonsService.create(
       createDeliveryPersonDto,
       req.user.userId,
+    );
+  }
+
+  @Post('generate-password')
+  @Roles('admin', 'manager')
+  generatePassword(
+    @Body() dto: GenerateDeliveryPasswordDto,
+    @Req() req: RequestWithUser,
+  ) {
+    const deliveryPersonId = dto.deliveryPersonId ?? dto.userId;
+
+    if (!deliveryPersonId) {
+      throw new Error('deliveryPersonId ou userId é obrigatório');
+    }
+
+    return this.deliveryPersonsService.generatePassword(
+      req.user.userId,
+      deliveryPersonId,
+      dto.type,
     );
   }
 

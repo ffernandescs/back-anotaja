@@ -92,6 +92,16 @@ export class OrdersController {
     return this.ordersService.updateStatus(id, status, req.user.userId);
   }
 
+  @Patch(':id/status/delivery')
+  @Roles('admin', 'manager', 'delivery')
+  updateStatusByDelivery(
+    @Param('id') id: string,
+    @Body('status') status: OrderStatusDto,
+    @Req() req: RequestWithUser,
+  ) {
+    return this.ordersService.updateStatus(id, status, req.user.userId);
+  }
+
   @Delete(':id')
   @Roles('admin', 'manager')
   remove(@Param('id') id: string, @Req() req: RequestWithUser) {

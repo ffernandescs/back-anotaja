@@ -204,6 +204,29 @@ export class StoreController {
     );
   }
 
+  @Public()
+  @UseGuards(JwtCustomerAuthGuard)
+  @Post('ordersMany')
+  @HttpCode(HttpStatus.CREATED)
+  async createOrderMany(
+    @Body() createOrderDto: CreateStoreOrderDto[],
+    @Query('branchId') branchId?: string,
+    @Headers('x-tenant') xTenant?: string,
+    @Req() req?: Request,
+  ) {
+    const hostname = req?.headers?.host || '';
+    const { subdomain, branchId: headerBranchId } = this.extractSubdomain(
+      hostname,
+      xTenant,
+    );
+
+    return await this.storeService.createOrderMany(
+      createOrderDto,
+      subdomain,
+      branchId || headerBranchId,
+    );
+  }
+
   /**
    * Listar pedidos da loja (público, por telefone do cliente)
    */

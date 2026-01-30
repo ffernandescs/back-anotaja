@@ -4,13 +4,39 @@ import {
   ForbiddenException,
   ConflictException,
 } from '@nestjs/common';
+import * as crypto from 'crypto';
 import { CreateDeliveryPersonDto } from './dto/create-delivery-person.dto';
 import { UpdateDeliveryPersonDto } from './dto/update-delivery-person.dto';
 import { prisma } from '../../../lib/prisma';
 import { Prisma } from 'generated/prisma';
 
+const DELIVERY_PASSWORD_EXPIRES_IN_MINUTES = Number(
+  process.env.DELIVERY_PASSWORD_EXPIRES_IN_MINUTES ?? 10,
+);
+
+const DELIVERY_ONLINE_TIMEOUT_MINUTES = Number(
+  process.env.DELIVERY_ONLINE_TIMEOUT_MINUTES ?? 3,
+);
+
 @Injectable()
 export class DeliveryPersonsService {
+  private getOnlineTimeoutDate() {
+    const timeoutMs = DELIVERY_ONLINE_TIMEOUT_MINUTES * 60 * 1000;
+    return new Date(Date.now() - timeoutMs);
+  }
+
+  private async clearStaleOnline(branchId: string) {
+    const staleDate = this.getOnlineTimeoutDate();
+    await prisma.deliveryPerson.updateMany({
+      where: {
+        branchId,
+        isOnline: true,
+        OR: [{ lastOnlineAt: null }, { lastOnlineAt: { lt: staleDate } }],
+      },
+      data: { isOnline: false },
+    });
+  }
+
   async create(
     createDeliveryPersonDto: CreateDeliveryPersonDto,
     userId: string,
@@ -97,6 +123,8 @@ export class DeliveryPersonsService {
       where.isOnline =
         typeof isOnline === 'boolean' ? isOnline : isOnline === 'true';
     }
+
+    await this.clearStaleOnline(user.branchId);
 
     return prisma.deliveryPerson.findMany({
       where,
@@ -279,11 +307,16 @@ export class DeliveryPersonsService {
       throw new ForbiddenException('Usuário não está associado a uma filial');
     }
 
+    await this.clearStaleOnline(user.branchId);
+
+    const staleDate = this.getOnlineTimeoutDate();
+
     return prisma.deliveryPerson.findMany({
       where: {
         branchId: user.branchId,
         active: true,
         isOnline: true,
+        lastOnlineAt: { gte: staleDate },
       },
       orderBy: { createdAt: 'desc' },
       include: {
@@ -308,7 +341,10 @@ export class DeliveryPersonsService {
 
     return prisma.deliveryPerson.update({
       where: { id },
-      data: { isOnline },
+      data: {
+        isOnline,
+        lastOnlineAt: isOnline ? new Date() : null,
+      },
       include: {
         branch: {
           select: {
@@ -318,5 +354,59 @@ export class DeliveryPersonsService {
         },
       },
     });
+  }
+
+  async generatePassword(
+    userId: string,
+    deliveryPersonId: string,
+    type: 'password' | 'qrcode',
+  ) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { branch: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    if (!user.branchId) {
+      throw new ForbiddenException('Usuário não está associado a uma filial');
+    }
+
+    const deliveryPerson = await prisma.deliveryPerson.findFirst({
+      where: {
+        id: deliveryPersonId,
+        branchId: user.branchId,
+      },
+    });
+
+    if (!deliveryPerson) {
+      throw new NotFoundException('Entregador não encontrado');
+    }
+
+    const password = Math.floor(100000 + Math.random() * 900000).toString();
+    const qrCode = crypto.randomBytes(16).toString('hex');
+    const expiresAt = new Date();
+    expiresAt.setMinutes(
+      expiresAt.getMinutes() + DELIVERY_PASSWORD_EXPIRES_IN_MINUTES,
+    );
+
+    await prisma.deliveryPerson.update({
+      where: { id: deliveryPerson.id },
+      data: {
+        deliveryPassword: type === 'password' ? password : undefined,
+        deliveryQrCode: type === 'qrcode' ? qrCode : undefined,
+        deliveryPasswordExpiresAt: expiresAt,
+      },
+    });
+
+    return {
+      deliveryPersonId: deliveryPerson.id,
+      type,
+      code: type === 'password' ? password : qrCode,
+      qrCode: type === 'qrcode' ? qrCode : undefined,
+      expiresAt,
+    };
   }
 }

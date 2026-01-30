@@ -23,7 +23,7 @@ import {
 import { BranchSchedule, StoreHomepageDto } from './dto/store-homepage.dto';
 import { StoreLoginDto } from './dto/store-login.dto';
 import { UpdateCustomerAddressDto } from './dto/update-customer-address.dto';
-import { CepResult, GeoData, LatLng, OrderForStock } from './types';
+import { CepResult, GeoData, OrderForStock } from './types';
 import { GetOrdersQueryDto } from './dto/get-orders-query.dto';
 interface PlanLimits {
   branches: number;
@@ -43,7 +43,10 @@ interface PlanFeatures {
   support: boolean;
   custom: boolean;
 }
+type LatLng = { lat: number; lng: number };
 
+const isValidCoord = (v: unknown): v is number =>
+  typeof v === 'number' && !isNaN(v);
 @Injectable()
 export class StoreService {
   constructor(
@@ -735,8 +738,8 @@ export class StoreService {
     let deliveryFee = 0;
     if (deliveryType === DeliveryTypeDto.DELIVERY) {
       const customerAddress = await prisma.customerAddress.findUnique({
-        where: {id: addressId}
-      })
+        where: { id: addressId },
+      });
       if (!customerAddress) {
         throw new BadRequestException(
           'Endereço completo é obrigatório para delivery',
@@ -902,7 +905,7 @@ export class StoreService {
         },
         include: {
           customer: true,
-          customerAddress:true,
+          customerAddress: true,
           items: {
             include: {
               product: true,
@@ -982,7 +985,6 @@ export class StoreService {
       ingredientQuantities,
     );
 
-
     return {
       success: true,
       order: {
@@ -1043,6 +1045,283 @@ export class StoreService {
           : null,
       },
     };
+  }
+
+  async calculateDeliveryFee(
+    calculateFeeDto: CalculateDeliveryFeeDto,
+    subdomain?: string,
+    branchId?: string,
+  ) {
+    const branch = await this.getBranch(subdomain, branchId);
+
+    if (!branch) {
+      throw new NotFoundException('Loja não encontrada');
+    }
+
+    const {
+      zipCode,
+      address,
+      city,
+      state,
+      lat: providedLat,
+      lng: providedLng,
+      subtotal = 0,
+    } = calculateFeeDto;
+
+    // ===============================
+    // 1️⃣ NORMALIZAR COORDENADAS
+    // ===============================
+    let finalLat = isValidCoord(providedLat) ? providedLat : undefined;
+    let finalLng = isValidCoord(providedLng) ? providedLng : undefined;
+
+    // ===============================
+    // 2️⃣ GEOCODING (SE NECESSÁRIO)
+    // ===============================
+    if (!isValidCoord(finalLat) || !isValidCoord(finalLng)) {
+      if (!address || !city || !state) {
+        return {
+          available: false,
+          deliveryFee: 0,
+          message: 'Endereço incompleto para localizar no mapa',
+        };
+      }
+
+      try {
+        const query = `${address}, ${city}, ${state}, ${zipCode ?? ''}, Brasil`
+          .replace(/\s+/g, ' ')
+          .trim();
+
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+            query,
+          )}&limit=1`,
+          { headers: { 'User-Agent': 'AnotaJa/1.0' } },
+        );
+
+        if (!res.ok) throw new Error('Geocoding failed');
+
+        const data = (await res.json()) as Array<{
+          lat: string;
+          lon: string;
+        }>;
+
+        if (data.length === 0) {
+          return {
+            available: false,
+            deliveryFee: 0,
+            message: 'Endereço não localizado no mapa',
+          };
+        }
+
+        finalLat = parseFloat(data[0].lat);
+        finalLng = parseFloat(data[0].lon);
+      } catch (err) {
+        return {
+          available: false,
+          deliveryFee: 0,
+          message: 'Erro ao localizar endereço',
+        };
+      }
+    }
+
+    // 🔥 GARANTIA FINAL
+    if (!isValidCoord(finalLat) || !isValidCoord(finalLng)) {
+      return {
+        available: false,
+        deliveryFee: 0,
+        message: 'Coordenadas inválidas',
+      };
+    }
+
+    const point = { lat: finalLat, lng: finalLng };
+
+    // ===============================
+    // 3️⃣ BUSCAR CONFIGURAÇÕES
+    // level MENOR = maior prioridade
+    // ===============================
+    const [areas, routes, exclusions] = await Promise.all([
+      prisma.deliveryArea.findMany({
+        where: { branchId: branch.id, active: true },
+        orderBy: { level: 'asc' },
+      }),
+      prisma.deliveryRoute.findMany({
+        where: { branchId: branch.id, active: true },
+        orderBy: { level: 'asc' },
+      }),
+      prisma.deliveryExclusionArea.findMany({
+        where: { branchId: branch.id, active: true },
+      }),
+    ]);
+
+    // ===============================
+    // 4️⃣ FUNÇÕES GEOGRÁFICAS
+    // ===============================
+    const haversine = (a: LatLng, b: LatLng) => {
+      const R = 6371000;
+      const toRad = (v: number) => (v * Math.PI) / 180;
+      const dLat = toRad(b.lat - a.lat);
+      const dLng = toRad(b.lng - a.lng);
+
+      const h =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(a.lat)) *
+          Math.cos(toRad(b.lat)) *
+          Math.sin(dLng / 2) ** 2;
+
+      return 2 * R * Math.asin(Math.sqrt(h));
+    };
+
+    const isPointInPolygon = (p: LatLng, poly: LatLng[]) => {
+      let inside = false;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const xi = poly[i].lng;
+        const yi = poly[i].lat;
+        const xj = poly[j].lng;
+        const yj = poly[j].lat;
+
+        const intersect =
+          yi > p.lat !== yj > p.lat &&
+          p.lng < ((xj - xi) * (p.lat - yi)) / (yj - yi) + xi;
+
+        if (intersect) inside = !inside;
+      }
+      return inside;
+    };
+
+    // ===============================
+    // 5️⃣ EXCLUSÕES
+    // ===============================
+    for (const ex of exclusions) {
+      if (ex.type === 'CIRCLE' && ex.centerLat && ex.centerLng && ex.radius) {
+        if (
+          haversine(point, {
+            lat: ex.centerLat,
+            lng: ex.centerLng,
+          }) <= ex.radius
+        ) {
+          return {
+            available: false,
+            deliveryFee: 0,
+            message: 'Entrega não disponível nesta área',
+          };
+        }
+      }
+
+      if (ex.type === 'POLYGON' && ex.polygon) {
+        const poly = JSON.parse(ex.polygon) as LatLng[];
+        if (isPointInPolygon(point, poly)) {
+          return {
+            available: false,
+            deliveryFee: 0,
+            message: 'Entrega não disponível nesta área',
+          };
+        }
+      }
+    }
+
+    // ===============================
+    // 6️⃣ ROTAS (PRIMEIRO MATCH GANHA)
+    // ===============================
+    const matchedRoute = routes.find((route) => {
+      try {
+        const coords = JSON.parse(route.coordinates) as LatLng[];
+        return coords.some(
+          (_, i) => i < coords.length - 1 && haversine(point, coords[i]) <= 200,
+        );
+      } catch {
+        return false;
+      }
+    });
+
+    // ===============================
+    // 7️⃣ ÁREAS (SE NÃO PEGAR ROTA)
+    // ===============================
+    const matchedArea =
+      !matchedRoute &&
+      areas.find((area) => {
+        if (
+          area.type === 'CIRCLE' &&
+          area.centerLat &&
+          area.centerLng &&
+          area.radius
+        ) {
+          return (
+            haversine(point, {
+              lat: area.centerLat,
+              lng: area.centerLng,
+            }) <= area.radius
+          );
+        }
+
+        if (area.type === 'POLYGON' && area.polygon) {
+          const poly = JSON.parse(area.polygon) as LatLng[];
+          return isPointInPolygon(point, poly);
+        }
+
+        return false;
+      });
+
+    const matched = matchedRoute || matchedArea;
+
+    if (!matched) {
+      console.error('[DELIVERY_OUT_OF_AREA]', {
+        branchId: branch.id,
+        address,
+        city,
+        state,
+        zipCode,
+        lat: finalLat,
+        lng: finalLng,
+        subtotal,
+      });
+
+      return {
+        available: false,
+        deliveryFee: 0,
+        message: 'Endereço fora da área de entrega',
+      };
+    }
+
+    // ===============================
+    // 8️⃣ PEDIDO MÍNIMO
+    // ===============================
+    if (matched.minOrderValue && subtotal < matched.minOrderValue) {
+      return {
+        available: false,
+        deliveryFee: matched.deliveryFee,
+        minOrderValue: matched.minOrderValue,
+        message: `Pedido mínimo de R$ ${(matched.minOrderValue / 100).toFixed(2)}`,
+      };
+    }
+
+    // ===============================
+    // 9️⃣ SUCESSO
+    // ===============================
+    return {
+      available: true,
+      deliveryFee: matched.deliveryFee,
+      estimatedTime: matched.estimatedTime,
+      areaName: matched.name,
+      areaLevel: matched.level,
+      type: matchedRoute ? 'route' : 'area',
+    };
+  }
+
+  async createOrderMany(
+    createOrderDto: CreateStoreOrderDto[],
+    subdomain?: string,
+    branchId?: string,
+  ) {
+    const result: {
+      success: boolean;
+      order: any; // ou o tipo correto se você já tiver
+    }[] = [];
+
+    for (const order of createOrderDto) {
+      result.push(await this.createOrder(order, subdomain, branchId));
+    }
+
+    return result;
   }
 
   /**
@@ -1356,7 +1635,7 @@ export class StoreService {
             email: true,
           },
         },
-        customerAddress:true,
+        customerAddress: true,
         items: {
           select: {
             id: true,
@@ -1499,618 +1778,257 @@ export class StoreService {
    * Criar endereço do cliente
    */
   /**
- * Geocodificar endereço usando Nominatim (OpenStreetMap)
- * Retorna as coordenadas lat/lng
- */
-private async geocodeAddress(
-  street: string,
-  number?: string,
-  city?: string,
-  state?: string,
-  zipCode?: string,
-): Promise<{ lat: number; lng: number } | null> {
-  try {
-    // Montar endereço completo
-    const addressParts = [
-      street,
-      number,
-      city,
-      state,
-      zipCode,
-      'Brasil',
-    ].filter(Boolean);
+   * Geocodificar endereço usando Nominatim (OpenStreetMap)
+   * Retorna as coordenadas lat/lng
+   */
+  private async geocodeAddress(
+    street: string,
+    number?: string,
+    city?: string,
+    state?: string,
+    zipCode?: string,
+  ): Promise<{ lat: number; lng: number } | null> {
+    try {
+      // Montar endereço completo
+      const addressParts = [
+        street,
+        number,
+        city,
+        state,
+        zipCode,
+        'Brasil',
+      ].filter(Boolean);
 
-    const fullAddress = addressParts.join(', ').replace(/\s+/g, ' ').trim();
+      const fullAddress = addressParts.join(', ').replace(/\s+/g, ' ').trim();
 
-    console.log('Geocoding address:', fullAddress);
+      console.log('Geocoding address:', fullAddress);
 
-    // Chamar API Nominatim
-    const response = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullAddress)}&limit=1`,
-      {
-        headers: {
-          'User-Agent': 'AnotaJa/1.0',
+      // Chamar API Nominatim
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullAddress)}&limit=1`,
+        {
+          headers: {
+            'User-Agent': 'AnotaJa/1.0',
+          },
         },
-      },
-    );
-
-    if (!response.ok) {
-      console.error('Geocoding API error:', response.status);
-      return null;
-    }
-
-    const data: unknown = await response.json();
-
-    // Validação de tipo
-    function isGeoDataArray(value: unknown): value is Array<{
-      lat: string;
-      lon: string;
-    }> {
-      return (
-        Array.isArray(value) &&
-        value.every(
-          (item) =>
-            item &&
-            typeof item === 'object' &&
-            'lat' in item &&
-            'lon' in item &&
-            typeof (item as Record<string, unknown>).lat === 'string' &&
-            typeof (item as Record<string, unknown>).lon === 'string',
-        )
       );
-    }
 
-    if (!isGeoDataArray(data)) {
-      console.error('Invalid geocoding response format');
+      if (!response.ok) {
+        console.error('Geocoding API error:', response.status);
+        return null;
+      }
+
+      const data: unknown = await response.json();
+
+      // Validação de tipo
+      function isGeoDataArray(value: unknown): value is Array<{
+        lat: string;
+        lon: string;
+      }> {
+        return (
+          Array.isArray(value) &&
+          value.every(
+            (item) =>
+              item &&
+              typeof item === 'object' &&
+              'lat' in item &&
+              'lon' in item &&
+              typeof (item as Record<string, unknown>).lat === 'string' &&
+              typeof (item as Record<string, unknown>).lon === 'string',
+          )
+        );
+      }
+
+      if (!isGeoDataArray(data)) {
+        console.error('Invalid geocoding response format');
+        return null;
+      }
+
+      if (data.length === 0) {
+        console.log('No geocoding results found');
+        return null;
+      }
+
+      const lat = parseFloat(data[0].lat);
+      const lng = parseFloat(data[0].lon);
+
+      console.log('Geocoding successful:', { lat, lng });
+
+      return { lat, lng };
+    } catch (error) {
+      console.error('Geocoding error:', error);
       return null;
     }
+  }
 
-    if (data.length === 0) {
-      console.log('No geocoding results found');
-      return null;
+  /**
+   * Criar endereço do cliente
+   * Geocodifica automaticamente para obter lat/lng
+   */
+  async createCustomerAddress(
+    customerId: string,
+    createAddressDto: CreateCustomerAddressDto,
+  ) {
+    // Se for default, remover default dos outros
+    if (createAddressDto.isDefault) {
+      await prisma.customerAddress.updateMany({
+        where: { customerId, isDefault: true },
+        data: { isDefault: false },
+      });
     }
 
-    const lat = parseFloat(data[0].lat);
-    const lng = parseFloat(data[0].lon);
+    // 🔥 Geocodificar endereço se lat/lng não foram fornecidos
+    let lat = createAddressDto.lat;
+    let lng = createAddressDto.lng;
 
-    console.log('Geocoding successful:', { lat, lng });
+    if (!lat || !lng) {
+      console.log('Geocoding address for customer:', customerId);
 
-    return { lat, lng };
-  } catch (error) {
-    console.error('Geocoding error:', error);
-    return null;
-  }
-}
+      const coordinates = await this.geocodeAddress(
+        createAddressDto.street,
+        createAddressDto.number || undefined,
+        createAddressDto.city,
+        createAddressDto.state,
+        createAddressDto.zipCode,
+      );
 
-/**
- * Criar endereço do cliente
- * Geocodifica automaticamente para obter lat/lng
- */
-async createCustomerAddress(
-  customerId: string,
-  createAddressDto: CreateCustomerAddressDto,
-) {
-  // Se for default, remover default dos outros
-  if (createAddressDto.isDefault) {
-    await prisma.customerAddress.updateMany({
-      where: { customerId, isDefault: true },
-      data: { isDefault: false },
+      if (coordinates) {
+        lat = coordinates.lat;
+        lng = coordinates.lng;
+        console.log('Coordinates obtained:', { lat, lng });
+      } else {
+        console.warn('Could not geocode address, saving without coordinates');
+      }
+    }
+
+    // Criar endereço com coordenadas
+    const address = await prisma.customerAddress.create({
+      data: {
+        ...createAddressDto,
+        lat: lat || null,
+        lng: lng || null,
+        branchId: createAddressDto.branchId,
+        customerId,
+      },
     });
+
+    return { address };
   }
 
-  // 🔥 Geocodificar endereço se lat/lng não foram fornecidos
-  let lat = createAddressDto.lat;
-  let lng = createAddressDto.lng;
-
-  if (!lat || !lng) {
-    console.log('Geocoding address for customer:', customerId);
-
-    const coordinates = await this.geocodeAddress(
-      createAddressDto.street,
-      createAddressDto.number || undefined,
-      createAddressDto.city,
-      createAddressDto.state,
-      createAddressDto.zipCode,
-    );
-
-    if (coordinates) {
-      lat = coordinates.lat;
-      lng = coordinates.lng;
-      console.log('Coordinates obtained:', { lat, lng });
-    } else {
-      console.warn('Could not geocode address, saving without coordinates');
-    }
-  }
-
-  // Criar endereço com coordenadas
-  const address = await prisma.customerAddress.create({
-    data: {
-      ...createAddressDto,
-      lat: lat || null,
-      lng: lng || null,
-      branchId: createAddressDto.branchId,
-      customerId,
-    },
-  });
-
-  return { address };
-}
-
-/**
- * Atualizar endereço do cliente
- * Re-geocodifica se o endereço mudou
- */
-async updateCustomerAddress(
-  addressId: string,
-  customerId: string,
-  updateAddressDto: UpdateCustomerAddressDto,
-) {
-  // Verificar se o endereço pertence ao usuário
-  const existingAddress = await prisma.customerAddress.findUnique({
-    where: { id: addressId },
-  });
-
-  if (!existingAddress || existingAddress.customerId !== customerId) {
-    throw new NotFoundException('Endereço não encontrado');
-  }
-
-  // Se for default, remover default dos outros
-  if (updateAddressDto.isDefault) {
-    await prisma.customerAddress.updateMany({
-      where: { customerId, isDefault: true, id: { not: addressId } },
-      data: { isDefault: false },
+  /**
+   * Atualizar endereço do cliente
+   * Re-geocodifica se o endereço mudou
+   */
+  async updateCustomerAddress(
+    addressId: string,
+    customerId: string,
+    updateAddressDto: UpdateCustomerAddressDto,
+  ) {
+    // Verificar se o endereço pertence ao usuário
+    const existingAddress = await prisma.customerAddress.findUnique({
+      where: { id: addressId },
     });
-  }
 
-  // 🔥 Re-geocodificar se campos relevantes mudaram
-  let lat = updateAddressDto.lat !== undefined ? updateAddressDto.lat : existingAddress.lat;
-  let lng = updateAddressDto.lng !== undefined ? updateAddressDto.lng : existingAddress.lng;
-
-  const addressChanged =
-    (updateAddressDto.street && updateAddressDto.street !== existingAddress.street) ||
-    (updateAddressDto.number && updateAddressDto.number !== existingAddress.number) ||
-    (updateAddressDto.city && updateAddressDto.city !== existingAddress.city) ||
-    (updateAddressDto.state && updateAddressDto.state !== existingAddress.state) ||
-    (updateAddressDto.zipCode && updateAddressDto.zipCode !== existingAddress.zipCode);
-
-  if (addressChanged && !updateAddressDto.lat && !updateAddressDto.lng) {
-    console.log('Address changed, re-geocoding...');
-
-    const coordinates = await this.geocodeAddress(
-      updateAddressDto.street || existingAddress.street,
-      updateAddressDto.number || existingAddress.number || undefined,
-      updateAddressDto.city || existingAddress.city,
-      updateAddressDto.state || existingAddress.state,
-      updateAddressDto.zipCode || existingAddress.zipCode,
-    );
-
-    if (coordinates) {
-      lat = coordinates.lat;
-      lng = coordinates.lng;
-      console.log('New coordinates obtained:', { lat, lng });
-    } else {
-      console.warn('Could not re-geocode address, keeping existing coordinates');
+    if (!existingAddress || existingAddress.customerId !== customerId) {
+      throw new NotFoundException('Endereço não encontrado');
     }
+
+    // Se for default, remover default dos outros
+    if (updateAddressDto.isDefault) {
+      await prisma.customerAddress.updateMany({
+        where: { customerId, isDefault: true, id: { not: addressId } },
+        data: { isDefault: false },
+      });
+    }
+
+    // 🔥 Re-geocodificar se campos relevantes mudaram
+    let lat =
+      updateAddressDto.lat !== undefined
+        ? updateAddressDto.lat
+        : existingAddress.lat;
+    let lng =
+      updateAddressDto.lng !== undefined
+        ? updateAddressDto.lng
+        : existingAddress.lng;
+
+    const addressChanged =
+      (updateAddressDto.street &&
+        updateAddressDto.street !== existingAddress.street) ||
+      (updateAddressDto.number &&
+        updateAddressDto.number !== existingAddress.number) ||
+      (updateAddressDto.city &&
+        updateAddressDto.city !== existingAddress.city) ||
+      (updateAddressDto.state &&
+        updateAddressDto.state !== existingAddress.state) ||
+      (updateAddressDto.zipCode &&
+        updateAddressDto.zipCode !== existingAddress.zipCode);
+
+    if (addressChanged && !updateAddressDto.lat && !updateAddressDto.lng) {
+      console.log('Address changed, re-geocoding...');
+
+      const coordinates = await this.geocodeAddress(
+        updateAddressDto.street || existingAddress.street,
+        updateAddressDto.number || existingAddress.number || undefined,
+        updateAddressDto.city || existingAddress.city,
+        updateAddressDto.state || existingAddress.state,
+        updateAddressDto.zipCode || existingAddress.zipCode,
+      );
+
+      if (coordinates) {
+        lat = coordinates.lat;
+        lng = coordinates.lng;
+        console.log('New coordinates obtained:', { lat, lng });
+      } else {
+        console.warn(
+          'Could not re-geocode address, keeping existing coordinates',
+        );
+      }
+    }
+
+    // Atualizar endereço com coordenadas
+    const address = await prisma.customerAddress.update({
+      where: { id: addressId },
+      data: {
+        ...updateAddressDto,
+        lat: lat || null,
+        lng: lng || null,
+      },
+    });
+
+    return { address };
   }
 
-  // Atualizar endereço com coordenadas
-  const address = await prisma.customerAddress.update({
-    where: { id: addressId },
-    data: {
-      ...updateAddressDto,
-      lat: lat || null,
-      lng: lng || null,
-    },
-  });
+  /**
+   * Deletar endereço do cliente
+   */
+  async deleteCustomerAddress(addressId: string, customerId: string) {
+    // Verificar se o endereço pertence ao usuário
+    const existingAddress = await prisma.customerAddress.findUnique({
+      where: { id: addressId },
+    });
 
-  return { address };
-}
+    if (!existingAddress || existingAddress.customerId !== customerId) {
+      throw new NotFoundException('Endereço não encontrado');
+    }
 
-/**
- * Deletar endereço do cliente
- */
-async deleteCustomerAddress(addressId: string, customerId: string) {
-  // Verificar se o endereço pertence ao usuário
-  const existingAddress = await prisma.customerAddress.findUnique({
-    where: { id: addressId },
-  });
+    await prisma.customerAddress.delete({
+      where: { id: addressId },
+    });
 
-  if (!existingAddress || existingAddress.customerId !== customerId) {
-    throw new NotFoundException('Endereço não encontrado');
+    return { success: true };
   }
-
-  await prisma.customerAddress.delete({
-    where: { id: addressId },
-  });
-
-  return { success: true };
-}
 
   /**
    * Calcular frete de entrega
    */
-/**
- * Calcular frete de entrega (CORRIGIDO)
- * 
- * Mudanças:
- * 1. Considera o level (maior prioridade primeiro)
- * 2. Valores já estão em centavos no banco (20,00 = 2000)
- * 3. Retorna a área com maior level quando há sobreposição
- */
-async calculateDeliveryFee(
-  calculateFeeDto: CalculateDeliveryFeeDto,
-  subdomain?: string,
-  branchId?: string,
-) {
-  const branch = await this.getBranch(subdomain, branchId);
-
-  if (!branch) {
-    throw new NotFoundException(
-      'Loja não encontrada para o subdomínio ou filial informada',
-    );
-  }
-
-  const {
-    zipCode,
-    address,
-    city,
-    state,
-    lat: providedLat,
-    lng: providedLng,
-    subtotal = 0,
-  } = calculateFeeDto;
-
-  let finalLat: number | undefined = providedLat;
-  let finalLng: number | undefined = providedLng;
-
-  // Geocodificação se coordenadas não forem fornecidas
-  if (!finalLat || !finalLng) {
-    if (address && city && state) {
-      let attempts = 0;
-      const maxAttempts = 2;
-
-      while (attempts < maxAttempts && (!finalLat || !finalLng)) {
-        try {
-          const fullAddress =
-            `${address}, ${city}, ${state}, ${zipCode ?? ''}, Brasil`
-              .replace(/\s+/g, ' ')
-              .trim();
-
-          const res = await fetch(
-            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullAddress)}&limit=1`,
-            { headers: { 'User-Agent': 'AnotaJa/1.0' } },
-          );
-
-          if (!res.ok) throw new Error(`Geocoding failed: ${res.status}`);
-
-          const rawData: unknown = await res.json();
-
-          function isGeoDataArray(value: unknown): value is GeoData[] {
-            return (
-              Array.isArray(value) &&
-              value.every(
-                (item) =>
-                  item &&
-                  typeof item === 'object' &&
-                  'lat' in item &&
-                  'lon' in item &&
-                  typeof (item as Record<string, unknown>).lat === 'string' &&
-                  typeof (item as Record<string, unknown>).lon === 'string',
-              )
-            );
-          }
-
-          if (!isGeoDataArray(rawData))
-            throw new Error('Invalid geocoding response');
-
-          const data = rawData;
-
-          if (data.length > 0) {
-            finalLat = parseFloat(data[0].lat);
-            finalLng = parseFloat(data[0].lon);
-          }
-        } catch (err) {
-          console.error(`Geocoding attempt ${attempts + 1} failed:`, err);
-          attempts++;
-          if (attempts < maxAttempts)
-            await new Promise((r) => setTimeout(r, 1000));
-        }
-      }
-
-      // Se não conseguiu pelo endereço, tentar apenas CEP
-      if (!finalLat || (!finalLng && zipCode && zipCode.length >= 8)) {
-        try {
-          if (zipCode && zipCode.length >= 8) {
-            const cepOnly = zipCode.replace(/\D/g, '');
-            const res = await fetch(
-              `https://nominatim.openstreetmap.org/search?format=json&postalcode=${cepOnly}&country=Brasil&limit=1`,
-              { headers: { 'User-Agent': 'AnotaJa/1.0' } },
-            );
-
-            if (res.ok) {
-              const data: Array<{ lat: string; lon: string }> =
-                (await res.json()) as Array<{ lat: string; lon: string }>;
-
-              if (data.length > 0) {
-                finalLat = parseFloat(data[0].lat);
-                finalLng = parseFloat(data[0].lon);
-              }
-            }
-          }
-        } catch (err) {
-          console.error('CEP geocoding error:', err);
-        }
-      }
-    }
-  }
-
-  // 🔥 IMPORTANTE: Buscar áreas ordenadas por LEVEL DESC (maior prioridade primeiro)
-  const [deliveryAreas, deliveryRoutes, exclusionAreas] = await Promise.all([
-    prisma.deliveryArea.findMany({
-      where: { branchId: branch.id, active: true },
-      orderBy: { level: 'asc' }, // ✅ Maior level = maior prioridade
-    }),
-    prisma.deliveryRoute.findMany({
-      where: { branchId: branch.id, active: true },
-      orderBy: { level: 'asc' }, // ✅ Maior level = maior prioridade
-    }),
-    prisma.deliveryExclusionArea.findMany({
-      where: { branchId: branch.id, active: true },
-    }),
-  ]);
-
-  if (deliveryAreas.length === 0 && deliveryRoutes.length === 0) {
-    return {
-      deliveryFee: 0,
-      available: false,
-      message: 'Endereço fora da área de entrega',
-    };
-  }
-
-  // Funções auxiliares
-  const calculateDistance = (
-    lat1: number,
-    lng1: number,
-    lat2: number,
-    lng2: number,
-  ): number => {
-    const R = 6371e3;
-    const φ1 = (lat1 * Math.PI) / 180;
-    const φ2 = (lat2 * Math.PI) / 180;
-    const Δφ = ((lat2 - lat1) * Math.PI) / 180;
-    const Δλ = ((lng2 - lng1) * Math.PI) / 180;
-
-    const a =
-      Math.sin(Δφ / 2) ** 2 +
-      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-    return R * c;
-  };
-
-  const isPointInPolygon = (
-    point: { lat: number; lng: number },
-    polygon: Array<{ lat: number; lng: number }>,
-  ): boolean => {
-    if (polygon.length < 3) return false;
-    let inside = false;
-    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-      const xi = polygon[i].lng;
-      const yi = polygon[i].lat;
-      const xj = polygon[j].lng;
-      const yj = polygon[j].lat;
-
-      const intersect =
-        yi > point.lat !== yj > point.lat &&
-        point.lng < ((xj - xi) * (point.lat - yi)) / (yj - yi) + xi;
-
-      if (intersect) inside = !inside;
-    }
-    return inside;
-  };
-
-  const calculateDistanceToSegment = (
-    point: { lat: number; lng: number },
-    start: { lat: number; lng: number },
-    end: { lat: number; lng: number },
-  ): number => {
-    const A = point.lat - start.lat;
-    const B = point.lng - start.lng;
-    const C = end.lat - start.lat;
-    const D = end.lng - start.lng;
-    const dot = A * C + B * D;
-    const lenSq = C ** 2 + D ** 2;
-    const param = lenSq !== 0 ? dot / lenSq : -1;
-    const xx =
-      param < 0 ? start.lat : param > 1 ? end.lat : start.lat + param * C;
-    const yy =
-      param < 0 ? start.lng : param > 1 ? end.lng : start.lng + param * D;
-    return calculateDistance(point.lat, point.lng, xx, yy);
-  };
-
-  const isPointNearRoute = (
-    point: { lat: number; lng: number },
-    route: Array<{ lat: number; lng: number }>,
-    maxDistance = 100,
-  ): boolean => {
-    if (route.length < 2) return false;
-    return route
-      .slice(0, -1)
-      .some(
-        (p, i) =>
-          calculateDistanceToSegment(point, p, route[i + 1]) <= maxDistance,
-      );
-  };
-
-  // Verificar áreas de exclusão
-  if (finalLat && finalLng) {
-    for (const exclusion of exclusionAreas) {
-      if (
-        exclusion.type === 'CIRCLE' &&
-        exclusion.centerLat !== null &&
-        exclusion.centerLng !== null &&
-        exclusion.radius !== null
-      ) {
-        if (
-          calculateDistance(
-            finalLat,
-            finalLng,
-            exclusion.centerLat,
-            exclusion.centerLng,
-          ) <= exclusion.radius
-        ) {
-          return {
-            deliveryFee: 0,
-            available: false,
-            message: 'Entrega não disponível nesta área',
-          };
-        }
-      } else if (exclusion.type === 'POLYGON' && exclusion.polygon) {
-        try {
-          const rawPolygon: unknown = JSON.parse(exclusion.polygon);
-
-          function isLatLngArray(value: unknown): value is LatLng[] {
-            return (
-              Array.isArray(value) &&
-              value.every(
-                (p) =>
-                  p &&
-                  typeof p === 'object' &&
-                  'lat' in p &&
-                  'lng' in p &&
-                  typeof (p as Record<string, unknown>).lat === 'number' &&
-                  typeof (p as Record<string, unknown>).lng === 'number',
-              )
-            );
-          }
-
-          if (isLatLngArray(rawPolygon)) {
-            if (isPointInPolygon({ lat: finalLat, lng: finalLng }, rawPolygon)) {
-              return {
-                deliveryFee: 0,
-                available: false,
-                message: 'Entrega não disponível nesta área',
-              };
-            }
-          }
-        } catch (err) {
-          console.error('Error parsing exclusion polygon:', err);
-        }
-      }
-    }
-  }
-
-  // 🔥 ENCONTRAR ROTA OU ÁREA CORRESPONDENTE (JÁ ORDENADO POR LEVEL DESC)
-  // A primeira que corresponder será a de maior prioridade
-  const matchedRoute =
-    finalLat && finalLng
-      ? deliveryRoutes.find((route) => {
-          try {
-            const coords = JSON.parse(route.coordinates) as Array<{
-              lat: number;
-              lng: number;
-            }>;
-            return isPointNearRoute(
-              { lat: finalLat, lng: finalLng },
-              coords,
-              200,
-            );
-          } catch {
-            return false;
-          }
-        })
-      : null;
-
-  const matchedArea =
-    !matchedRoute && finalLat && finalLng
-      ? deliveryAreas.find((area) => {
-          if (
-            area.type === 'CIRCLE' &&
-            area.centerLat &&
-            area.centerLng &&
-            area.radius
-          ) {
-            return (
-              calculateDistance(
-                finalLat,
-                finalLng,
-                area.centerLat,
-                area.centerLng,
-              ) <= area.radius
-            );
-          } else if (area.type === 'POLYGON' && area.polygon) {
-            try {
-              const rawPolygon: unknown = JSON.parse(area.polygon);
-
-              function isLatLngArray(value: unknown): value is LatLng[] {
-                return (
-                  Array.isArray(value) &&
-                  value.every(
-                    (p) =>
-                      p &&
-                      typeof p === 'object' &&
-                      'lat' in p &&
-                      'lng' in p &&
-                      typeof (p as Record<string, unknown>).lat ===
-                        'number' &&
-                      typeof (p as Record<string, unknown>).lng === 'number',
-                  )
-                );
-              }
-
-              if (!isLatLngArray(rawPolygon)) return false;
-
-              const polygon = rawPolygon;
-
-              return isPointInPolygon(
-                { lat: finalLat, lng: finalLng },
-                polygon,
-              );
-            } catch {
-              return false;
-            }
-          }
-          return false;
-        })
-      : null;
-
-  const matched = matchedRoute || matchedArea;
-  
-  if (!matched) {
-    return {
-      deliveryFee: 0,
-      available: false,
-      message: 'Endereço fora da área de entrega',
-    };
-  }
-
-  // 🔥 VALIDAR PEDIDO MÍNIMO (valores já em centavos)
-  // subtotal já vem em centavos (ex: 2000 = R$ 20,00)
-  // minOrderValue já está em centavos no banco (ex: 3000 = R$ 30,00)
-  if (matched.minOrderValue && subtotal < matched.minOrderValue) {
-    return {
-      deliveryFee: matched.deliveryFee, // já em centavos
-      available: false,
-      minOrderValue: matched.minOrderValue, // já em centavos
-      message: `Pedido mínimo de ${new Intl.NumberFormat('pt-BR', { 
-        style: 'currency', 
-        currency: 'BRL' 
-      }).format(matched.minOrderValue / 100)}`, // divide por 100 para exibir
-      areaLevel: matched.level, // ✅ retorna o level da área
-      areaName: matched.name,
-    };
-  }
-
-  // 🔥 RETORNO SUCESSO (valores já em centavos)
-  return {
-    deliveryFee: matched.deliveryFee, // já em centavos (ex: 500 = R$ 5,00)
-    available: true,
-    estimatedTime: matched.estimatedTime,
-    areaName: matched.name,
-    areaLevel: matched.level, // ✅ retorna o level da área escolhida
-    type: matchedRoute ? 'route' : 'area',
-  };
-}
+  /**
+   * Calcular frete de entrega (CORRIGIDO)
+   *
+   * Mudanças:
+   * 1. Considera o level (maior prioridade primeiro)
+   * 2. Valores já estão em centavos no banco (20,00 = 2000)
+   * 3. Retorna a área com maior level quando há sobreposição
+   */
 
   /**
    * Login do cliente na loja

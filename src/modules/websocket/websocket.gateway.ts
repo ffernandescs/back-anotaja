@@ -18,6 +18,7 @@ interface AuthenticatedSocket extends Socket {
     email?: string;
     role?: string;
     branchId?: string;
+    deliveryPersonId?: string;
   };
 }
 
@@ -64,62 +65,158 @@ export class OrdersWebSocketGateway
         secret: this.configService.get<string>('JWT_SECRET'),
       });
 
+      const deliveryPersonId = payload.deliveryPersonId as string | undefined;
       const userId = payload.sub || payload.userId;
-      if (!userId) {
+
+      if (deliveryPersonId) {
+        const deliveryPerson = await prisma.deliveryPerson.findUnique({
+          where: { id: deliveryPersonId },
+          include: { branch: true },
+        });
+
+        if (!deliveryPerson) {
+          this.logger.warn(
+            `WebSocket connection rejected: Delivery person not found (${deliveryPersonId})`,
+          );
+          client.disconnect();
+          return;
+        }
+
+        client.user = {
+          userId: deliveryPerson.id,
+          role: 'delivery',
+          branchId: deliveryPerson.branchId,
+          deliveryPersonId: deliveryPerson.id,
+        };
+
+        if (deliveryPerson.branchId) {
+          const branchRoom = `branch:${deliveryPerson.branchId}`;
+          client.join(branchRoom);
+          this.logger.log(
+            `✅ Delivery ${deliveryPerson.id} connected and joined room: ${branchRoom}`,
+          );
+        }
+
+        const deliveryRoom = `delivery:${deliveryPerson.id}`;
+        client.join(deliveryRoom);
+
+        void client.emit('connected', {
+          deliveryPersonId: deliveryPerson.id,
+          branchId: deliveryPerson.branchId,
+          role: 'delivery',
+        });
+      } else if (userId) {
+        const user = await prisma.user.findUnique({
+          where: { id: userId },
+          include: { branch: true },
+        });
+
+        if (!user) {
+          this.logger.warn(
+            `WebSocket connection rejected: User not found (${userId})`,
+          );
+          client.disconnect();
+          return;
+        }
+
+        client.user = {
+          userId: user.id,
+          email: user.email || undefined,
+          role: user.role,
+          branchId: user.branchId || undefined,
+        };
+
+        if (user.branchId) {
+          const branchRoom = `branch:${user.branchId}`;
+          client.join(branchRoom);
+          this.logger.log(
+            `✅ User ${user.id} connected and joined room: ${branchRoom}`,
+          );
+        }
+
+        const userRoom = `user:${user.id}`;
+        client.join(userRoom);
+        this.logger.log(`✅ User ${user.id} joined personal room: ${userRoom}`);
+
+        void client.emit('connected', {
+          userId: user.id,
+          branchId: user.branchId,
+          role: user.role,
+        });
+      } else {
         this.logger.warn(
-          'WebSocket connection rejected: No userId found in token',
+          'WebSocket connection rejected: No userId or deliveryPersonId found in token',
         );
         client.disconnect();
         return;
       }
-
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        include: { branch: true },
-      });
-
-      if (!user) {
-        this.logger.warn(
-          `WebSocket connection rejected: User not found (${userId})`,
-        );
-        client.disconnect();
-        return;
-      }
-
-      client.user = {
-        userId: user.id,
-        email: user.email || undefined,
-        role: user.role,
-        branchId: user.branchId || undefined,
-      };
-
-      if (user.branchId) {
-        const branchRoom = `branch:${user.branchId}`;
-        client.join(branchRoom);
-        this.logger.log(
-          `✅ User ${user.id} connected and joined room: ${branchRoom}`,
-        );
-      }
-
-      const userRoom = `user:${user.id}`;
-      client.join(userRoom);
-      this.logger.log(`✅ User ${user.id} joined personal room: ${userRoom}`);
-
-      void client.emit('connected', {
-        userId: user.id,
-        branchId: user.branchId,
-        role: user.role,
-      });
     } catch (error) {
       this.logger.error('WebSocket authentication error:', error);
       client.disconnect();
     }
   }
 
-  handleDisconnect(client: AuthenticatedSocket) {
+  async handleDisconnect(client: AuthenticatedSocket) {
+    if (client.user?.deliveryPersonId) {
+      await prisma.deliveryPerson.update({
+        where: { id: client.user.deliveryPersonId },
+        data: { isOnline: false, lastOnlineAt: null },
+      });
+      this.logger.log(
+        `❌ Delivery ${client.user.deliveryPersonId} disconnected (offline)`,
+      );
+      return;
+    }
+
     if (client.user) {
       this.logger.log(`❌ User ${client.user.userId} disconnected`);
     }
+  }
+
+  @SubscribeMessage('delivery:online')
+  async handleDeliveryOnline(
+    client: AuthenticatedSocket,
+    payload?: { deliveryPersonId?: string },
+  ) {
+    const deliveryPersonId =
+      client.user?.deliveryPersonId || payload?.deliveryPersonId;
+    if (!deliveryPersonId) {
+      client.emit('error', { message: 'Delivery person not authenticated' });
+      return;
+    }
+
+    const deliveryPerson = await prisma.deliveryPerson.update({
+      where: { id: deliveryPersonId },
+      data: { isOnline: true, lastOnlineAt: new Date() },
+    });
+
+    client.emit('delivery:status', {
+      deliveryPersonId,
+      isOnline: deliveryPerson.isOnline,
+    });
+  }
+
+  @SubscribeMessage('delivery:offline')
+  async handleDeliveryOffline(
+    client: AuthenticatedSocket,
+    payload?: { deliveryPersonId?: string },
+  ) {
+    const deliveryPersonId =
+      client.user?.deliveryPersonId || payload?.deliveryPersonId;
+    if (!deliveryPersonId) {
+      client.emit('error', { message: 'Delivery person not authenticated' });
+      return;
+    }
+
+    const deliveryPerson = await prisma.deliveryPerson.update({
+      where: { id: deliveryPersonId },
+      data: { isOnline: false, lastOnlineAt: null },
+    });
+
+    client.emit('delivery:status', {
+      deliveryPersonId,
+      isOnline: deliveryPerson.isOnline,
+    });
   }
 
   @SubscribeMessage('join')

@@ -1,4 +1,8 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { CreateDeliveryAreaDto } from './dto/create-delivery-area.dto';
 import { prisma } from '../../../lib/prisma';
 import { CreateDeliveryAreaExclusionDto } from './dto/create-delivery-area-exclusion.dto';
@@ -26,16 +30,16 @@ export class DeliveryAreasService {
 
   async create(userId: string, createDeliveryAreaDto: CreateDeliveryAreaDto) {
     const branchId = await this.getUserBranch(userId);
-  
+
     // 🔹 Buscar o maior level da branch
     const lastArea = await prisma.deliveryArea.findFirst({
       where: { branchId },
       orderBy: { level: 'desc' },
       select: { level: true },
     });
-  
+
     const nextLevel = lastArea ? lastArea.level + 1 : 1;
-  
+
     try {
       const deliveryArea = await prisma.deliveryArea.create({
         data: {
@@ -53,14 +57,13 @@ export class DeliveryAreasService {
           branchId,
         },
       });
-  
+
       return deliveryArea;
     } catch (error) {
       console.error('Erro ao criar área de entrega:', error);
       throw new Error('Erro ao criar área de entrega');
     }
   }
-  
 
   async findAll(userId: string) {
     const branchId = await this.getUserBranch(userId);
@@ -93,18 +96,18 @@ export class DeliveryAreasService {
     updateDeliveryAreaDto: UpdateDeliveryAreaExclusionDto,
   ) {
     const branchId = await this.getUserBranch(userId);
-  
+
     const existingArea = await prisma.deliveryArea.findFirst({
       where: { id, branchId },
     });
-  
+
     if (!existingArea) {
       throw new NotFoundException('Área de entrega não encontrada');
     }
-  
+
     // 🔹 Se não vier level no body, mantém o atual
     const level = existingArea.level;
-  
+
     try {
       const deliveryArea = await prisma.deliveryArea.update({
         where: { id },
@@ -122,29 +125,25 @@ export class DeliveryAreasService {
           active: updateDeliveryAreaDto.active,
         },
       });
-  
+
       return deliveryArea;
     } catch (error) {
       console.error('Erro ao atualizar área de entrega:', error);
       throw new Error('Erro ao atualizar área de entrega');
     }
   }
-  
-  async updateLevel(
-    userId: string,
-    id: string,
-    newLevel: number,
-  ) {
+
+  async updateLevel(userId: string, id: string, newLevel: number) {
     const branchId = await this.getUserBranch(userId);
-  
+
     const currentArea = await prisma.deliveryArea.findFirst({
       where: { id, branchId },
     });
-  
+
     if (!currentArea) {
       throw new NotFoundException('Área de entrega não encontrada');
     }
-  
+
     if (currentArea.level === newLevel) {
       // mesmo assim retorna tudo para manter contrato consistente
       return prisma.deliveryArea.findMany({
@@ -152,14 +151,14 @@ export class DeliveryAreasService {
         orderBy: { level: 'asc' },
       });
     }
-  
+
     await prisma.$transaction(async (tx) => {
       // 1️⃣ move temporariamente para evitar conflito
       await tx.deliveryArea.update({
         where: { id },
         data: { level: -9999 },
       });
-  
+
       if (newLevel > currentArea.level) {
         // 🔽 move para baixo
         await tx.deliveryArea.updateMany({
@@ -189,24 +188,21 @@ export class DeliveryAreasService {
           },
         });
       }
-  
+
       // 2️⃣ coloca no level correto
       await tx.deliveryArea.update({
         where: { id },
         data: { level: newLevel },
       });
     });
-  
+
     // 🔥 RETORNA TUDO, JÁ ORDENADO
     return prisma.deliveryArea.findMany({
       where: { branchId },
       orderBy: { level: 'asc' },
     });
   }
-  
-  
 
-  
   async remove(userId: string, id: string) {
     const branchId = await this.getUserBranch(userId);
 
@@ -231,7 +227,10 @@ export class DeliveryAreasService {
   }
 
   // ========== EXCLUSION AREAS ==========
-  async createExclusion(userId: string, createDeliveryAreaExclusionDto: CreateDeliveryAreaExclusionDto) {
+  async createExclusion(
+    userId: string,
+    createDeliveryAreaExclusionDto: CreateDeliveryAreaExclusionDto,
+  ) {
     const branchId = await this.getUserBranch(userId);
 
     try {

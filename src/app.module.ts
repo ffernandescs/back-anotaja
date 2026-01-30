@@ -27,6 +27,9 @@ import { CompaniesModule } from './modules/companies/companies.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { GeocodingModule } from './modules/geocoding/geocoding.module';
 import { DeliveryAreasModule } from './modules/delivery-areas/delivery-areas.module';
+import { DeliveryAssignmentsModule } from './modules/delivery-assignments/delivery-assignments.module';
+import { AutoRouteConfigModule } from './modules/auto-route-config/auto-route-config.module';
+import { DeliveryModule } from './modules/delivery/delivery.module';
 
 @Module({
   imports: [
@@ -59,6 +62,9 @@ import { DeliveryAreasModule } from './modules/delivery-areas/delivery-areas.mod
     BillingModule,
     GeocodingModule,
     DeliveryAreasModule,
+    DeliveryAssignmentsModule,
+    AutoRouteConfigModule,
+    DeliveryModule,
   ],
   providers: [
     {

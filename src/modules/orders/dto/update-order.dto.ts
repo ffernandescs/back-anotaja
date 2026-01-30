@@ -1,11 +1,13 @@
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsEnum,
   IsNumber,
   IsOptional,
   IsString,
   ValidateNested,
 } from 'class-validator';
+import { OrderStatusDto } from './create-order-item.dto';
 
 export class UpdateOrderItemComplementOptionDto {
   @IsString()
@@ -70,4 +72,8 @@ export class UpdateOrderDto {
   @IsOptional()
   @IsNumber()
   total?: number;
+
+  @IsOptional()
+  @IsEnum(OrderStatusDto)
+  status?: OrderStatusDto;
 }
