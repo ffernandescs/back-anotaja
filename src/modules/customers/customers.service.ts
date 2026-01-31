@@ -34,7 +34,7 @@ export class CustomersService {
     });
     if (existing) throw new ConflictException('Telefone já cadastrado');
 
-    return prisma.customer.create({
+    const customer = await prisma.customer.create({
       data: {
         name,
         phone,
@@ -43,6 +43,18 @@ export class CustomersService {
       },
       include: { addresses: true },
     });
+
+    // Gera JWT incluindo branchId no payload (igual ao login)
+    const token = this.jwtService.sign(
+      {
+        userId: customer.id,
+        phone: customer.phone,
+        branchId: customer.branchId,
+      },
+      { secret: process.env.JWT_CUSTOMER_SECRET, expiresIn: '7d' },
+    );
+
+    return { token, customer };
   }
 
   async createAddressCustomer(

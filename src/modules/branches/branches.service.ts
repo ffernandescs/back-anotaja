@@ -38,7 +38,7 @@ export class BranchesService {
 
     // Extrair dados de endereço do DTO
     const {
-      address,
+      street,
       city,
       state,
       zipCode,
@@ -58,7 +58,7 @@ export class BranchesService {
       const cleanZipCode = zipCode?.replace(/-/g, '') || '';
       try {
         const coordinates = await this.geocodingService.getCoordinates(
-          address || '',
+          street || '',
           createBranchDto.number || '',
           city || '',
           cleanZipCode,
@@ -68,7 +68,6 @@ export class BranchesService {
         if (coordinates) {
           lat = coordinates.lat;
           lng = coordinates.lng;
-          console.log(`Coordenadas encontradas para branch: lat=${lat}, lng=${lng}`);
         }
       } catch (error) {
         console.warn('Erro ao buscar coordenadas da branch:', error);
@@ -81,11 +80,11 @@ export class BranchesService {
         throw new ForbiddenException(
           'Usuário não está associado a uma empresa',
         );
-      if (!address) throw new BadRequestException('Endereço é obrigatório');
+      if (!street) throw new BadRequestException('Endereço é obrigatório');
 
       const createAddress = await prisma.companyAddress.create({
         data: {
-          street: address,
+          street: street,
           number: createBranchDto.number ?? '',
           complement,
           neighborhood,
@@ -120,7 +119,7 @@ export class BranchesService {
       // 2️⃣ Criar endereço da branch
       await prisma.branchAddress.create({
         data: {
-          street: address,
+          street: street,
           city,
           state,
           zipCode,
@@ -286,6 +285,9 @@ export class BranchesService {
         companyId: user.companyId,
       },
       include: {
+        address: true,
+        paymentMethods: true,
+        openingHours: true,
         company: {
           select: {
             id: true,
@@ -403,6 +405,9 @@ export class BranchesService {
         companyId: user.companyId,
       },
       include: {
+        address: true,
+        paymentMethods: true,
+        openingHours: true,
         company: {
           select: {
             id: true,
@@ -455,7 +460,7 @@ export class BranchesService {
         phone: updateBranchDto.phone,
         address: {
           update: {
-            street: updateBranchDto.address ?? '',
+            street: updateBranchDto.street ?? '',
             city: updateBranchDto.city ?? '',
             state: updateBranchDto.state ?? '',
             zipCode: updateBranchDto.zipCode ?? '',
@@ -480,7 +485,7 @@ export class BranchesService {
 
   async update(id: string, updateBranchDto: UpdateBranchDto, userId: string) {
     // Verificar se a branch pertence à empresa do usuário
-    await this.findOne(id, userId);
+    const branch = await this.findOne(id, userId);
 
     // Verificar se subdomain já existe (se fornecido e diferente do atual)
     if (updateBranchDto.subdomain) {
@@ -496,34 +501,116 @@ export class BranchesService {
       }
     }
 
-    return prisma.branch.update({
-      where: { id },
-      data: {
-        ...updateBranchDto,
-        document: updateBranchDto.document ?? '',
-        phone: updateBranchDto.phone,
-        address: {
-          update: {
-            street: updateBranchDto.address ?? '',
-            city: updateBranchDto.city ?? '',
-            state: updateBranchDto.state ?? '',
-            zipCode: updateBranchDto.zipCode ?? '',
+    // Se houver atualização de endereço com coordenadas, buscar coordenadas se não fornecidas
+    let lat = updateBranchDto.latitude;
+    let lng = updateBranchDto.longitude;
+
+    if (
+      (updateBranchDto.street ||
+        updateBranchDto.city ||
+        updateBranchDto.state) &&
+      (!lat || !lng) &&
+      branch.address
+    ) {
+      try {
+        const street = updateBranchDto.street || branch.address.street || '';
+        const city = updateBranchDto.city || branch.address.city || '';
+        const state = updateBranchDto.state || branch.address.state || '';
+        const number = updateBranchDto.number || branch.address.number || '';
+
+        if (street && city && state) {
+          const coordinates = await this.geocodingService.getCoordinates(
+            street,
+            number,
+            city,
+            state,
+            'Brasil',
+          );
+
+          if (coordinates) {
+            lat = coordinates.lat;
+            lng = coordinates.lng;
+          }
+        }
+      } catch (error) {
+        console.warn('Erro ao buscar coordenadas da branch:', error);
+      }
+    }
+
+    // Preparar dados de atualização
+    const updateData: any = {
+      ...updateBranchDto,
+      phone: updateBranchDto.phone ?? undefined,
+      latitude: lat ?? undefined,
+      longitude: lng ?? undefined,
+    };
+
+    // Remover campos de endereço do updateData pois serão atualizados separadamente
+    delete updateData.street;
+    delete updateData.number;
+    delete updateData.complement;
+    delete updateData.neighborhood;
+    delete updateData.city;
+    delete updateData.state;
+    delete updateData.zipCode;
+    delete updateData.email;
+
+    // Atualizar branch e endereço em uma transação
+    return prisma.$transaction(async (tx) => {
+      // Atualizar endereço se houver campos de endereço e branch tiver addressId
+      if (
+        branch.addressId &&
+        (updateBranchDto.street ||
+          updateBranchDto.number ||
+          updateBranchDto.complement !== undefined ||
+          updateBranchDto.neighborhood ||
+          updateBranchDto.city ||
+          updateBranchDto.state ||
+          updateBranchDto.zipCode ||
+          lat ||
+          lng)
+      ) {
+        // Atualizar o endereço usando o addressId da branch
+        await tx.branchAddress.update({
+          where: { id: branch.addressId },
+          data: {
+            street: updateBranchDto.street || undefined,
+            number: updateBranchDto.number || undefined,
+            complement: updateBranchDto.complement || undefined,
+            neighborhood: updateBranchDto.neighborhood || undefined,
+            city: updateBranchDto.city || undefined,
+            state: updateBranchDto.state || undefined,
+            zipCode: updateBranchDto.zipCode || undefined,
+            lat: lat ? Math.round(lat * 1000000) : undefined,
+            lng: lng ? Math.round(lng * 1000000) : undefined,
+          },
+        });
+      }
+
+      // Atualizar branch
+      return tx.branch.update({
+        where: { id },
+        data: {
+          ...updateData,
+          paymentMethods: updateBranchDto.paymentMethods
+            ? {
+                set: updateBranchDto.paymentMethods.map((paymentMethod) => ({
+                  id: paymentMethod.id,
+                })),
+              }
+            : undefined,
+        },
+        include: {
+          address: true,
+          paymentMethods: true,
+          company: {
+            select: {
+              id: true,
+              name: true,
+            },
           },
         },
-        paymentMethods: {
-          set: updateBranchDto.paymentMethods?.map((paymentMethod) => ({
-            id: paymentMethod.id,
-          })),
-        },
-      },
-      include: {
-        company: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
+      });
     });
   }
 

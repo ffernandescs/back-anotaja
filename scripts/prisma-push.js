@@ -10,9 +10,7 @@ if (!databaseUrl) {
   process.exit(1);
 }
 
-console.log('📦 Executando prisma db push para Neon...');
 const dbInfo = databaseUrl.includes('@') ? databaseUrl.split('@')[1] : 'conectando...';
-console.log(`🔗 Database: ${dbInfo.split('?')[0] || dbInfo}`);
 
 // Para Prisma 7.x com Neon, precisamos criar um prisma.config.ts temporariamente
 const configPath = path.join(__dirname, '../prisma/config.ts');
@@ -29,10 +27,8 @@ export default defineDatasource({
 
 // Salvar config.ts
 fs.writeFileSync(configPath, configContent);
-console.log('📝 Arquivo prisma/config.ts criado temporariamente...');
 
 try {
-  console.log('🔄 Sincronizando schema com o banco de dados Neon...');
   
   const envWithDb = { ...process.env, DATABASE_URL: databaseUrl };
   
@@ -45,8 +41,6 @@ try {
     cwd: path.join(__dirname, '..'),
   });
   
-  console.log('✅ Schema sincronizado com sucesso!');
-  console.log('🔄 Gerando Prisma Client...');
   
   execSync('npx prisma generate --schema=./prisma/schema.prisma', {
     stdio: 'inherit',
@@ -56,8 +50,6 @@ try {
     cwd: path.join(__dirname, '..'),
   });
   
-  console.log('✅ Prisma Client gerado com sucesso!');
-  console.log('✅ Tabela notification_reads deve estar disponível agora!');
 } catch (error) {
   console.error('❌ Erro ao executar prisma db push');
   if (error.message) {
@@ -70,6 +62,4 @@ try {
 } finally {
   // Manter o config.ts pois pode ser útil para futuros db push
   // Mas avisar que não é usado no runtime
-  console.log('ℹ️  Nota: O prisma/config.ts é usado apenas para db push, não para runtime.');
-  console.log('ℹ️  O PrismaService usa o adapter diretamente, então não precisa do config.ts no runtime.');
 }

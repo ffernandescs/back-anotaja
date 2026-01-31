@@ -21,7 +21,6 @@ try {
   );
 
   fs.writeFileSync(filePath, content, 'utf8');
-  console.log('✅ Caminho do Prisma corrigido em dist/lib/prisma.js');
 } catch (error) {
   console.error('❌ Erro ao corrigir caminho do Prisma:', error.message);
 }

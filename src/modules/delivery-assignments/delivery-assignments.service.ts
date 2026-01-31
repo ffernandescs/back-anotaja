@@ -406,9 +406,6 @@ export class DeliveryAssignmentsService {
   }
 
   private async optimizeRoute(orders: OrderWithAddress[], branchId: string) {
-    console.log('🗺️ Otimizando rota para', orders.length, 'pedidos');
-    console.log('📦 Pedidos recebidos:', orders);
-
     // Buscar coordenadas da filial
     const branch = await prisma.branch.findUnique({
       where: { id: branchId },
@@ -434,7 +431,6 @@ export class DeliveryAssignmentsService {
       );
     }
 
-    console.log('🏪 Coordenadas da filial:', { branchLat, branchLng });
 
     // Criar pontos da rota
     const points: RoutePoint[] = [
@@ -458,17 +454,11 @@ export class DeliveryAssignmentsService {
         pointLabel: `Ponto ${String.fromCharCode(65 + index)}`,
       };
 
-      console.log(`📍 Adicionando ${point.pointLabel}:`, {
-        orderId: point.orderId,
-        lat: point.lat,
-        lng: point.lng,
-        address: point.address,
-      });
+
 
       points.push(point);
     });
 
-    console.log('✅ Pontos da rota finalizados:', points);
 
     // Calcular distância e tempo estimados
     let totalDistance = 0;
@@ -487,8 +477,6 @@ export class DeliveryAssignmentsService {
       (totalDistance / 1000 / 30) * 60 + orders.length * 5,
     );
 
-    console.log('📊 Distância total:', totalDistance, 'metros');
-    console.log('⏱️ Tempo estimado:', estimatedTime, 'minutos');
 
     return {
       route: points,

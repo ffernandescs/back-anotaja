@@ -40,11 +40,9 @@ END $$;
 
 pool.query(sql)
   .then(() => {
-    console.log('✅ Tabela notification_reads criada com sucesso!');
     return pool.end();
   })
   .then(() => {
-    console.log('✅ Conexão fechada.');
     process.exit(0);
   })
   .catch((error) => {

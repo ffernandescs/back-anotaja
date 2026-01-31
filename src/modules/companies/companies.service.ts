@@ -69,7 +69,6 @@ export class CompaniesService {
       if (coordinates) {
         lat = coordinates.lat;
         lng = coordinates.lng;
-        console.log(`Coordenadas encontradas para empresa: lat=${lat}, lng=${lng}`);
       }
     } catch (error) {
       console.warn('Erro ao buscar coordenadas da empresa:', error);

@@ -58,7 +58,6 @@ export class StoreService {
    * Obter dados da loja identificada por subdomain ou branchId
    */
   async getBranch(subdomain?: string, branchId?: string) {
-    console.log(subdomain, '1221');
     if (branchId) {
       return prisma.branch.findUnique({
         where: { id: branchId },
@@ -635,7 +634,52 @@ export class StoreService {
       throw new NotFoundException('Loja não encontrada');
     }
 
-    // 2. Validar assinatura da empresa
+    // 2. Validar horário de funcionamento
+    const openingHours = await prisma.branchSchedule.findMany({
+      where: { branchId: branch.id },
+    });
+
+    if (openingHours && openingHours.length > 0) {
+      const now = new Date();
+      const daysOfWeek = [
+        'sunday',
+        'monday',
+        'tuesday',
+        'wednesday',
+        'thursday',
+        'friday',
+        'saturday',
+      ];
+      const currentDay = daysOfWeek[now.getDay()];
+
+      // Check for custom schedule for today
+      const todaySchedule =
+        openingHours.find(
+          (h) =>
+            h.date && new Date(h.date).toDateString() === now.toDateString(),
+        ) || openingHours.find((h) => h.day === currentDay);
+
+      if (todaySchedule) {
+        if (todaySchedule.closed) {
+          throw new BadRequestException(
+            'Loja fechada. Não é possível realizar pedidos no momento.',
+          );
+        }
+
+        const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+
+        if (
+          currentTime < todaySchedule.open ||
+          currentTime > todaySchedule.close
+        ) {
+          throw new BadRequestException(
+            `Loja fechada. Horário de funcionamento: ${todaySchedule.open} às ${todaySchedule.close}`,
+          );
+        }
+      }
+    }
+
+    // 3. Validar assinatura da empresa
     const { limits } = await this.validateSubscription(branch.companyId);
     await this.validateOrderLimit(branch.companyId, limits);
 
@@ -1677,6 +1721,8 @@ export class StoreService {
             },
           },
         },
+        payments: true,
+        paymentStatus: true,
         coupon: {
           select: {
             code: true,
@@ -1795,7 +1841,6 @@ export class StoreService {
 
       const fullAddress = addressParts.join(', ').replace(/\s+/g, ' ').trim();
 
-      console.log('Geocoding address:', fullAddress);
 
       // Chamar API Nominatim
       const response = await fetch(
@@ -1839,14 +1884,12 @@ export class StoreService {
       }
 
       if (data.length === 0) {
-        console.log('No geocoding results found');
         return null;
       }
 
       const lat = parseFloat(data[0].lat);
       const lng = parseFloat(data[0].lon);
 
-      console.log('Geocoding successful:', { lat, lng });
 
       return { lat, lng };
     } catch (error) {
@@ -1876,7 +1919,6 @@ export class StoreService {
     let lng = createAddressDto.lng;
 
     if (!lat || !lng) {
-      console.log('Geocoding address for customer:', customerId);
 
       const coordinates = await this.geocodeAddress(
         createAddressDto.street,
@@ -1889,7 +1931,6 @@ export class StoreService {
       if (coordinates) {
         lat = coordinates.lat;
         lng = coordinates.lng;
-        console.log('Coordinates obtained:', { lat, lng });
       } else {
         console.warn('Could not geocode address, saving without coordinates');
       }
@@ -1958,7 +1999,6 @@ export class StoreService {
         updateAddressDto.zipCode !== existingAddress.zipCode);
 
     if (addressChanged && !updateAddressDto.lat && !updateAddressDto.lng) {
-      console.log('Address changed, re-geocoding...');
 
       const coordinates = await this.geocodeAddress(
         updateAddressDto.street || existingAddress.street,
@@ -1971,7 +2011,6 @@ export class StoreService {
       if (coordinates) {
         lat = coordinates.lat;
         lng = coordinates.lng;
-        console.log('New coordinates obtained:', { lat, lng });
       } else {
         console.warn(
           'Could not re-geocode address, keeping existing coordinates',
