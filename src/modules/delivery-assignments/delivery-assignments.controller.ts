@@ -39,6 +39,12 @@ export class DeliveryAssignmentsController {
     return this.deliveryAssignmentsService.findAll(req.user.userId);
   }
 
+  @Get(':id')
+  @Roles('admin', 'manager')
+  findOne(@Param('id') id: string, @Req() req: RequestWithUser) {
+    return this.deliveryAssignmentsService.findOne(id, req.user.userId);
+  }
+
   @Post('auto-create')
   @Roles('admin', 'manager')
   autoCreateRoutes(
@@ -59,17 +65,29 @@ export class DeliveryAssignmentsController {
 
   @Put(':id')
   @Roles('admin', 'manager')
-  assignDeliveryPerson(
+  update(
     @Param('id') id: string,
-    @Body() dto: AssignDeliveryPersonDto,
+    @Body() dto: any,
     @Req() req: RequestWithUser,
   ) {
-    return this.deliveryAssignmentsService.assignDeliveryPerson(
-      id,
-      dto.deliveryPersonId,
-      req.user.userId,
-    );
-  }
+    // Se o body contém deliveryPersonId, é uma atribuição de entregador
+    if (dto.deliveryPersonId) {
+      return this.deliveryAssignmentsService.assignDeliveryPerson(
+        id,
+        dto.deliveryPersonId,
+        req.user.userId,
+      );
+    }
+    
+    // Se o body contém status, é uma atualização de status
+    if (dto.status) {
+      return this.deliveryAssignmentsService.updateStatus(
+        id,
+        dto.status,
+        req.user.userId,
+      );
+    }
 
-  // ... outros endpoints existentes ...
+    return { success: false, message: 'Nenhuma ação válida fornecida' };
+  }
 }

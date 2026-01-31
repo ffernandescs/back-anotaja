@@ -43,6 +43,8 @@ export class ComplementOptionsService {
         },
       });
 
+      console.log(complementExists, 'exist');
+
       if (!complementExists) {
         throw new BadRequestException(
           'Complemento não existe ou não pertence à filial',
@@ -53,21 +55,27 @@ export class ComplementOptionsService {
     }
 
     // 3️⃣ Cria option
-    const option = await prisma.complementOption.create({
-      data: {
-        name: dto.name,
-        price: dto.price ?? 0,
-        active: dto.active ?? true,
-        stockControlEnabled: dto.stockControlEnabled ?? false,
-        minStock: dto.minStock,
-        displayOrder: dto.displayOrder,
-        complement: {
-          connect: {
-            id: dto.complementId,
-          },
-        },
-        branchId,
+    const data: Prisma.ComplementOptionCreateInput = {
+      name: dto.name,
+      price: dto.price ?? 0,
+      active: dto.active ?? true,
+      stockControlEnabled: dto.stockControlEnabled ?? false,
+      minStock: dto.minStock ?? null,
+      displayOrder: dto.displayOrder ?? null,
+      branch: {
+        connect: { id: branchId },
       },
+    };
+
+    // 👇 só conecta se existir
+    if (dto.complementId) {
+      data.complement = {
+        connect: [{ id: dto.complementId }], // array ✔️
+      };
+    }
+
+    const option = await prisma.complementOption.create({
+      data,
       include: {
         complement: true,
       },

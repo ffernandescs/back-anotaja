@@ -124,6 +124,156 @@ export class DeliveryAssignmentsService {
     };
   }
 
+  async findOne(id: string, userId: string) {
+    // Verificar usuário e permissões
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { branch: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    if (!user.branchId) {
+      throw new ForbiddenException('Usuário não está associado a uma filial');
+    }
+
+    // Buscar a rota específica
+    const assignment = await prisma.deliveryAssignment.findUnique({
+      where: { id },
+      include: {
+        deliveryPerson: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            email: true,
+            isOnline: true,
+          },
+        },
+        orders: {
+          include: {
+            customer: {
+              select: {
+                id: true,
+                name: true,
+                phone: true,
+              },
+            },
+            customerAddress: {
+              select: {
+                street: true,
+                number: true,
+                neighborhood: true,
+                city: true,
+                state: true,
+                zipCode: true,
+                lat: true,
+                lng: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!assignment) {
+      throw new NotFoundException('Rota não encontrada');
+    }
+
+    if (assignment.branchId !== user.branchId) {
+      throw new ForbiddenException('Você não tem permissão para visualizar esta rota');
+    }
+
+    return {
+      assignment,
+    };
+  }
+
+  async updateStatus(id: string, status: string, userId: string) {
+    // Verificar usuário e permissões
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { branch: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    if (!user.branchId) {
+      throw new ForbiddenException('Usuário não está associado a uma filial');
+    }
+
+    // Verificar se a rota existe e pertence à filial do usuário
+    const assignment = await prisma.deliveryAssignment.findUnique({
+      where: { id },
+      include: { orders: true },
+    });
+
+    if (!assignment) {
+      throw new NotFoundException('Rota não encontrada');
+    }
+
+    if (assignment.branchId !== user.branchId) {
+      throw new ForbiddenException('Você não tem permissão para atualizar esta rota');
+    }
+
+    // Validar status
+    const validStatuses = ['PENDING', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'];
+    if (!validStatuses.includes(status)) {
+      throw new BadRequestException('Status inválido');
+    }
+
+    // Atualizar status da rota
+    const updateData: any = { status };
+
+    if (status === 'IN_PROGRESS' && !assignment.startedAt) {
+      updateData.startedAt = new Date();
+    }
+
+    if (status === 'COMPLETED' && !assignment.completedAt) {
+      updateData.completedAt = new Date();
+    }
+
+    const updatedAssignment = await prisma.deliveryAssignment.update({
+      where: { id },
+      data: updateData,
+      include: {
+        deliveryPerson: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            email: true,
+            isOnline: true,
+          },
+        },
+        orders: true,
+      },
+    });
+
+    // Atualizar status dos pedidos associados
+    if (status === 'IN_PROGRESS') {
+      await prisma.order.updateMany({
+        where: { deliveryAssignmentId: id },
+        data: { status: 'DELIVERING' },
+      });
+    } else if (status === 'COMPLETED') {
+      await prisma.order.updateMany({
+        where: { deliveryAssignmentId: id },
+        data: { status: 'DELIVERED' },
+      });
+    }
+
+    return {
+      success: true,
+      message: 'Status atualizado com sucesso',
+      assignment: updatedAssignment,
+    };
+  }
+
   async autoCreateRoutes(dto: AutoCreateRoutesDto, userId: string) {
     // Verificar usuário e permissões
     const user = await prisma.user.findUnique({

@@ -32,6 +32,20 @@ interface RequestWithUser extends Request {
 export class BranchesController {
   constructor(private readonly branchesService: BranchesService) {}
 
+  @Get()
+  findAll(
+    @Req() req: RequestWithUser,
+    @Query('current') current?: string,
+    @Query('all') all?: string,
+  ) {
+    // Por padrão, retorna a branch atual do usuário
+    // Se ?all=true, retorna todas as branches da empresa
+    if (all === 'true') {
+      return this.branchesService.findAll(req.user.userId);
+    }
+    return this.branchesService.findAll(req.user.userId);
+  }
+
   @Post()
   create(
     @Body() createBranchDto: CreateBranchDto,
@@ -71,19 +85,6 @@ export class BranchesController {
     return this.branchesService.updateSchedule(userId, dto);
   }
 
-  @Get()
-  findAll(
-    @Req() req: RequestWithUser,
-    @Query('current') current?: string,
-    @Query('all') all?: string,
-  ) {
-    // Por padrão, retorna a branch atual do usuário
-    // Se ?all=true, retorna todas as branches da empresa
-    if (all === 'true') {
-      return this.branchesService.findAll(req.user.userId);
-    }
-    return this.branchesService.findCurrent(req.user.userId);
-  }
   @Patch('update-subdomain')
   updateSubdomain(
     @Body() body: { subdomain: string },
