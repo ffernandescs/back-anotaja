@@ -99,8 +99,7 @@ export class UploadController {
       throw new BadRequestException('File is required');
     }
 
-    const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
-    if (!allowedMimeTypes.includes(file.mimetype)) {
+    if (!file.mimetype.startsWith('image/')) {
       throw new BadRequestException('Only image files are allowed');
     }
 
@@ -109,6 +108,39 @@ export class UploadController {
     return {
       url,
       message: 'Person image uploaded successfully',
+    };
+  }
+
+  @Post('branding')
+  @Roles('admin', 'manager')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadBrandingImage(
+    @UploadedFile() file: Express.Multer.File,
+    @Body('type') type: 'logo' | 'banner',
+  ) {
+    if (!file) {
+      throw new BadRequestException('File is required');
+    }
+
+    if (!file.mimetype.startsWith('image/')) {
+      throw new BadRequestException('Only image files are allowed');
+    }
+
+    // Validar tamanho máximo (5MB para banner, 2MB para logo)
+    const maxSize = type === 'banner' ? 5 * 1024 * 1024 : 2 * 1024 * 1024;
+    if (file.size > maxSize) {
+      throw new BadRequestException(
+        `File size must be less than ${type === 'banner' ? '5MB' : '2MB'}`,
+      );
+    }
+
+    const folder = type === 'logo' ? 'branding/logos' : 'branding/banners';
+    const url = await this.uploadService.uploadFile(file, folder);
+
+    return {
+      url,
+      type,
+      message: `${type === 'logo' ? 'Logo' : 'Banner'} uploaded successfully`,
     };
   }
 
