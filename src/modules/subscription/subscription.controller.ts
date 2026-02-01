@@ -51,6 +51,27 @@ export class SubscriptionController {
   findAll(@Req() req: RequestWithUser) {
     return this.subscriptionService.findAll(req.user.userId);
   }
+  
+  @Get('invoices')
+  getInvoices(@Req() req: RequestWithUser) {
+    return this.subscriptionService.getInvoices(req.user.userId);
+  }
+
+  @Get('invoices/:invoiceId/pdf')
+  async downloadInvoicePdf(
+    @Param('invoiceId') invoiceId: string,
+    @Req() req: RequestWithUser,
+  ) {
+    const pdfBase64 = await this.subscriptionService.downloadInvoicePdf(
+      invoiceId,
+      req.user.userId,
+    );
+    
+    return {
+      pdf: pdfBase64,
+      filename: `fatura-${invoiceId}.pdf`,
+    };
+  }
 
   @Get('company/:companyId')
   findByCompany(
@@ -110,4 +131,5 @@ export class SubscriptionController {
 
     return subscriptionData;
   }
+
 }

@@ -32,6 +32,8 @@ import { AutoRouteConfigModule } from './modules/auto-route-config/auto-route-co
 import { DeliveryModule } from './modules/delivery/delivery.module';
 import { CouponsModule } from './modules/coupons/coupons.module';
 import { UploadModule } from './modules/upload/upload.module';
+import { OnboardingModule } from './modules/onboarding/onboarding.module';
+import { CronModule } from './modules/cron/cron.module';
 
 @Module({
   imports: [
@@ -69,6 +71,8 @@ import { UploadModule } from './modules/upload/upload.module';
     DeliveryModule,
     CouponsModule,
     UploadModule,
+    OnboardingModule,
+    CronModule,
   ],
   providers: [
     {

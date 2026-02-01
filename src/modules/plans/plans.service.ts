@@ -275,7 +275,11 @@ export class PlansService {
       endDate.setDate(endDate.getDate() + (plan.trialDays ?? 7));
       nextBillingDate = endDate;
     } else {
+      // Para planos pagos, calcular próxima cobrança e data de término
       nextBillingDate = this.calculateNextBillingDate(now, dto.billingPeriod);
+      // Para planos pagos, endDate pode ser null (sem término) ou igual ao próximo billing
+      // Vamos deixar null para indicar que é uma assinatura recorrente sem fim
+      endDate = null;
     }
 
     const subscription = await prisma.subscription.create({

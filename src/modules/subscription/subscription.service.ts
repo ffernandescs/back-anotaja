@@ -15,6 +15,7 @@ import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 import { UpdateSubscriptionInput } from './types';
 import Stripe from 'stripe';
 import { StripeService } from '../billing/stripe.service';
+import { InvoiceResponseDto } from './dto/invoice-response.dto';
 
 @Injectable()
 export class SubscriptionService {
@@ -378,5 +379,201 @@ export class SubscriptionService {
     });
     // Retorno limpo pro frontend
     return subscription;
+  }
+
+  /**
+   * Buscar histórico de faturas/invoices da empresa
+   */
+  async getInvoices(userId: string): Promise<InvoiceResponseDto[]> {
+    // Buscar usuário e empresa
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { company: true },
+    });
+
+    if (!user || !user.company) {
+      throw new NotFoundException('Usuário ou empresa não encontrada');
+    }
+
+    const companyId = user.company.id;
+
+    // Buscar subscription da empresa
+    const subscription = await prisma.subscription.findUnique({
+      where: { companyId },
+      include: { plan: true },
+    });
+
+    if (!subscription) {
+      return []; // Retorna array vazio se não houver subscription
+    }
+
+    // Por enquanto, retornar dados mockados
+    // TODO: Integrar com Stripe para buscar invoices reais
+    const invoices: InvoiceResponseDto[] = [];
+
+    // Se não for trial, gerar invoices mockados baseados na data de início
+    if (subscription.plan.type !== 'TRIAL') {
+      const startDate = new Date(subscription.startDate);
+      const now = new Date();
+      let currentDate = new Date(startDate);
+      let invoiceCount = 1;
+
+      while (currentDate <= now) {
+        invoices.push({
+          id: `inv_${invoiceCount}`,
+          date: new Date(currentDate),
+          amount: subscription.plan.price,
+          status: 'PAID',
+          description: `${subscription.plan.name} - ${currentDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}`,
+          invoiceNumber: `INV-${currentDate.getFullYear()}-${String(invoiceCount).padStart(3, '0')}`,
+          companyId,
+          subscriptionId: subscription.id,
+          createdAt: new Date(currentDate),
+        });
+
+        // Avançar para o próximo período
+        if (subscription.billingPeriod === 'MONTHLY') {
+          currentDate.setMonth(currentDate.getMonth() + 1);
+        } else if (subscription.billingPeriod === 'SEMESTRAL') {
+          currentDate.setMonth(currentDate.getMonth() + 6);
+        } else if (subscription.billingPeriod === 'ANNUAL') {
+          currentDate.setFullYear(currentDate.getFullYear() + 1);
+        }
+
+        invoiceCount++;
+      }
+    }
+
+    return invoices.reverse(); // Mais recentes primeiro
+  }
+
+  /**
+   * Baixar PDF de uma fatura
+   * Se houver stripeSubscriptionId, busca do Stripe
+   * Caso contrário, gera PDF mockado
+   */
+  async downloadInvoicePdf(invoiceId: string, userId: string): Promise<string> {
+    // Buscar usuário e empresa
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { company: true },
+    });
+
+    if (!user || !user.company) {
+      throw new NotFoundException('Usuário ou empresa não encontrada');
+    }
+
+    const companyId = user.company.id;
+
+    // Buscar subscription da empresa
+    const subscription = await prisma.subscription.findUnique({
+      where: { companyId },
+      include: { plan: true, company: true },
+    });
+
+    if (!subscription) {
+      throw new NotFoundException('Assinatura não encontrada');
+    }
+
+    // Se tiver stripeSubscriptionId, buscar invoice do Stripe
+    if (subscription.stripeSubscriptionId) {
+      try {
+        // Buscar invoices do Stripe
+        const invoices = await this.stripeService.stripe.invoices.list({
+          subscription: subscription.stripeSubscriptionId,
+          limit: 100,
+        });
+
+        // Encontrar a invoice específica (por enquanto, pegar a primeira)
+        const stripeInvoice = invoices.data[0];
+
+        if (stripeInvoice && stripeInvoice.invoice_pdf) {
+          // Baixar o PDF do Stripe
+          const response = await fetch(stripeInvoice.invoice_pdf);
+          const arrayBuffer = await response.arrayBuffer();
+          const buffer = Buffer.from(arrayBuffer);
+          
+          // Converter para base64
+          return buffer.toString('base64');
+        }
+      } catch (error) {
+        console.error('Erro ao buscar invoice do Stripe:', error);
+        // Continua para gerar PDF mockado
+      }
+    }
+
+    // Gerar PDF mockado (fallback)
+    // TODO: Implementar geração de PDF com biblioteca como pdfkit ou puppeteer
+    const pdfContent = this.generateMockInvoicePdf(subscription, invoiceId);
+    return Buffer.from(pdfContent).toString('base64');
+  }
+
+  /**
+   * Gerar PDF mockado de fatura
+   * TODO: Substituir por geração real de PDF
+   */
+  private generateMockInvoicePdf(subscription: any, invoiceId: string): string {
+    const company = subscription.company;
+    const plan = subscription.plan;
+    
+    // Por enquanto, retorna um HTML simples que pode ser convertido em PDF
+    const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Fatura ${invoiceId}</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 40px; }
+    .header { text-align: center; margin-bottom: 40px; }
+    .invoice-info { margin-bottom: 30px; }
+    .table { width: 100%; border-collapse: collapse; }
+    .table th, .table td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+    .table th { background-color: #f4f4f4; }
+    .total { text-align: right; font-size: 18px; font-weight: bold; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>FATURA</h1>
+    <p>Número: ${invoiceId}</p>
+  </div>
+  
+  <div class="invoice-info">
+    <h3>Dados do Cliente</h3>
+    <p><strong>Empresa:</strong> ${company.name}</p>
+    <p><strong>CNPJ:</strong> ${company.document}</p>
+    <p><strong>Email:</strong> ${company.email}</p>
+  </div>
+  
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Descrição</th>
+        <th>Período</th>
+        <th>Valor</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>${plan.name}</td>
+        <td>${subscription.billingPeriod}</td>
+        <td>R$ ${(plan.price / 100).toFixed(2)}</td>
+      </tr>
+    </tbody>
+  </table>
+  
+  <div class="total">
+    <p>Total: R$ ${(plan.price / 100).toFixed(2)}</p>
+  </div>
+  
+  <div style="margin-top: 40px; text-align: center; color: #666;">
+    <p>Obrigado pela sua preferência!</p>
+  </div>
+</body>
+</html>
+    `;
+    
+    return html;
   }
 }

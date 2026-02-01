@@ -8,15 +8,20 @@ import * as bcrypt from 'bcrypt';
 import { prisma } from '../../../lib/prisma';
 import { Prisma } from 'generated/prisma';
 import { GeocodingService } from '../geocoding/geocoding.service';
+import { MailService } from '../mail/mail.service';
 
 export type VerifyCompanyExistDto = {
   phone?: string;
   document?: string;
   email?: string;
 };
+
 @Injectable()
 export class CompaniesService {
-  constructor(private readonly geocodingService: GeocodingService) {}
+  constructor(
+    private readonly geocodingService: GeocodingService,
+    private readonly mailService: MailService,
+  ) {}
 
   async createCompany(dto: CreateCompanyDto) {
     const {
@@ -36,7 +41,6 @@ export class CompaniesService {
       reference,
     } = dto;
 
-    // ✅ Validações básicas
     if (!name || !document || !email || !phone || !password || !companyName) {
       throw new BadRequestException(
         'Todos os campos obrigatórios da empresa devem ser preenchidos.',
@@ -49,10 +53,8 @@ export class CompaniesService {
       );
     }
 
-    // Criptografar senha
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Buscar coordenadas do endereço usando Nominatim (OpenStreetMap)
     const cleanZipCode = zipCode.replace(/-/g, '');
     let lat: number | null = null;
     let lng: number | null = null;
@@ -114,7 +116,6 @@ export class CompaniesService {
     }
 
     const company = await prisma.$transaction(async (prisma) => {
-      // ✅ Verificar duplicidade de document, email, phone e subdomain
       const existingCompany = await prisma.company.findFirst({
         where: {
           OR: [{ document }, { email }, { phone }],
@@ -126,10 +127,10 @@ export class CompaniesService {
         if (existingCompany.document === document) message += 'documento, ';
         if (existingCompany.email === email) message += 'email, ';
         if (existingCompany.phone === phone) message += 'telefone, ';
-        message = message.replace(/, $/, ''); // remove última vírgula
+        message = message.replace(/, $/, '');
         throw new BadRequestException(message);
       }
-      // 1️⃣ Criar empresa
+
       const createdCompany = await prisma.company.create({
         data: {
           companyName,
@@ -143,7 +144,6 @@ export class CompaniesService {
         },
       });
 
-      // 2️⃣ Criar endereço da empresa
       await prisma.companyAddress.create({
         data: {
           street,
@@ -176,7 +176,7 @@ export class CompaniesService {
           isDefault: true,
         },
       });
-      // 3️⃣ Criar branch com coordenadas
+
       const createdBranch = await prisma.branch.create({
         data: {
           branchName: createdCompany.companyName,
@@ -189,9 +189,6 @@ export class CompaniesService {
         },
       });
 
-      // 4️⃣ Criar endereço da branch (opcional, se quiser outro endereço)
-
-      // 5️⃣ Criar usuário admin
       await prisma.user.create({
         data: {
           name,
@@ -204,7 +201,6 @@ export class CompaniesService {
         },
       });
 
-      // 6️⃣ Criar subscription trial automaticamente
       const trialPlan = await prisma.plan.findFirst({
         where: {
           type: 'TRIAL',
@@ -235,17 +231,14 @@ export class CompaniesService {
         },
       });
 
-      // 7️⃣ Enviar email de boas-vindas (não bloqueia o cadastro se falhar)
-      try {
-        // TODO: Adicionar envio de email de boas-vindas
-        // await this.mailService.sendWelcomeEmail(email, name, trialPlan.trialDays ?? 7);
-      } catch (emailError) {
-        console.error('Erro ao enviar email de boas-vindas:', emailError);
-        // Não lança erro para não bloquear o cadastro
-      }
-
       return createdCompany;
     });
+
+    try {
+      await this.mailService.sendWelcomeEmail(email, name, 7);
+    } catch (error) {
+      console.warn('Erro ao enviar email de boas-vindas:', error);
+    }
 
     return company;
   }
@@ -291,10 +284,15 @@ export class CompaniesService {
     const company = await prisma.company.findUnique({
       where: { id: companyId },
       include: {
-        subscription: true,
+        subscription: {
+          include: {
+            plan: true,
+          },
+        },
         branches: {
           include: {
             openingHours: true,
+            paymentMethods: true,
           },
         },
       },
@@ -304,7 +302,6 @@ export class CompaniesService {
       throw new NotFoundException('Empresa não encontrada');
     }
 
-    // ✅ Se já concluiu
     if (company.onboardingCompleted) {
       await prisma.company.update({
         where: { id: companyId },
@@ -316,7 +313,6 @@ export class CompaniesService {
       };
     }
 
-    // 1️⃣ Plano
     if (!company.subscription) {
       await prisma.company.update({
         where: { id: companyId },
@@ -328,7 +324,6 @@ export class CompaniesService {
       };
     }
 
-    // 2️⃣ Horários
     const hasOpeningHours = company.branches.some(
       (branch) => branch.openingHours && branch.openingHours.length > 0,
     );
@@ -344,7 +339,6 @@ export class CompaniesService {
       };
     }
 
-    // 3️⃣ Domínio
     const hasSubdomain = company.branches.some((branch) => !!branch.subdomain);
 
     if (!hasSubdomain) {
@@ -358,8 +352,11 @@ export class CompaniesService {
       };
     }
 
-    // 4️⃣ Pagamento
-    if (!company.subscription || company.subscription.status !== 'ACTIVE') {
+    const hasPaymentMethods = company.branches.some(
+      (branch) => branch.paymentMethods && branch.paymentMethods.length > 0,
+    );
+
+    if (!hasPaymentMethods) {
       await prisma.company.update({
         where: { id: companyId },
         data: { onboardingStep: 'PAYMENT' },
@@ -370,7 +367,6 @@ export class CompaniesService {
       };
     }
 
-    // ✅ Tudo OK
     return {
       completed: true,
       currentStep: 'COMPLETED',
@@ -388,6 +384,7 @@ export class CompaniesService {
               select: {
                 openingHours: true,
                 subdomain: true,
+                paymentMethods: true,
               },
             },
           },
@@ -405,12 +402,10 @@ export class CompaniesService {
       throw new BadRequestException('Onboarding já foi concluído');
     }
 
-    // 1️⃣ Plano
     if (!company.subscription) {
       throw new BadRequestException('Plano não configurado');
     }
 
-    // 2️⃣ Horários
     const hasOpeningHours = company.branches.some(
       (branch) => !!branch.openingHours,
     );
@@ -421,23 +416,25 @@ export class CompaniesService {
       );
     }
 
-    // 3️⃣ Domínio
     const hasSubdomain = company.branches.some((branch) => !!branch.subdomain);
 
     if (!hasSubdomain) {
       throw new BadRequestException('Domínio não configurado');
     }
 
-    // 4️⃣ Pagamento
-    if (company.subscription.status !== 'ACTIVE') {
-      throw new BadRequestException('Pagamento não concluído');
+    const hasPaymentMethods = company.branches.some(
+      (branch) => branch.paymentMethods && branch.paymentMethods.length > 0,
+    );
+
+    if (!hasPaymentMethods) {
+      throw new BadRequestException('Métodos de pagamento não configurados');
     }
 
-    // ✅ Finaliza onboarding
     await prisma.company.update({
       where: { id: company.id },
       data: {
         onboardingCompleted: true,
+        onboardingStep: 'COMPLETED',
       },
     });
 

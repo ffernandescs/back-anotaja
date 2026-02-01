@@ -25,6 +25,7 @@ enum OnboardingStep {
   SCHEDULE
   DOMAIN
   PAYMENT
+  BRANDING
   COMPLETED
 }
 

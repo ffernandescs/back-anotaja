@@ -158,4 +158,109 @@ export class MailService {
       return false;
     }
   }
+
+  async sendWelcomeEmail(email: string, name: string, trialDays: number): Promise<boolean> {
+    try {
+      await this.transporter.sendMail({
+        from: `"AnotaJá" <${process.env.SMTP_USER}>`,
+        to: email,
+        subject: '🎉 Bem-vindo ao AnotaJá - Seu Trial de 7 Dias Começou!',
+        html: `
+          <!DOCTYPE html>
+          <html lang="pt-BR">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Bem-vindo ao AnotaJá</title>
+          </head>
+          <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f5f5f5;">
+            <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 40px 20px;">
+              <tr>
+                <td align="center">
+                  <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); overflow: hidden;">
+                    
+                    <tr>
+                      <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 30px; text-align: center;">
+                        <div style="background-color: rgba(255, 255, 255, 0.2); width: 80px; height: 80px; border-radius: 50%; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center;">
+                          <span style="font-size: 40px;">🎉</span>
+                        </div>
+                        <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 700; letter-spacing: -0.5px;">
+                          Bem-vindo ao AnotaJá!
+                        </h1>
+                        <p style="margin: 10px 0 0; color: rgba(255, 255, 255, 0.9); font-size: 16px;">
+                          Sua jornada começa agora
+                        </p>
+                      </td>
+                    </tr>
+          
+                    <tr>
+                      <td style="padding: 40px 30px;">
+                        <p style="margin: 0 0 24px; color: #374151; font-size: 16px; line-height: 1.6;">
+                          Olá <strong>${name}</strong>! 👋
+                        </p>
+                        <p style="margin: 0 0 32px; color: #374151; font-size: 16px; line-height: 1.6;">
+                          Estamos muito felizes em tê-lo conosco! Sua conta foi criada com sucesso e você tem <strong>${trialDays} dias de trial gratuito</strong> para explorar todas as funcionalidades da nossa plataforma.
+                        </p>
+
+                        <div style="background-color: #dbeafe; border-left: 4px solid #3b82f6; border-radius: 8px; padding: 16px 20px; margin: 0 0 32px;">
+                          <p style="margin: 0; color: #1e40af; font-size: 14px; line-height: 1.5;">
+                            ⏱️ <strong>Trial Gratuito:</strong> Você tem ${trialDays} dias para testar todas as funcionalidades sem compromisso!
+                          </p>
+                        </div>
+
+                        <div style="background-color: #f9fafb; border-radius: 8px; padding: 20px; margin: 0 0 24px;">
+                          <p style="margin: 0 0 12px; color: #111827; font-size: 15px; font-weight: 600;">
+                            🚀 Próximos Passos
+                          </p>
+                          <ul style="margin: 0; padding-left: 20px; color: #6b7280; font-size: 14px; line-height: 1.8;">
+                            <li>Complete o onboarding no painel administrativo</li>
+                            <li>Configure os horários de funcionamento</li>
+                            <li>Defina seu subdomínio personalizado</li>
+                            <li>Configure os métodos de pagamento</li>
+                            <li>Adicione seus produtos e comece a vender!</li>
+                          </ul>
+                        </div>
+
+                        <p style="margin: 0 0 16px; color: #374151; font-size: 15px; line-height: 1.6;">
+                          Qualquer dúvida, estamos à disposição para ajudar!
+                        </p>
+                      </td>
+                    </tr>
+          
+                    <tr>
+                      <td style="background-color: #f9fafb; padding: 30px; text-align: center; border-top: 1px solid #e5e7eb;">
+                        <p style="margin: 0 0 12px; color: #6b7280; font-size: 14px;">
+                          Precisa de ajuda? Entre em contato conosco
+                        </p>
+                        <a href="mailto:${EMAIL_FROM}" style="display: inline-block; margin: 0 0 20px; color: #667eea; text-decoration: none; font-weight: 600; font-size: 14px;">
+                          ${EMAIL_FROM}
+                        </a>
+                        <p style="margin: 0; color: #9ca3af; font-size: 13px; line-height: 1.5;">
+                          © ${new Date().getFullYear()} AnotaJá. Todos os direitos reservados.
+                        </p>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </body>
+          </html>
+        `,
+      });
+
+      return true;
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        this.logger.error(`Erro ao enviar email de boas-vindas para ${email}`, error.stack);
+      } else {
+        this.logger.error(
+          `Erro desconhecido ao enviar email de boas-vindas para ${email}`,
+          JSON.stringify(error),
+        );
+      }
+
+      return false;
+    }
+  }
 }
