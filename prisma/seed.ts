@@ -387,50 +387,6 @@ const customersData = [
   },
 ];
 
-const defaultPaymentMethods = [
-  {
-    name: 'Cartão de Crédito',
-    forDineIn: true,
-    forDelivery: true,
-    isActive: true,
-  },
-  {
-    name: 'Cartão de Débito	',
-    forDineIn: true,
-    forDelivery: true,
-    isActive: true,
-  },
-  {
-    name: 'Pix',
-    forDineIn: true,
-    forDelivery: true,
-    isActive: true,
-  },
-  {
-    name: 'Dinheiro',
-    forDineIn: true,
-    forDelivery: true,
-    isActive: true,
-  },
-  {
-    name: 'Transferência Bancária',
-    forDineIn: true,
-    forDelivery: true,
-    isActive: true,
-  },
-  {
-    name: 'Vale-alimentação',
-    forDineIn: true,
-    forDelivery: true,
-    isActive: true,
-  },
-  {
-    name: 'Vale-transporte',
-    forDineIn: true,
-    forDelivery: true,
-    isActive: true,
-  },
-];
 
 const companiesData: Record<BusinessSegment, CompanySeed[]> = {
   [BusinessSegment.HAMBURGUERIA]: [
@@ -4068,7 +4024,7 @@ async function main() {
           companyName: companyData.name,
           name: companyData.name,
           document: generateRandomDocument(14),
-          email: generateCompanyEmail(companyData.email),
+          email: `teste${userCounter}@anotaja.com`,
           phone: generateUniquePhone(),
           active: true,
         },
@@ -4076,17 +4032,6 @@ async function main() {
 
       // Criar filial matriz (primeira filial) ANTES do admin
       const firstBranchData = companyData.branches[0];
-
-      // Configurações padrão da filial
-      const defaultOpeningHours = JSON.stringify({
-        monday: { open: '08:00', close: '22:00' },
-        tuesday: { open: '08:00', close: '22:00' },
-        wednesday: { open: '08:00', close: '22:00' },
-        thursday: { open: '08:00', close: '22:00' },
-        friday: { open: '08:00', close: '23:00' },
-        saturday: { open: '09:00', close: '23:00' },
-        sunday: { open: '10:00', close: '22:00' },
-      });
 
       const defaultSocialMedia = JSON.stringify({
         instagram: `@${companyData.name.toLowerCase().replace(/[^a-z0-9]+/g, '')}`,
@@ -4118,7 +4063,8 @@ async function main() {
             document: isMatriz ? companyData.document : branchData.document,
             addressId: createBranchAddress.id,
             phone: branchData.phone,
-            subdomain: generateSubdomain(companyData.name),
+          email: `teste${userCounter}@anotaja.com`,
+            subdomain: null,
             logoUrl: companyData.logo || null,
             bannerUrl: companyData.banner || null,
             companyId: company.id,
@@ -4174,10 +4120,7 @@ async function main() {
         const adminUser = await prisma.user.create({
           data: {
             name: `Admin ${companyData.name}`,
-            email: `admin${userCounter}@${companyData.name
-              .toLowerCase()
-              .replace(/[^a-z0-9]+/g, '-')
-              .replace(/^-|-$/g, '')}.com.br`,
+          email: `teste${userCounter}@anotaja.com`,
             phone: adminPhone,
             password: hashedPassword,
             role: 'admin',
