@@ -7,6 +7,8 @@ import {
 import { prisma } from '../../../lib/prisma';
 import { Prisma } from 'generated/prisma';
 import { AutoCreateRoutesDto } from './dto/auto-create-routes.dto';
+import { OptimizeRoutesDto } from './dto/optimize-routes.dto';
+import { CreateDeliveryAssignmentDto } from './dto/create-delivery-assignment.dto';
 
 interface OrderWithAddress {
   id: string;
@@ -57,8 +59,141 @@ export interface AutoCreateRoutesResult {
 
 @Injectable()
 export class DeliveryAssignmentsService {
-  // ... outros métodos existentes ...
-  // ADICIONE ESTE MÉTODO AQUI ↓
+  async create(dto: CreateDeliveryAssignmentDto, userId: string) {
+    // Verificar usuário e permissões
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { branch: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    if (!user.branchId) {
+      throw new ForbiddenException('Usuário não está associado a uma filial');
+    }
+
+    // Validar que os pedidos existem e pertencem à filial
+    const orders = await prisma.order.findMany({
+      where: {
+        id: { in: dto.orderIds },
+        branchId: user.branchId,
+      },
+    });
+
+    if (orders.length === 0) {
+      throw new BadRequestException('Nenhum pedido válido encontrado');
+    }
+
+    if (orders.length !== dto.orderIds.length) {
+      throw new BadRequestException(
+        'Alguns pedidos não foram encontrados ou não pertencem a esta filial',
+      );
+    }
+
+    // Validar entregador se fornecido
+    if (dto.deliveryPersonId) {
+      const deliveryPerson = await prisma.deliveryPerson.findFirst({
+        where: {
+          id: dto.deliveryPersonId,
+          branchId: user.branchId,
+          active: true,
+        },
+      });
+
+      if (!deliveryPerson) {
+        throw new NotFoundException('Entregador não encontrado nesta filial');
+      }
+    }
+
+    // Criar assignment
+    const createData: any = {
+      name: dto.name || `Rota ${new Date().toLocaleString('pt-BR')}`,
+      branchId: user.branchId,
+      status: dto.status || 'PENDING',
+    };
+
+    if (dto.deliveryPersonId) {
+      createData.deliveryPersonId = dto.deliveryPersonId;
+    }
+
+    if (dto.route) {
+      createData.route = JSON.stringify(dto.route);
+    }
+
+    if (dto.estimatedDistance !== undefined) {
+      createData.estimatedDistance = dto.estimatedDistance;
+    }
+
+    if (dto.estimatedTime !== undefined) {
+      createData.estimatedTime = dto.estimatedTime;
+    }
+
+    const assignment = await prisma.deliveryAssignment.create({
+      data: createData,
+      include: {
+        deliveryPerson: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            email: true,
+            isOnline: true,
+          },
+        },
+      },
+    });
+
+    // Associar pedidos à rota
+    await prisma.order.updateMany({
+      where: {
+        id: { in: dto.orderIds },
+      },
+      data: {
+        deliveryAssignmentId: assignment.id,
+        deliveryPersonId: dto.deliveryPersonId,
+      },
+    });
+
+    // Buscar pedidos atualizados
+    const updatedOrders = await prisma.order.findMany({
+      where: {
+        deliveryAssignmentId: assignment.id,
+      },
+      include: {
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+          },
+        },
+        customerAddress: {
+          select: {
+            street: true,
+            number: true,
+            neighborhood: true,
+            city: true,
+            state: true,
+            zipCode: true,
+            lat: true,
+            lng: true,
+          },
+        },
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Rota criada com sucesso',
+      assignment: {
+        ...assignment,
+        orders: updatedOrders,
+      },
+    };
+  }
+
   async findAll(userId: string) {
     // Verificar usuário e permissões
     const user = await prisma.user.findUnique({
@@ -765,6 +900,87 @@ export class DeliveryAssignmentsService {
       success: true,
       message: 'Entregador associado à rota com sucesso',
       assignment: updatedAssignment,
+    };
+  }
+
+  async optimizeRoutes(dto: OptimizeRoutesDto, userId: string) {
+    // Verificar usuário e permissões
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { branch: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    if (!user.branchId) {
+      throw new ForbiddenException('Usuário não está associado a uma filial');
+    }
+
+    // Validar que os pedidos existem e pertencem à filial
+    const orders = await prisma.order.findMany({
+      where: {
+        id: { in: dto.orderIds },
+        branchId: user.branchId,
+        deliveryType: 'DELIVERY',
+      },
+      include: {
+        customerAddress: true,
+        customer: true,
+      },
+    });
+
+    if (orders.length === 0) {
+      throw new BadRequestException('Nenhum pedido válido encontrado');
+    }
+
+    if (orders.length !== dto.orderIds.length) {
+      throw new BadRequestException(
+        'Alguns pedidos não foram encontrados ou não pertencem a esta filial',
+      );
+    }
+
+    // Filtrar pedidos com coordenadas válidas
+    const ordersWithCoords = orders
+      .filter(
+        (order) =>
+          order.customerAddress?.lat &&
+          order.customerAddress?.lng &&
+          order.customer?.name,
+      )
+      .map((order) => ({
+        id: order.id,
+        orderNumber: order.orderNumber,
+        customerName: order.customer!.name,
+        address: order.customerAddress!.street || '',
+        city: order.customerAddress!.city || '',
+        state: order.customerAddress!.state || '',
+        total: order.total,
+        lat: Number(order.customerAddress!.lat),
+        lng: Number(order.customerAddress!.lng),
+        status: order.status,
+      })) as OrderWithAddress[];
+
+    if (ordersWithCoords.length === 0) {
+      throw new BadRequestException(
+        'Nenhum pedido com endereço válido encontrado',
+      );
+    }
+
+    // Otimizar a rota
+    const optimizedRoute = await this.optimizeRoute(
+      ordersWithCoords,
+      user.branchId,
+    );
+
+    return {
+      success: true,
+      message: 'Rota otimizada com sucesso',
+      route: optimizedRoute.route,
+      estimatedDistance: optimizedRoute.estimatedDistance,
+      estimatedTime: optimizedRoute.estimatedTime,
+      ordersCount: ordersWithCoords.length,
     };
   }
 }

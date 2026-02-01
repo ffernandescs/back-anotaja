@@ -13,6 +13,8 @@ import {
 } from '@nestjs/common';
 import { DeliveryAssignmentsService } from './delivery-assignments.service';
 import { AutoCreateRoutesDto } from './dto/auto-create-routes.dto';
+import { OptimizeRoutesDto } from './dto/optimize-routes.dto';
+import { CreateDeliveryAssignmentDto } from './dto/create-delivery-assignment.dto';
 import { AssignDeliveryPersonDto } from './dto/assign-delivery-person.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -32,6 +34,15 @@ export class DeliveryAssignmentsController {
   constructor(
     private readonly deliveryAssignmentsService: DeliveryAssignmentsService,
   ) {}
+
+  @Post()
+  @Roles('admin', 'manager')
+  create(
+    @Body() createDto: CreateDeliveryAssignmentDto,
+    @Req() req: RequestWithUser,
+  ) {
+    return this.deliveryAssignmentsService.create(createDto, req.user.userId);
+  }
 
   @Get()
   @Roles('admin', 'manager')
@@ -53,6 +64,18 @@ export class DeliveryAssignmentsController {
   ) {
     return this.deliveryAssignmentsService.autoCreateRoutes(
       autoCreateRoutesDto,
+      req.user.userId,
+    );
+  }
+
+  @Post('optimize')
+  @Roles('admin', 'manager')
+  optimizeRoutes(
+    @Body() optimizeRoutesDto: OptimizeRoutesDto,
+    @Req() req: RequestWithUser,
+  ) {
+    return this.deliveryAssignmentsService.optimizeRoutes(
+      optimizeRoutesDto,
       req.user.userId,
     );
   }
