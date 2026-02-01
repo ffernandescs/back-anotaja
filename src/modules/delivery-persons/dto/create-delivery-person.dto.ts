@@ -18,4 +18,8 @@ export class CreateDeliveryPersonDto {
   @IsOptional()
   @IsBoolean()
   isOnline?: boolean;
+
+  @IsOptional()
+  @IsString()
+  image?: string;
 }

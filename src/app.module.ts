@@ -31,6 +31,7 @@ import { DeliveryAssignmentsModule } from './modules/delivery-assignments/delive
 import { AutoRouteConfigModule } from './modules/auto-route-config/auto-route-config.module';
 import { DeliveryModule } from './modules/delivery/delivery.module';
 import { CouponsModule } from './modules/coupons/coupons.module';
+import { UploadModule } from './modules/upload/upload.module';
 
 @Module({
   imports: [
@@ -67,6 +68,7 @@ import { CouponsModule } from './modules/coupons/coupons.module';
     AutoRouteConfigModule,
     DeliveryModule,
     CouponsModule,
+    UploadModule,
   ],
   providers: [
     {
