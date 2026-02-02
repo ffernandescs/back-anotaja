@@ -43,7 +43,6 @@ export class ComplementOptionsService {
         },
       });
 
-      console.log(complementExists, 'exist');
 
       if (!complementExists) {
         throw new BadRequestException(
