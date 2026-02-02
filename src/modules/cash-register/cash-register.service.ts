@@ -9,7 +9,7 @@ import { UpdateCashRegisterDto } from './dto/update-cash-register.dto';
 import { prisma } from '../../../lib/prisma';
 import { CashMovementType } from 'generated/prisma';
 import { PaymentMethodTypeDto } from '../branches/dto/create-branch.dto';
-import { formatCurrency } from 'src/utils/formatCurrency';
+import { formatCurrency } from '../../utils/formatCurrency';
 
 @Injectable()
 export class CashRegisterService {
