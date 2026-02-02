@@ -31,14 +31,6 @@ export class CashRegisterService {
       throw new NotFoundException('Usuário não encontrado');
     }
 
-    if (!user.branchId) {
-      throw new ForbiddenException('Usuário não está associado a uma filial');
-    }
-
-    if (!user.companyId) {
-      throw new ForbiddenException('Usuário não está associado a uma empresa');
-    }
-
     // 1. Verificar se já existe caixa aberto
     const existingOpenCash = await prisma.cashRegister.findFirst({
       where: {
