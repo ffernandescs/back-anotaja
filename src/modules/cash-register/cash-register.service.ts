@@ -9,6 +9,7 @@ import { UpdateCashRegisterDto } from './dto/update-cash-register.dto';
 import { prisma } from '../../../lib/prisma';
 import { CashMovementType } from 'generated/prisma';
 import { PaymentMethodTypeDto } from '../branches/dto/create-branch.dto';
+import { formatCurrency } from 'src/utils/formatCurrency';
 
 @Injectable()
 export class CashRegisterService {
@@ -228,7 +229,15 @@ export class CashRegisterService {
         status: CashMovementType.OPENING,
       },
       include: {
-        movements: true,
+        movements: {
+          include: {
+            order: {
+              select: {
+                orderNumber: true,
+              },
+            },
+          },
+        },
       },
     });
 
@@ -296,6 +305,11 @@ export class CashRegisterService {
       });
     }
 
+    const openerUser = await prisma.user.findUnique({
+      where: { id: openCashRegister.openedBy },
+      select: { id: true, name: true },
+    });
+
     return {
       cashRegisterId: openCashRegister.id,
       openingAmount: openCashRegister.openingAmount,
@@ -321,6 +335,27 @@ export class CashRegisterService {
           salesByPix +
           salesByOnline,
       },
+      openingDate: openCashRegister.openingDate,
+      openedBy: openCashRegister.openedBy,
+      openedByName: openerUser?.name || null,
+      openingNotes: openCashRegister.notes,
+      status: openCashRegister.status,
+      movements: (openCashRegister.movements || []).map((m: any) => ({
+        id: m.id,
+        type: m.type,
+        amount: m.amount,
+        description: m.description,
+        paymentMethod: m.paymentMethod,
+        orderId: m.orderId,
+        orderNumber: m.order?.orderNumber || null,
+        createdAt: m.createdAt,
+        user: m.user
+          ? {
+              id: m.user.id,
+              name: m.user.name,
+            }
+          : null,
+      })),
     };
   }
 
@@ -534,7 +569,7 @@ export class CashRegisterService {
 
     if (payload.amount > availableCash) {
       throw new BadRequestException(
-        `Saldo insuficiente em caixa para sangria. Disponível: ${availableCash}`,
+        `Saldo insuficiente em caixa para sangria. Disponível: ${formatCurrency(availableCash)}`,
       );
     }
 

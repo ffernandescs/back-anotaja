@@ -780,6 +780,7 @@ export class StoreService {
 
     // 5. Calcular taxa de entrega
     let deliveryFee = 0;
+    let estimatedTime: number | null = null;
     if (deliveryType === DeliveryTypeDto.DELIVERY) {
       const customerAddress = await prisma.customerAddress.findUnique({
         where: { id: addressId },
@@ -811,6 +812,7 @@ export class StoreService {
       }
 
       deliveryFee = feeResult.deliveryFee;
+      estimatedTime = feeResult.estimatedTime || null;
     }
 
     // 6. Calcular taxa de serviço (10% para comer no local)
@@ -915,6 +917,7 @@ export class StoreService {
           serviceFee,
           discount,
           total,
+          estimatedTime,
           couponId,
           items: {
             create: itemsData.map((item) => ({
@@ -1030,6 +1033,7 @@ export class StoreService {
         deliveryFee: order.deliveryFee,
         serviceFee: order.serviceFee,
         discount: order.discount,
+        estimatedTime: order.estimatedTime,
         createdAt: order.createdAt.toISOString(),
         customer: {
           id: order.customer?.id,
@@ -1650,6 +1654,7 @@ export class StoreService {
         subtotal: true,
         deliveryFee: true,
         discount: true,
+        estimatedTime: true,
         notes: true,
         customerId: true,
         tableNumber: true,
