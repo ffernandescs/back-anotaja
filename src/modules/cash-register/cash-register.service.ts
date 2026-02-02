@@ -31,6 +31,10 @@ export class CashRegisterService {
       throw new NotFoundException('Usuário não encontrado');
     }
 
+    if (!user.branchId) {
+      throw new NotFoundException('Filial não encontrada');
+    }
+
     // 1. Verificar se já existe caixa aberto
     const existingOpenCash = await prisma.cashRegister.findFirst({
       where: {
@@ -460,5 +464,101 @@ export class CashRegisterService {
 
   remove(id: number) {
     return `This action removes a #${id} cashRegister`;
+  }
+
+  /**
+   * Registrar depósito (entrada de dinheiro no caixa)
+   */
+  async addDeposit(userId: string, payload: { amount: number; description?: string }) {
+    const user = await prisma.user.findUnique({ where: { id: userId }, include: { company: true } });
+    if (!user || !user.companyId) {
+      throw new ForbiddenException('Usuário não está associado a uma empresa');
+    }
+    if (!user.branchId) {
+      throw new ForbiddenException('Usuário não está associado a uma filial');
+    }
+
+    const openCashRegister = await prisma.cashRegister.findFirst({
+      where: {
+        branchId: user.branchId,
+        openedBy: userId,
+        status: CashMovementType.OPENING,
+      },
+    });
+
+    if (!openCashRegister) {
+      throw new NotFoundException('Nenhum caixa aberto encontrado');
+    }
+
+    await prisma.cashMovement.create({
+      data: {
+        cashRegisterId: openCashRegister.id,
+        type: CashMovementType.DEPOSIT,
+        amount: payload.amount,
+        userId,
+        paymentMethod: 'CASH',
+        description: payload.description || 'Depósito em caixa',
+      },
+    });
+
+    return this.calculateExpectedBalance(userId);
+  }
+
+  /**
+   * Registrar sangria (saída de dinheiro do caixa) com validação de saldo
+   */
+  async addWithdrawal(userId: string, payload: { amount: number; description?: string }) {
+    const user = await prisma.user.findUnique({ where: { id: userId }, include: { company: true } });
+    if (!user || !user.companyId) {
+      throw new ForbiddenException('Usuário não está associado a uma empresa');
+    }
+    if (!user.branchId) {
+      throw new ForbiddenException('Usuário não está associado a uma filial');
+    }
+
+    const openCashRegister = await prisma.cashRegister.findFirst({
+      where: {
+        branchId: user.branchId,
+        openedBy: userId,
+        status: CashMovementType.OPENING,
+      },
+      include: { movements: true },
+    });
+
+    if (!openCashRegister) {
+      throw new NotFoundException('Nenhum caixa aberto encontrado');
+    }
+
+    let availableCash = openCashRegister.openingAmount;
+    if (openCashRegister.movements && (openCashRegister.movements as any[]).length > 0) {
+      (openCashRegister.movements as any[]).forEach((movement: any) => {
+        if (movement.type === CashMovementType.SALE && movement.paymentMethod === 'CASH') {
+          availableCash += movement.amount;
+        } else if (movement.type === CashMovementType.DEPOSIT) {
+          availableCash += movement.amount;
+        } else if (movement.type === CashMovementType.WITHDRAWAL) {
+          availableCash -= movement.amount;
+        }
+      });
+    }
+
+    if (payload.amount > availableCash) {
+      throw new BadRequestException(
+        `Saldo insuficiente em caixa para sangria. Disponível: ${availableCash}`,
+      );
+    }
+
+    await prisma.cashMovement.create({
+      data: {
+        cashRegisterId: openCashRegister.id,
+        type: CashMovementType.WITHDRAWAL,
+        amount: payload.amount,
+        userId,
+        paymentMethod: 'CASH',
+        description: payload.description || 'Sangria',
+      },
+    });
+
+    return this.calculateExpectedBalance(userId);
   }
 }

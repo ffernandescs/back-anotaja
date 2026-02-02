@@ -84,4 +84,23 @@ export class CashRegisterController {
   remove(@Param('id') id: string) {
     return this.cashRegisterService.remove(+id);
   }
+
+  // Depósito/Sangria
+  @Post('movements')
+  addMovement(
+    @Body() payload: { type: 'DEPOSIT' | 'WITHDRAWAL'; amount: number; description?: string },
+    @Req() req: RequestWithUser,
+  ) {
+    if (payload.type === 'DEPOSIT') {
+      return this.cashRegisterService.addDeposit(req.user.userId, {
+        amount: payload.amount,
+        description: payload.description,
+      });
+    }
+
+    return this.cashRegisterService.addWithdrawal(req.user.userId, {
+      amount: payload.amount,
+      description: payload.description,
+    });
+  }
 }
