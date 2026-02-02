@@ -47,7 +47,7 @@ export class GeocodingService {
           addressdetails: 1,
         },
         headers: {
-          'User-Agent': 'YourAppName/1.0', // Obrigatório para Nominatim
+          'User-Agent': 'AnotaJa/1.0 (contato@anotaja.shop)', // Obrigatório para Nominatim
         },
         timeout: 5000, // 5 segundos de timeout
       });
@@ -67,11 +67,15 @@ export class GeocodingService {
         return coordinates;
       }
 
-      this.logger.warn(`No coordinates found for address: ${fullAddress}`);
+      this.logger.warn(
+        `No coordinates found for address: ${fullAddress}. Response: ${JSON.stringify(response.data)}`,
+      );
       return null;
     } catch (error) {
-      // Não lança erro, apenas retorna null
-      // O endereço será salvo sem coordenadas
+      this.logger.error(
+        `Geocoding error for address: ${street}, ${number}, ${city}`,
+        error,
+      );
       return null;
     }
   }
@@ -98,7 +102,7 @@ export class GeocodingService {
           limit: 1,
         },
         headers: {
-          'User-Agent': 'YourAppName/1.0',
+          'User-Agent': 'AnotaJa/1.0 (contato@anotaja.shop)',
         },
         timeout: 5000,
       });
@@ -118,9 +122,12 @@ export class GeocodingService {
         return coordinates;
       }
 
-      this.logger.warn(`No coordinates found for zipCode: ${formattedZipCode}`);
+      this.logger.warn(
+        `No coordinates found for zipCode: ${formattedZipCode}. Response: ${JSON.stringify(response.data)}`,
+      );
       return null;
     } catch (error) {
+      this.logger.error(`Geocoding error for zipCode: ${zipCode}`, error);
       return null;
     }
   }
