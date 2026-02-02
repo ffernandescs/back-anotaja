@@ -529,18 +529,8 @@ export class CashRegisterService {
       throw new NotFoundException('Nenhum caixa aberto encontrado');
     }
 
-    let availableCash = openCashRegister.openingAmount;
-    if (openCashRegister.movements && (openCashRegister.movements as any[]).length > 0) {
-      (openCashRegister.movements as any[]).forEach((movement: any) => {
-        if (movement.type === CashMovementType.SALE && movement.paymentMethod === 'CASH') {
-          availableCash += movement.amount;
-        } else if (movement.type === CashMovementType.DEPOSIT) {
-          availableCash += movement.amount;
-        } else if (movement.type === CashMovementType.WITHDRAWAL) {
-          availableCash -= movement.amount;
-        }
-      });
-    }
+    const balance = await this.calculateExpectedBalance(userId);
+    const availableCash = balance.balance.cash;
 
     if (payload.amount > availableCash) {
       throw new BadRequestException(
