@@ -11,13 +11,10 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
 
   /**
-   * ⚠️ IMPORTANTE PARA VERCEL
-   * WebSocket Adapter quebra CORS/preflight em serverless
-   * Só habilite fora do Vercel
+   * WebSocket Adapter com suporte a polling HTTP para Vercel
+   * Socket.io automaticamente usa polling quando WebSocket não está disponível
    */
-  if (!process.env.VERCEL) {
-    app.useWebSocketAdapter(new IoAdapter(app));
-  }
+  app.useWebSocketAdapter(new IoAdapter(app));
 
   /**
    * 🌐 CORS — compatível com Vercel + subdomínios
