@@ -61,9 +61,20 @@ export class OrdersWebSocketGateway
         return;
       }
 
-      const payload: JwtPayload = this.jwtService.verify(token, {
-        secret: this.configService.get<string>('JWT_SECRET'),
-      });
+      let payload: JwtPayload;
+      const primarySecret = this.configService.get<string>('JWT_SECRET');
+      const storeSecret = this.configService.get<string>('STORE_JWT_SECRET');
+
+      try {
+        payload = this.jwtService.verify(token, { secret: primarySecret });
+      } catch (err) {
+        // Fallback para token da loja (store_token) em ambiente multi-tenant
+        if (storeSecret) {
+          payload = this.jwtService.verify(token, { secret: storeSecret });
+        } else {
+          throw err;
+        }
+      }
 
       const deliveryPersonId = payload.deliveryPersonId as string | undefined;
       const userId = payload.sub || payload.userId;
@@ -112,8 +123,30 @@ export class OrdersWebSocketGateway
         });
 
         if (!user) {
+          // Fallback para tokens da loja que não têm usuário no banco, mas trazem branchId no payload
+          if (payload.branchId) {
+            client.user = {
+              userId: userId,
+              role: payload.role || 'customer',
+              branchId: payload.branchId,
+            } as any;
+
+            const branchRoom = `branch:${payload.branchId}`;
+            client.join(branchRoom);
+            this.logger.log(
+              `✅ Store token without DB user joined room: ${branchRoom}`,
+            );
+
+            void client.emit('connected', {
+              userId,
+              branchId: payload.branchId,
+              role: payload.role || 'customer',
+            });
+            return;
+          }
+
           this.logger.warn(
-            `WebSocket connection rejected: User not found (${userId})`,
+            `WebSocket connection rejected: User not found (${userId}) and no branchId in token`,
           );
           client.disconnect();
           return;

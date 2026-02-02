@@ -973,19 +973,8 @@ export class StoreService {
       return newOrder;
     });
 
-    // 11. Emitir evento WebSocket
-    this.webSocketGateway.emitNewOrder(branch.id, {
-      id: order.id,
-      orderNumber: order.orderNumber,
-      status: order.status,
-      deliveryType: order.deliveryType,
-      customer: {
-        name: order.customer?.name || '',
-        phone: order.customer?.phone || '',
-      },
-      total: order.total,
-      createdAt: order.createdAt.toISOString(),
-    });
+    // 11. Emitir evento WebSocket (payload completo) para Kanban/Admin e notificações
+    this.webSocketGateway.emitOrderUpdate(order, 'order:created');
 
     // 12. Registrar movimentações de estoque
     const productQuantities = new Map<string, number>();
@@ -2109,7 +2098,8 @@ export class StoreService {
       role: user.role,
       email: user.email || undefined,
       companyId: user.companyId || undefined,
-      branchId: user.branchId || undefined,
+      // Garantir branchId no token para clientes (loja) usarem WS por filial
+      branchId: user.branchId || finalBranchId || undefined,
     };
 
     const token = this.jwtService.sign(payload);

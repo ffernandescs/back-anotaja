@@ -42,17 +42,6 @@ export class OrdersController {
   }
 
   @Get()
-  /** Listar pedidos com paginação
-   * Query params:
-   * - page: número da página (padrão: 1)
-   * - limit: itens por página (padrão: 20, max: 100)
-   * - status: filtrar por status único
-   * - statuses: filtrar por múltiplos status (separados por vírgula)
-   * - deliveryPersonId: filtrar por entregador
-   * - search: buscar por nome, telefone ou número do pedido
-   * - sortBy: campo para ordenação
-   * - sortOrder: direção da ordenação (asc ou desc)
-   */
   findAll(@Req() req: RequestWithUser, @Query() query: QueryOrdersDto) {
     return this.ordersService.findAll(req.user.userId, query);
   }
@@ -114,7 +103,13 @@ export class OrdersController {
     @Body() dto: CreatePaymentDto,
     @Req() req: RequestWithUser,
   ) {
-    const userId = req.user.userId; // Supondo que você tenha AuthGuard
+    const userId = req.user.userId;
     return this.ordersService.addPayment(orderId, dto, userId);
+  }
+
+  @Patch(':orderId/mark-paid')
+  async markAsPaid(@Param('orderId') orderId: string, @Req() req: RequestWithUser) {
+    const userId = req.user.userId;
+    return this.ordersService.markOrderAsPaid(orderId, userId);
   }
 }

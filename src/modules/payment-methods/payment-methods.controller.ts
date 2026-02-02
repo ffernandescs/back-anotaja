@@ -79,7 +79,8 @@ export class PaymentMethodsController {
   }
 
   // ✅ Branch lista métodos associados
-  @Get('branch/')
+  @Get('branch/me')
+  @UseGuards(JwtAuthGuard)
   getBranchPayments(@Req() req: RequestWithUser) {
     return this.service.getBranchPayments(req.user.userId);
   }

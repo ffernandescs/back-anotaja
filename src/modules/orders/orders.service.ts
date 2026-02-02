@@ -207,17 +207,9 @@ export class OrdersService {
       });
     }
 
-    // Emitir evento de criação via WebSocket
-    this.webSocketGateway.emitOrderUpdate(
-      {
-        id: order.id,
-        status: order.status,
-        branchId: order.branchId,
-        deliveryPersonId: order.deliveryPersonId,
-        tableId: order.tableId,
-      },
-      'order:created',
-    );
+    // Emitir evento de criação via WebSocket com payload completo
+    const fullCreatedOrder = await this.findOne(order.id, userId);
+    this.webSocketGateway.emitOrderUpdate(fullCreatedOrder, 'order:created');
 
     return order;
   }
@@ -411,6 +403,7 @@ export class OrdersService {
         branchId: user.branchId, // Sempre filtrar por branchId do usuário
       },
       include: {
+        customerAddress:true,
         billSplit: {
           include: {
             persons: {
@@ -810,17 +803,9 @@ export class OrdersService {
       }
     }
 
-    // Emitir evento de mudança de status via WebSocket
-    this.webSocketGateway.emitOrderUpdate(
-      {
-        id: updatedOrder.id,
-        status: updatedOrder.status,
-        branchId: updatedOrder.branchId,
-        deliveryPersonId: updatedOrder.deliveryPersonId,
-        tableId: updatedOrder.tableId,
-      },
-      'order:status_changed',
-    );
+    // Emitir evento de mudança de status via WebSocket com payload completo
+    const fullStatusOrder = await this.findOne(updatedOrder.id, userId);
+    this.webSocketGateway.emitOrderUpdate(fullStatusOrder, 'order:status_changed');
 
     return updatedOrder;
   }
@@ -884,7 +869,12 @@ export class OrdersService {
       );
     }
 
-    // Registrar pagamentos
+    // SUBSTITUIR pagamentos existentes: deletar todos os pagamentos anteriores
+    await prisma.orderPayment.deleteMany({
+      where: { orderId },
+    });
+
+    // Registrar novos pagamentos
     await prisma.orderPayment.createMany({
       data: payments.map((p) => ({
         orderId,
@@ -895,20 +885,75 @@ export class OrdersService {
       })),
     });
 
-    // Atualizar paidAmount e paymentStatus
-    const totalPaidThisCall = payments.reduce((sum, p) => sum + p.amount, 0);
-    const newPaidAmount = (order.paidAmount || 0) + totalPaidThisCall;
+    // Atualizar paidAmount e paymentStatus com base nos NOVOS pagamentos
+    const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
 
     const updatedOrder = await prisma.order.update({
       where: { id: orderId },
       data: {
-        paidAmount: newPaidAmount,
-        paymentStatus: newPaidAmount >= order.total ? 'PAID' : 'PARTIALLY_PAID',
+        paidAmount: totalPaid,
+        paymentStatus: totalPaid >= order.total ? 'PAID' : 'PARTIAL',
       },
-      include: { payments: true },
+      include: {
+        payments: true,
+        customer: true,
+        customerAddress: true,
+        items: {
+          include: {
+            product: true,
+          },
+        },
+      },
     });
 
-    // Emitir evento WebSocket se precisars
+    // Emitir evento WebSocket
+    this.webSocketGateway.emitOrderUpdate(updatedOrder);
+
+    return updatedOrder;
+  }
+
+  async markOrderAsPaid(orderId: string, userId: string) {
+    const order = await this.findOne(orderId, userId);
+
+    if (order.status === 'CANCELLED') {
+      throw new BadRequestException(
+        'Não é possível marcar pedidos cancelados como pagos',
+      );
+    }
+
+    if (order.paymentStatus === 'PAID') {
+      throw new BadRequestException('Pedido já está marcado como pago');
+    }
+
+    const updatedOrder = await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        paymentStatus: 'PAID',
+        paidAmount: order.total,
+      },
+      include: {
+        payments: true,
+        customer: true,
+        customerAddress: true,
+        items: {
+          include: {
+            product: true,
+          },
+        },
+        billSplit: {
+          include: {
+            persons: {
+              include: {
+                payments: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Emitir evento WebSocket
+    this.webSocketGateway.emitOrderUpdate(updatedOrder);
 
     return updatedOrder;
   }

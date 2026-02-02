@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ConflictException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { prisma } from '../../../lib/prisma';
 import { CreateCustomerDto } from './dto/create-customer.dto';
@@ -92,6 +93,12 @@ export class CustomersService {
     } catch (error) {
       // Log opcional
       console.warn('Erro ao buscar coordenadas:', error);
+    }
+
+    if (lat === null || lng === null) {
+      throw new BadRequestException(
+        'Não foi possível geocodificar o endereço. Verifique CEP e número.',
+      );
     }
 
     return prisma.$transaction(async (tx) => {
