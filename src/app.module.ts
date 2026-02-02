@@ -34,6 +34,9 @@ import { CouponsModule } from './modules/coupons/coupons.module';
 import { UploadModule } from './modules/upload/upload.module';
 import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { CronModule } from './modules/cron/cron.module';
+import { StockModule } from './stock/stock.module';
+import { IngredientsModule } from './ingredients/ingredients.module';
+import { IngredientCategoriesModule } from './ingredient-categories/ingredient-categories.module';
 
 @Module({
   imports: [
@@ -73,6 +76,9 @@ import { CronModule } from './modules/cron/cron.module';
     UploadModule,
     OnboardingModule,
     CronModule,
+    StockModule,
+    IngredientsModule,
+    IngredientCategoriesModule,
   ],
   providers: [
     {
