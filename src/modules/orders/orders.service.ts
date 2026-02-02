@@ -11,7 +11,7 @@ import { QueryOrdersDto } from './dto/query-orders.dto';
 import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
 import { prisma } from '../../../lib/prisma';
 import { DeliveryTypeDto, OrderStatusDto } from './dto/create-order-item.dto';
-import { OrderStatus, Prisma } from 'generated/prisma';
+import { OrderStatus, Prisma, CashMovementType, PaymentMethodType } from 'generated/prisma';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { money } from '../../utils/money';
 
@@ -869,6 +869,63 @@ export class OrdersService {
       );
     }
 
+    // Buscar usuário para obter branchId
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user || !user.branchId) {
+      throw new ForbiddenException('Usuário não está associado a uma filial');
+    }
+
+    // Verificar se existe caixa aberto
+    let openCashRegister = await prisma.cashRegister.findFirst({
+      where: {
+        branchId: user.branchId,
+        openedBy: userId,
+        status: CashMovementType.OPENING,
+      },
+    });
+
+    // Se não houver caixa aberto, abrir automaticamente com saldo anterior
+    if (!openCashRegister) {
+      // Buscar último caixa fechado
+      const lastClosedCashRegister = await prisma.cashRegister.findFirst({
+        where: {
+          branchId: user.branchId,
+          openedBy: userId,
+          status: CashMovementType.CLOSING,
+        },
+        orderBy: { closingDate: 'desc' },
+      });
+
+      const previousBalance = lastClosedCashRegister?.closingAmount ?? 0;
+
+      // Criar novo caixa com saldo anterior
+      openCashRegister = await prisma.cashRegister.create({
+        data: {
+          branchId: user.branchId,
+          openedBy: userId,
+          status: CashMovementType.OPENING,
+          openingAmount: previousBalance,
+          expectedAmount: previousBalance,
+          notes: 'Abertura automática ao processar pagamento',
+        },
+      });
+
+      // Registrar movimento de abertura
+      await prisma.cashMovement.create({
+        data: {
+          cashRegisterId: openCashRegister.id,
+          type: CashMovementType.OPENING,
+          amount: 0,
+          userId: userId,
+          paymentMethod: 'CASH',
+          description: 'Abertura automática - saldo anterior mantido',
+        },
+      });
+    }
+
     // SUBSTITUIR pagamentos existentes: deletar todos os pagamentos anteriores
     await prisma.orderPayment.deleteMany({
       where: { orderId },
@@ -906,6 +963,21 @@ export class OrdersService {
       },
     });
 
+    // Registrar movimentações de caixa para cada pagamento
+    for (const payment of payments) {
+      await prisma.cashMovement.create({
+        data: {
+          cashRegisterId: openCashRegister.id,
+          type: CashMovementType.SALE,
+          amount: payment.amount,
+          userId: userId,
+          orderId: orderId,
+          paymentMethod: payment.type as any, // Tipo de pagamento do pedido
+          description: `Pagamento pedido #${order.orderNumber || orderId.slice(0, 8)} - ${payment.type}`,
+        },
+      });
+    }
+
     // Emitir evento WebSocket
     this.webSocketGateway.emitOrderUpdate(updatedOrder);
 
@@ -923,6 +995,60 @@ export class OrdersService {
 
     if (order.paymentStatus === 'PAID') {
       throw new BadRequestException('Pedido já está marcado como pago');
+    }
+
+    // Buscar usuário para obter branchId
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user || !user.branchId) {
+      throw new ForbiddenException('Usuário não está associado a uma filial');
+    }
+
+    // Verificar se existe caixa aberto para este usuário
+    let openCashRegister = await prisma.cashRegister.findFirst({
+      where: {
+        branchId: user.branchId,
+        openedBy: userId,
+        status: CashMovementType.OPENING,
+      },
+    });
+
+    // Se não houver caixa aberto, abrir automaticamente com saldo anterior
+    if (!openCashRegister) {
+      const lastClosedCashRegister = await prisma.cashRegister.findFirst({
+        where: {
+          branchId: user.branchId,
+          openedBy: userId,
+          status: CashMovementType.CLOSING,
+        },
+        orderBy: { closingDate: 'desc' },
+      });
+
+      const previousBalance = lastClosedCashRegister?.closingAmount ?? 0;
+
+      openCashRegister = await prisma.cashRegister.create({
+        data: {
+          branchId: user.branchId,
+          openedBy: userId,
+          status: CashMovementType.OPENING,
+          openingAmount: previousBalance,
+          expectedAmount: previousBalance,
+          notes: 'Abertura automática ao marcar pedido como pago',
+        },
+      });
+
+      await prisma.cashMovement.create({
+        data: {
+          cashRegisterId: openCashRegister.id,
+          type: CashMovementType.OPENING,
+          amount: 0,
+          userId: userId,
+          paymentMethod: 'CASH',
+          description: 'Abertura automática - saldo anterior mantido',
+        },
+      });
     }
 
     const updatedOrder = await prisma.order.update({
@@ -951,6 +1077,69 @@ export class OrdersService {
         },
       },
     });
+
+    // Registrar movimentações de caixa para esta marcação como pago
+    // Se existirem pagamentos associados ao pedido, usa cada um (suporta múltiplos pagamentos/divisão)
+    const directPayments =
+      (order as any).payments && (order as any).payments.length > 0
+        ? (order as any).payments.map((p: any) => ({
+            amount: p.amount,
+            method: p.type || p.paymentMethod || 'CASH',
+          }))
+        : [];
+
+    const splitPayments =
+      (order as any).billSplit?.persons?.length > 0
+        ? (order as any).billSplit.persons
+            .flatMap((person: any) => person.payments || [])
+            .map((p: any) => ({
+              amount: p.amount,
+              method: p.type || p.paymentMethod || 'CASH',
+            }))
+        : [];
+
+    // Evitar duplicidade: se existe billSplit, usar apenas os pagamentos do split;
+    // senão, usar pagamentos diretos; senão, fallback para total.
+    const paymentsForMovement =
+      splitPayments.length > 0
+        ? splitPayments
+        : directPayments.length > 0
+          ? directPayments
+          : [
+              {
+                amount: order.total,
+                method: (order as any).paymentMethod || 'CASH',
+              },
+            ];
+
+    const normalizePaymentMethod = (method: any): PaymentMethodType => {
+      const value = String(method || '').toLowerCase();
+
+      if (['pix'].includes(value)) return PaymentMethodType.PIX;
+      if (['dinheiro', 'cash'].includes(value)) return PaymentMethodType.CASH;
+      if (['credito', 'crédito', 'credit', 'credit_card', 'cartão de crédito', 'cartao de credito'].includes(value))
+        return PaymentMethodType.CREDIT;
+      if (['debito', 'débito', 'debit', 'debit_card', 'cartão de débito', 'cartao de debito'].includes(value))
+        return PaymentMethodType.DEBIT;
+      if (['online'].includes(value)) return PaymentMethodType.ONLINE;
+
+      // fallback seguro
+      return PaymentMethodType.CASH;
+    };
+
+    for (const payment of paymentsForMovement) {
+      await prisma.cashMovement.create({
+        data: {
+          cashRegisterId: openCashRegister!.id,
+          type: CashMovementType.SALE,
+          amount: payment.amount,
+          userId: userId,
+          orderId: orderId,
+          paymentMethod: normalizePaymentMethod(payment.method),
+          description: `Pedido marcado como pago #${order.orderNumber || orderId.slice(0, 8)} - ${payment.method}`,
+        },
+      });
+    }
 
     // Emitir evento WebSocket
     this.webSocketGateway.emitOrderUpdate(updatedOrder);

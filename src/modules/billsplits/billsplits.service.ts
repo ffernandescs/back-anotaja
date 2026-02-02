@@ -28,12 +28,14 @@ export class BillSplitsService {
     });
     if (!order) throw new NotFoundException('Pedido não encontrado');
 
+    // Sempre limpar pagamentos anteriores da ordem antes de criar um novo split
+    await prisma.orderPayment.deleteMany({
+      where: {
+        orderId: order.id,
+      },
+    });
+
     if (order.billSplitId) {
-      await prisma.orderPayment.deleteMany({
-        where: {
-          orderId: order.id, // aqui deletamos tudo da order
-        },
-      });
       await prisma.billSplit.delete({
         where: { id: order.billSplitId },
       });
