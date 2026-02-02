@@ -86,7 +86,7 @@ export class CashRegisterController {
   }
 
   // Depósito/Sangria
-  @Post('movements')
+  @Post('cash-movements')
   addMovement(
     @Body() payload: { type: 'DEPOSIT' | 'WITHDRAWAL'; amount: number; description?: string },
     @Req() req: RequestWithUser,
