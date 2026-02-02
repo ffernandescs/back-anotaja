@@ -257,14 +257,22 @@ export class CashRegisterService {
         if (movement.type === CashMovementType.SALE) {
           totalSales += movement.amount;
 
-          switch (movement.paymentMethod) {
+          const method = typeof movement.paymentMethod === 'string'
+            ? movement.paymentMethod
+            : (movement.paymentMethod as any)?.toString() || '';
+
+          const normalized = method.toUpperCase();
+
+          switch (normalized) {
             case 'CASH':
               salesByCash += movement.amount;
               expectedAmount += movement.amount;
               break;
+            case 'CREDIT':
             case 'CREDIT_CARD':
               salesByCredit += movement.amount;
               break;
+            case 'DEBIT':
             case 'DEBIT_CARD':
               salesByDebit += movement.amount;
               break;
@@ -273,6 +281,9 @@ export class CashRegisterService {
               break;
             case 'ONLINE':
               salesByOnline += movement.amount;
+              break;
+            default:
+              // fallback: não impacta caixa físico
               break;
           }
         }
