@@ -856,6 +856,13 @@ export class DeliveryAssignmentsService {
       where: { id },
     });
 
+    this.wsGateway.emitDeliveryRouteUpdate({
+      event: 'route:deleted',
+      assignment,
+      branchId: assignment.branchId,
+      deliveryPersonId: assignment.deliveryPersonId,
+    });
+
     return {
       success: true,
       message: 'Rota excluída com sucesso',

@@ -408,6 +408,8 @@ model DeliveryPerson {
   isOnline                  Boolean               @default(false)
   // Último heartbeat de presença do entregador
   lastOnlineAt              DateTime?
+  // Onboarding do app de entregador concluído
+  onboardingCompleted       Boolean               @default(false)
   // Foto do entregador
   image                     String?
   createdAt                 DateTime              @default(now())

@@ -148,6 +148,7 @@ export class DeliveryService {
         phone: deliveryPerson.phone,
         branchId: deliveryPerson.branchId,
         branch: deliveryPerson.branch,
+        onboardingCompleted: deliveryPerson.onboardingCompleted,
         isOnline: deliveryPerson.isOnline,
       },
     };
@@ -363,6 +364,17 @@ export class DeliveryService {
         });
       });
     }
+
+    return { success: true };
+  }
+
+  async completeOnboarding(token?: string) {
+    const { deliveryPersonId } = this.verifyDeliveryToken(token);
+
+    await prisma.deliveryPerson.update({
+      where: { id: deliveryPersonId },
+      data: { onboardingCompleted: true },
+    });
 
     return { success: true };
   }

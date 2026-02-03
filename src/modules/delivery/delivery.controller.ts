@@ -74,4 +74,12 @@ export class DeliveryController {
     const token = authorization?.replace('Bearer ', '').trim();
     return this.deliveryService.dispatchOrdersBulk(token, orderIds);
   }
+
+  // ✅ Marcar onboarding do entregador como concluído
+  @Public()
+  @Post('onboarding/complete')
+  completeOnboarding(@Headers('authorization') authorization?: string) {
+    const token = authorization?.replace('Bearer ', '').trim();
+    return this.deliveryService.completeOnboarding(token);
+  }
 }
