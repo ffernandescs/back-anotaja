@@ -55,7 +55,28 @@ export class OrdersWebSocketGateway
             ? client.handshake.headers.authorization.replace('Bearer ', '')
             : undefined;
 
+      // 🔹 Permitir modo público para rastrear pedido (sem token) usando query orderId
       if (!token) {
+        const orderId = (client.handshake.query?.orderId as string | undefined)?.trim();
+        if (orderId) {
+          const orderExists = await prisma.order.findUnique({ where: { id: orderId } });
+          if (!orderExists) {
+            this.logger.warn(
+              `WebSocket public tracking rejected: Order not found (${orderId})`,
+            );
+            client.disconnect();
+            return;
+          }
+
+          const orderRoom = `order:${orderId}`;
+          client.join(orderRoom);
+          this.logger.log(
+            `✅ Public tracking connected without token, joined room: ${orderRoom}`,
+          );
+          void client.emit('connected', { orderId, role: 'guest' });
+          return;
+        }
+
         this.logger.warn('WebSocket connection rejected: No token provided');
         client.disconnect();
         return;
