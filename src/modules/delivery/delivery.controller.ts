@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Post } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Post, Query } from '@nestjs/common';
 import { Public } from '../../common/decorators/public.decorator';
 import { DeliveryService } from './delivery.service';
 import { DeliveryHeartbeatDto } from './dto/delivery-heartbeat.dto';
@@ -31,5 +31,23 @@ export class DeliveryController {
   @Post('offline')
   setOffline(@Body() dto: DeliveryHeartbeatDto) {
     return this.deliveryService.setOffline(dto.deliveryPersonId);
+  }
+
+  // ✅ Rotas dedicadas para entregador autenticado pelo token de entrega
+  @Public()
+  @Get('orders')
+  listOrders(
+    @Headers('authorization') authorization?: string,
+    @Query('status') status?: string,
+  ) {
+    const token = authorization?.replace('Bearer ', '').trim();
+    return this.deliveryService.getOrders(token, status);
+  }
+
+  @Public()
+  @Get('assignments')
+  listAssignments(@Headers('authorization') authorization?: string) {
+    const token = authorization?.replace('Bearer ', '').trim();
+    return this.deliveryService.getAssignments(token);
   }
 }

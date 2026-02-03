@@ -12,6 +12,26 @@ import { DeliveryLoginDto } from './dto/delivery-login.dto';
 export class DeliveryService {
   constructor(private readonly jwtService: JwtService) {}
 
+  private verifyDeliveryToken(token?: string): { deliveryPersonId: string; branchId?: string } {
+    if (!token) {
+      throw new UnauthorizedException('Token não informado');
+    }
+
+    try {
+      const payload = this.jwtService.verify<{ deliveryPersonId?: string; branchId?: string }>(
+        token,
+      );
+
+      if (!payload?.deliveryPersonId) {
+        throw new UnauthorizedException('Token inválido: deliveryPersonId ausente');
+      }
+
+      return { deliveryPersonId: payload.deliveryPersonId, branchId: payload.branchId };
+    } catch {
+      throw new UnauthorizedException('Token inválido');
+    }
+  }
+
   async heartbeat(deliveryPersonId: string) {
     const deliveryPerson = await prisma.deliveryPerson.findFirst({
       where: { id: deliveryPersonId, active: true },
@@ -98,20 +118,7 @@ export class DeliveryService {
   }
 
   async me(token?: string) {
-    if (!token) {
-      throw new UnauthorizedException('Token não informado');
-    }
-
-    let payload: { deliveryPersonId?: string };
-    try {
-      payload = this.jwtService.verify(token);
-    } catch {
-      throw new UnauthorizedException('Token inválido');
-    }
-
-    if (!payload.deliveryPersonId) {
-      throw new UnauthorizedException('Token inválido');
-    }
+    const payload = this.verifyDeliveryToken(token);
 
     const deliveryPerson = await prisma.deliveryPerson.findUnique({
       where: { id: payload.deliveryPersonId },
@@ -137,5 +144,31 @@ export class DeliveryService {
         isOnline: deliveryPerson.isOnline,
       },
     };
+  }
+
+  async getOrders(token?: string, status?: string) {
+    const { deliveryPersonId } = this.verifyDeliveryToken(token);
+
+    const where: any = { deliveryPersonId };
+    if (status) {
+      where.status = status;
+    }
+
+    return prisma.order.findMany({
+      where,
+      orderBy: { updatedAt: 'desc' },
+    });
+  }
+
+  async getAssignments(token?: string) {
+    const { deliveryPersonId } = this.verifyDeliveryToken(token);
+
+    return prisma.deliveryAssignment.findMany({
+      where: { deliveryPersonId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        orders: true,
+      },
+    });
   }
 }
