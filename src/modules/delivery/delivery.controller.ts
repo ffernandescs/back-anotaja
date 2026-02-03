@@ -62,6 +62,14 @@ export class DeliveryController {
     return this.deliveryService.getAssignments(token);
   }
 
+  // Alias para compatibilidade: aceita delivery_token no mesmo formato das outras rotas
+  @Public()
+  @Get('delivery-assignments')
+  listAssignmentsAlias(@Headers('authorization') authorization?: string, @Req() req?: Request) {
+    const token = this.extractDeliveryToken(req as Request, authorization);
+    return this.deliveryService.getAssignments(token);
+  }
+
   // ✅ Atualização de status usando token do entregador (sem JWT padrão)
   @Public()
   @Post('orders/:id/status')

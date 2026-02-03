@@ -4028,6 +4028,7 @@ async function main() {
           document: generateRandomDocument(14),
           email: `teste${userCounter}@anotaja.com`,
           phone: generateUniquePhone(),
+          onboardingStep: 'SCHEDULE',
           active: true,
         },
       });
