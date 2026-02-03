@@ -3,10 +3,13 @@ import {
   Injectable,
   NotFoundException,
   UnauthorizedException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { prisma } from '../../../lib/prisma';
 import { DeliveryLoginDto } from './dto/delivery-login.dto';
+import { OrderStatusDto } from '../orders/dto/create-order-item.dto';
+import { OrderStatus } from 'generated/prisma';
 
 @Injectable()
 export class DeliveryService {
@@ -170,5 +173,87 @@ export class DeliveryService {
         orders: true,
       },
     });
+  }
+
+  async updateOrderStatus(
+    token: string | undefined,
+    orderId: string,
+    status: OrderStatusDto,
+  ) {
+    const { deliveryPersonId } = this.verifyDeliveryToken(token);
+
+    const allowedStatuses = [
+      OrderStatusDto.DELIVERING,
+      OrderStatusDto.DELIVERED,
+    ];
+
+    if (!allowedStatuses.includes(status)) {
+      throw new ForbiddenException(
+        'Entregadores só podem atualizar para DELIVERING ou DELIVERED',
+      );
+    }
+
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        status: true,
+        deliveryPersonId: true,
+        deliveryAssignmentId: true,
+      },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Pedido não encontrado');
+    }
+
+    if (order.deliveryPersonId !== deliveryPersonId) {
+      throw new ForbiddenException('Pedido não pertence a este entregador');
+    }
+
+    const statusFlow: OrderStatusDto[] = [
+      OrderStatusDto.PENDING,
+      OrderStatusDto.CONFIRMED,
+      OrderStatusDto.PREPARING,
+      OrderStatusDto.READY,
+      OrderStatusDto.DELIVERING,
+      OrderStatusDto.DELIVERED,
+      OrderStatusDto.CANCELLED,
+    ];
+
+    const currentIndex = statusFlow.indexOf(order.status as OrderStatusDto);
+    const nextIndex = statusFlow.indexOf(status);
+
+    if (currentIndex === -1 || nextIndex === -1 || nextIndex < currentIndex) {
+      throw new ForbiddenException('Não é possível retroceder o status do pedido');
+    }
+
+    const updatedOrder = await prisma.order.update({
+      where: { id: orderId },
+      data: { status },
+    });
+
+    if (
+      status === OrderStatusDto.DELIVERED &&
+      updatedOrder.deliveryAssignmentId
+    ) {
+      const ordersFromRoute = await prisma.order.findMany({
+        where: { deliveryAssignmentId: updatedOrder.deliveryAssignmentId },
+        select: { id: true, status: true },
+      });
+
+      const allDelivered = ordersFromRoute.every(
+        (o) => o.status === OrderStatus.DELIVERED,
+      );
+
+      if (allDelivered) {
+        await prisma.deliveryAssignment.update({
+          where: { id: updatedOrder.deliveryAssignmentId },
+          data: { status: 'COMPLETED', completedAt: new Date() },
+        });
+      }
+    }
+
+    return updatedOrder;
   }
 }

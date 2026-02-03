@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Headers, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Post, Query, Param } from '@nestjs/common';
 import { Public } from '../../common/decorators/public.decorator';
 import { DeliveryService } from './delivery.service';
 import { DeliveryHeartbeatDto } from './dto/delivery-heartbeat.dto';
 import { DeliveryLoginDto } from './dto/delivery-login.dto';
+import { OrderStatusDto } from '../orders/dto/create-order-item.dto';
 
 @Controller('delivery')
 export class DeliveryController {
@@ -49,5 +50,17 @@ export class DeliveryController {
   listAssignments(@Headers('authorization') authorization?: string) {
     const token = authorization?.replace('Bearer ', '').trim();
     return this.deliveryService.getAssignments(token);
+  }
+
+  // ✅ Atualização de status usando token do entregador (sem JWT padrão)
+  @Public()
+  @Post('orders/:id/status')
+  updateOrderStatus(
+    @Param('id') orderId: string,
+    @Body('status') status: OrderStatusDto,
+    @Headers('authorization') authorization?: string,
+  ) {
+    const token = authorization?.replace('Bearer ', '').trim();
+    return this.deliveryService.updateOrderStatus(token, orderId, status);
   }
 }
