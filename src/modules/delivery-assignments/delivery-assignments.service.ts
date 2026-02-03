@@ -23,7 +23,7 @@ interface OrderWithAddress {
   status: string;
 }
 
-interface RoutePoint {
+export interface RoutePoint {
   orderId: string;
   lat: number;
   lng: number;
