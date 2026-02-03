@@ -28,9 +28,19 @@ interface RequestWithUser extends Request {
 }
 
 @Controller('branches')
-@UseGuards(JwtAuthGuard, RolesGuard)
 export class BranchesController {
   constructor(private readonly branchesService: BranchesService) {}
+
+  @Get('nearby')
+  async findNearby(
+    @Query('cep') cep: string,
+    @Query('radius') radius?: string,
+  ) {
+    const radiusInMeters = radius ? parseInt(radius, 10) : 3000;
+    return this.branchesService.findNearbyBranches(cep, radiusInMeters);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
 
   @Get()
   findAll(

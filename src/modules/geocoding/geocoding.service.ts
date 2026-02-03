@@ -2,7 +2,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 
-interface GeocodeResult {
+export interface GeocodeResult {
   lat: number;
   lng: number;
 }

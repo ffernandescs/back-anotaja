@@ -261,47 +261,13 @@ export class BranchesService {
         onboardingStep: 'PAYMENT',
       },
     });
-    // Atualizar subdomain
+    
     return prisma.branch.update({
       where: { id: branchId },
-      data: { subdomain },
-      include: { company: { select: { id: true, name: true } } },
-    });
-  }
-
-  async findOne(id: string, userId: string) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: { company: true, orders: true },
-    });
-
-    if (!user || !user.companyId) {
-      throw new ForbiddenException('Usuário não está associado a uma empresa');
-    }
-
-    const branch = await prisma.branch.findFirst({
-      where: {
-        id,
-        companyId: user.companyId,
-      },
-      include: {
-        address: true,
-        paymentMethods: true,
-        openingHours: true,
-        company: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
+      data: {
+        subdomain,
       },
     });
-
-    if (!branch) {
-      throw new NotFoundException('Filia não encontrada');
-    }
-
-    return branch;
   }
 
   async updateSchedule(userId: string, dto: BranchScheduleItemDto[]) {
@@ -402,6 +368,41 @@ export class BranchesService {
     const branch = await prisma.branch.findFirst({
       where: {
         id: user.branchId,
+        companyId: user.companyId,
+      },
+      include: {
+        address: true,
+        paymentMethods: true,
+        openingHours: true,
+        company: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (!branch) {
+      throw new NotFoundException('Filial não encontrada');
+    }
+
+    return branch;
+  }
+
+  async findOne(id: string, userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { company: true },
+    });
+
+    if (!user || !user.companyId) {
+      throw new ForbiddenException('Usuário não está associado a uma empresa');
+    }
+
+    const branch = await prisma.branch.findFirst({
+      where: {
+        id,
         companyId: user.companyId,
       },
       include: {
@@ -621,5 +622,87 @@ export class BranchesService {
     return prisma.branch.delete({
       where: { id },
     });
+  }
+
+  async findNearbyBranches(cep: string, radiusInMeters: number = 3000) {
+    const cleanCep = cep.replace(/\D/g, '');
+
+    const userCoordinates = await this.geocodingService.getCoordinates(
+      '',
+      '',
+      '',
+      cleanCep,
+      '',
+    );
+
+    if (!userCoordinates) {
+      throw new NotFoundException(
+        'Não foi possível obter as coordenadas do CEP informado',
+      );
+    }
+
+    const branches = await prisma.branch.findMany({
+      where: {
+        active: true,
+        latitude: { not: null },
+        longitude: { not: null },
+      },
+      include: {
+        address: true,
+        openingHours: {
+          orderBy: { day: 'asc' },
+        },
+      },
+    });
+
+    const branchesWithDistance = branches
+      .map((branch) => {
+        if (!branch.latitude || !branch.longitude) {
+          return null;
+        }
+
+        const distance = this.calculateDistance(
+          userCoordinates.lat,
+          userCoordinates.lng,
+          branch.latitude,
+          branch.longitude,
+        );
+
+        if (distance <= radiusInMeters) {
+          return {
+            ...branch,
+            distance,
+          };
+        }
+
+        return null;
+      })
+      .filter((branch) => branch !== null)
+      .sort((a, b) => a!.distance - b!.distance);
+
+    return {
+      userLocation: userCoordinates,
+      branches: branchesWithDistance,
+    };
+  }
+
+  private calculateDistance(
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number,
+  ): number {
+    const R = 6371e3;
+    const φ1 = (lat1 * Math.PI) / 180;
+    const φ2 = (lat2 * Math.PI) / 180;
+    const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+    const a =
+      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return R * c;
   }
 }
