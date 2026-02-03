@@ -37,7 +37,13 @@ export class BillingService {
 
     const company = await prisma.company.findUnique({
       where: { id: user.companyId },
-      include: { subscription: true },
+      include: {
+        subscription: {
+          include: {
+            plan: true,
+          },
+        },
+      },
     });
 
     if (!company) throw new NotFoundException('Empresa não encontrada');
@@ -66,7 +72,12 @@ export class BillingService {
       customerId = customer.id;
     }
 
-    /** 2️⃣ Criar Checkout Session */
+    /** 2️⃣ Criar Checkout Session respeitando trial existente */
+    const trialEndDate = company.subscription?.nextBillingDate || company.subscription?.endDate;
+    const trialEndSeconds = trialEndDate ? Math.floor(new Date(trialEndDate).getTime() / 1000) : null;
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const shouldApplyTrial = trialEndSeconds && trialEndSeconds > nowSeconds;
+
     const session = await this.stripeService.stripe.checkout.sessions.create({
       mode: 'subscription',
       customer: customerId,
@@ -93,6 +104,19 @@ export class BillingService {
         companyId: company.id,
         planId: plan.id,
       },
+      subscription_data: shouldApplyTrial
+        ? {
+            trial_end: trialEndSeconds,
+            trial_settings: {
+              end_behavior: {
+                missing_payment_method: 'cancel',
+              },
+            },
+            proration_behavior: 'none',
+          }
+        : {
+            proration_behavior: 'none',
+          },
     });
 
     /** 3️⃣ Criar subscription PENDING */
