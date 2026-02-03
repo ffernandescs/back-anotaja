@@ -1,6 +1,6 @@
 import { Type } from 'class-transformer';
 import { IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
-import { OrderStatus } from 'generated/prisma';
+import { OrderStatus } from '@prisma/client';
 
 export class GetOrdersQueryDto {
   @IsOptional()

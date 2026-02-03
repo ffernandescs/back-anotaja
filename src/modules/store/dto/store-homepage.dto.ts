@@ -1,4 +1,4 @@
-import { BranchAddress, CompanyAddress } from 'generated/prisma';
+import { BranchAddress, CompanyAddress } from '@prisma/client';
 import { Branch } from 'src/modules/branches/entities/branch.entity';
 import { PaymentMethod } from 'src/modules/payment-methods/entities/payment-method.entity';
 

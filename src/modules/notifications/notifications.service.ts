@@ -4,7 +4,7 @@ import {
   NotificationEntityType,
 } from './dto/mark-notification-read.dto';
 import { prisma } from '../../../lib/prisma';
-import { Prisma } from 'generated/prisma';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class NotificationsService {

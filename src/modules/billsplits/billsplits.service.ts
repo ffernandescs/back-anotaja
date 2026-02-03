@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from 'generated/prisma';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../../lib/prisma';
 import { CreateBillSplitDto } from './dto/create-billsplit.dto';
 import { BillSplitStatus, BillSplitType } from './types';

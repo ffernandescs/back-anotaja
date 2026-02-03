@@ -6,7 +6,7 @@ import {
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { prisma } from '../../../lib/prisma';
-import { Prisma } from 'generated/prisma';
+import { Prisma } from '@prisma/client';
 import { UpdateProductAdvancedOptionsDto } from './dto/update-product-advanced-options.dto';
 
 @Injectable()

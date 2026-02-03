@@ -9,7 +9,7 @@ import { JwtService } from '@nestjs/jwt';
 import { prisma } from '../../../lib/prisma';
 import { DeliveryLoginDto } from './dto/delivery-login.dto';
 import { OrderStatusDto } from '../orders/dto/create-order-item.dto';
-import { OrderStatus } from 'generated/prisma';
+import { OrderStatus } from '@prisma/client';
 
 @Injectable()
 export class DeliveryService {

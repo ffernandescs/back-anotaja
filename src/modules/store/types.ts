@@ -1,4 +1,4 @@
-import { Branch, Company, CompanyAddress } from 'generated/prisma';
+import { Branch, Company, CompanyAddress } from '@prisma/client';
 
 export type BranchWithRelations = Branch & {
   company: Company & {

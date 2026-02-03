@@ -6,7 +6,7 @@ import {
 import { prisma } from '../../../lib/prisma';
 import { OnboardingStatusResponseDto } from './dto/onboarding-status-response.dto';
 import { UpdateOnboardingStepDto } from './dto/update-onboarding-step.dto';
-import { OnboardingStep } from 'generated/prisma';
+import { OnboardingStep } from '@prisma/client';
 
 @Injectable()
 export class OnboardingService {

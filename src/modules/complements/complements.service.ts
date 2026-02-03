@@ -13,7 +13,7 @@ import { CreateComplementOptionDto } from './dto/create-complement-option.dto';
 import { UpdateComplementOptionDto } from './dto/update-complement-option.dto';
 import { AssociateComplementsDto } from './dto/associate-complements.dto';
 import { prisma } from '../../../lib/prisma';
-import { Prisma } from 'generated/prisma';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class ComplementsService {

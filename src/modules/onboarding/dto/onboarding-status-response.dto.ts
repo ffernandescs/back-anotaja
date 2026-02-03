@@ -1,4 +1,4 @@
-import { OnboardingStep } from 'generated/prisma';
+import { OnboardingStep } from '@prisma/client';
 
 export class OnboardingStatusResponseDto {
   completed!: boolean;

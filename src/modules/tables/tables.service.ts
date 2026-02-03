@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Order, Prisma } from 'generated/prisma';
+import { Order, Prisma } from '@prisma/client';
 import { prisma } from '../../../lib/prisma';
 import {
   BulkCreateTablesDto,

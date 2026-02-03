@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { Customer, Prisma, StockMovement } from 'generated/prisma';
+import { Customer, Prisma, StockMovement } from '@prisma/client';
 import { prisma } from '../../../lib/prisma';
 import {
   DeliveryTypeDto,

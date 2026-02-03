@@ -6,7 +6,7 @@ import {
 import { CreateCompanyDto } from './dto/create-company.dto';
 import * as bcrypt from 'bcrypt';
 import { prisma } from '../../../lib/prisma';
-import { Prisma } from 'generated/prisma';
+import { Prisma } from '@prisma/client';
 import { GeocodingService } from '../geocoding/geocoding.service';
 import { MailService } from '../mail/mail.service';
 

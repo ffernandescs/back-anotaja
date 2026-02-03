@@ -1,10 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { StripeService } from './stripe.service';
-import { prisma } from '../../../lib/prisma';
-import { BillingPeriod as BillingPeriodDto } from '../plans/dto/choose-plan.dto';
+import { BillingPeriod } from '@prisma/client';
 import Stripe from 'stripe';
-import { BillingPeriod } from 'generated/prisma';
+import { prisma } from '../../../lib/prisma';
 import { calculateStripeAmount } from '../../utils/calculateStripeAmount';
+import { StripeService } from './stripe.service';
 
 function mapBillingPeriodToStripeInterval(
   period: BillingPeriod,

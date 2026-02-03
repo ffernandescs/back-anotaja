@@ -11,7 +11,7 @@ import { QueryOrdersDto } from './dto/query-orders.dto';
 import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
 import { prisma } from '../../../lib/prisma';
 import { DeliveryTypeDto, OrderStatusDto } from './dto/create-order-item.dto';
-import { OrderStatus, Prisma, CashMovementType, PaymentMethodType } from 'generated/prisma';
+import { OrderStatus, Prisma, CashMovementType, PaymentMethodType } from '@prisma/client';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { money } from '../../utils/money';
 

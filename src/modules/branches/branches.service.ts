@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { BranchSchedule } from 'generated/prisma';
+import { BranchSchedule } from '@prisma/client';
 import { prisma } from '../../../lib/prisma';
 import { BranchScheduleItemDto } from './dto/create-branch-schedule.dto';
 import { CreateBranchDto } from './dto/create-branch.dto';

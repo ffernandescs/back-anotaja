@@ -8,7 +8,7 @@ import * as crypto from 'crypto';
 import { CreateDeliveryPersonDto } from './dto/create-delivery-person.dto';
 import { UpdateDeliveryPersonDto } from './dto/update-delivery-person.dto';
 import { prisma } from '../../../lib/prisma';
-import { Prisma } from 'generated/prisma';
+import { Prisma } from '@prisma/client';
 
 const DELIVERY_PASSWORD_EXPIRES_IN_MINUTES = Number(
   process.env.DELIVERY_PASSWORD_EXPIRES_IN_MINUTES ?? 10,

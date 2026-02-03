@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { prisma } from '../../../lib/prisma';
-import { Prisma } from 'generated/prisma';
+import { Prisma } from '@prisma/client';
 import { AutoCreateRoutesDto } from './dto/auto-create-routes.dto';
 import { OptimizeRoutesDto } from './dto/optimize-routes.dto';
 import { CreateDeliveryAssignmentDto } from './dto/create-delivery-assignment.dto';

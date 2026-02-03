@@ -1,5 +1,5 @@
 import { IsEnum, IsNotEmpty } from 'class-validator';
-import { OnboardingStep } from 'generated/prisma';
+import { OnboardingStep } from '@prisma/client';
 
 export class UpdateOnboardingStepDto {
   @IsNotEmpty()
