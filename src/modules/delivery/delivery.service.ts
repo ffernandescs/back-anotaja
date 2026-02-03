@@ -131,7 +131,7 @@ export class DeliveryService {
       where: { id: payload.deliveryPersonId },
       include: {
         branch: {
-          select: { id: true, branchName: true, company: true, logoUrl: true },
+          select: { id: true, branchName: true, company: true, logoUrl: true, subdomain: true },
         },
       },
     });
