@@ -1,12 +1,11 @@
 import { Module } from '@nestjs/common';
 import { DeliveryAssignmentsService } from './delivery-assignments.service';
 import { DeliveryAssignmentsController } from './delivery-assignments.controller';
-import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
-import { JwtService } from '@nestjs/jwt';
-import { ConfigService } from '@nestjs/config';
+import { WebSocketModule } from '../websocket/websocket.module';
 
 @Module({
+  imports: [WebSocketModule],
   controllers: [DeliveryAssignmentsController],
-  providers: [DeliveryAssignmentsService, OrdersWebSocketGateway, JwtService, ConfigService],
+  providers: [DeliveryAssignmentsService],
 })
 export class DeliveryAssignmentsModule {}

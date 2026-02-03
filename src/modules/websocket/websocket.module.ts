@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { OrdersWebSocketGateway } from './websocket.gateway';
+import { RedisService } from './redis.service';
 import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 
@@ -22,7 +23,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
       inject: [ConfigService],
     }),
   ],
-  providers: [OrdersWebSocketGateway],
-  exports: [OrdersWebSocketGateway],
+  providers: [OrdersWebSocketGateway, RedisService],
+  exports: [OrdersWebSocketGateway, RedisService],
 })
 export class WebSocketModule {}

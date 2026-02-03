@@ -7,6 +7,7 @@ import {
 import { prisma } from '../../../lib/prisma';
 import { Prisma } from '@prisma/client';
 import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
+import { RedisService } from '../websocket/redis.service';
 import { AutoCreateRoutesDto } from './dto/auto-create-routes.dto';
 import { OptimizeRoutesDto } from './dto/optimize-routes.dto';
 import { CreateDeliveryAssignmentDto } from './dto/create-delivery-assignment.dto';
@@ -60,7 +61,10 @@ export interface AutoCreateRoutesResult {
 
 @Injectable()
 export class DeliveryAssignmentsService {
-  constructor(private readonly wsGateway: OrdersWebSocketGateway) {}
+  constructor(
+    private readonly wsGateway: OrdersWebSocketGateway,
+    private readonly redisService: RedisService,
+  ) {}
   async create(dto: CreateDeliveryAssignmentDto, userId: string) {
     // Verificar usuário e permissões
     const user = await prisma.user.findUnique({
@@ -1032,6 +1036,67 @@ export class DeliveryAssignmentsService {
       estimatedDistance: optimizedRoute.estimatedDistance,
       estimatedTime: optimizedRoute.estimatedTime,
       ordersCount: ordersWithCoords.length,
+    };
+  }
+
+  async getRouteLocation(rotaId: string, userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { branch: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    const rota = await prisma.deliveryAssignment.findUnique({
+      where: { id: rotaId },
+      include: {
+        deliveryPerson: true,
+        branch: true,
+        orders: {
+          include: {
+            customerAddress: true,
+          },
+        },
+      },
+    });
+
+    if (!rota) {
+      throw new NotFoundException('Rota não encontrada');
+    }
+
+    if (user.branchId && rota.branchId !== user.branchId) {
+      throw new ForbiddenException('Você não tem permissão para acessar esta rota');
+    }
+
+    const lastLocation = await this.redisService.getLastLocation(rota.deliveryPersonId);
+    const trail = await this.redisService.getRouteTrail(rotaId);
+    const isOnline = await this.redisService.isEntregadorOnline(rota.deliveryPersonId);
+
+    return {
+      success: true,
+      rota: {
+        id: rota.id,
+        name: rota.name,
+        status: rota.status,
+        deliveryPerson: {
+          id: rota.deliveryPerson.id,
+          name: rota.deliveryPerson.name,
+          isOnline,
+        },
+        orders: rota.orders.map(order => ({
+          id: order.id,
+          orderNumber: order.orderNumber,
+          status: order.status,
+          customerAddress: order.customerAddress,
+        })),
+      },
+      location: {
+        lastLocation,
+        trail,
+        isOnline,
+      },
     };
   }
 }

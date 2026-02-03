@@ -3,10 +3,11 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
 import { DeliveryController } from './delivery.controller';
 import { DeliveryService } from './delivery.service';
-import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
+import { WebSocketModule } from '../websocket/websocket.module';
 
 @Module({
   imports: [
+    WebSocketModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService): JwtModuleOptions => {
@@ -26,6 +27,6 @@ import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
     }),
   ],
   controllers: [DeliveryController],
-  providers: [DeliveryService, OrdersWebSocketGateway],
+  providers: [DeliveryService],
 })
 export class DeliveryModule {}

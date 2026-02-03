@@ -11,6 +11,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { JwtPayload } from './types';
 import { prisma } from '../../../lib/prisma';
+import { RedisService, LocationUpdate } from './redis.service';
 
 interface AuthenticatedSocket extends Socket {
   user?: {
@@ -40,6 +41,7 @@ export class OrdersWebSocketGateway
   constructor(
     private jwtService: JwtService,
     private configService: ConfigService,
+    private redisService: RedisService,
   ) {}
 
   async handleConnection(client: AuthenticatedSocket) {
@@ -497,5 +499,116 @@ export class OrdersWebSocketGateway
     this.logger.log(
       `📤 Notification sent to user ${userId}: ${notification.title}`,
     );
+  }
+
+  @SubscribeMessage('location:update')
+  async handleLocationUpdate(
+    client: AuthenticatedSocket,
+    payload: {
+      rotaId: string;
+      coordinates: { lat: number; lng: number };
+      heading?: number;
+      speed?: number;
+      accuracy?: number;
+    },
+  ) {
+    const deliveryPersonId = client.user?.deliveryPersonId;
+    
+    if (!deliveryPersonId) {
+      client.emit('error', { message: 'Delivery person not authenticated' });
+      return;
+    }
+
+    const locationUpdate: LocationUpdate = {
+      type: 'location_update',
+      entregadorId: deliveryPersonId,
+      rotaId: payload.rotaId,
+      coordinates: payload.coordinates,
+      heading: payload.heading,
+      speed: payload.speed,
+      accuracy: payload.accuracy,
+      timestamp: new Date().toISOString(),
+    };
+
+    await this.redisService.cacheLastLocation(deliveryPersonId, locationUpdate);
+    await this.redisService.appendToRouteTrail(payload.rotaId, payload.coordinates);
+    await this.redisService.publishLocationUpdate(payload.rotaId, locationUpdate);
+
+    const rotaRoom = `rota:${payload.rotaId}`;
+    this.server.to(rotaRoom).emit('location:update', locationUpdate);
+
+    this.logger.debug(
+      `📍 Location update from ${deliveryPersonId} for rota ${payload.rotaId}`,
+    );
+  }
+
+  @SubscribeMessage('location:subscribe')
+  async handleLocationSubscribe(
+    client: AuthenticatedSocket,
+    payload: { rotaId: string },
+  ) {
+    if (!client.user) {
+      client.emit('error', { message: 'Not authenticated' });
+      return;
+    }
+
+    const rotaRoom = `rota:${payload.rotaId}`;
+    client.join(rotaRoom);
+    
+    this.logger.log(
+      `✅ User ${client.user.userId} subscribed to location updates for rota ${payload.rotaId}`,
+    );
+
+    const rota = await prisma.deliveryAssignment.findUnique({
+      where: { id: payload.rotaId },
+      include: { deliveryPerson: true },
+    });
+
+    if (!rota) {
+      client.emit('error', { message: 'Rota not found' });
+      return;
+    }
+
+    const lastLocation = await this.redisService.getLastLocation(rota.deliveryPersonId);
+    const trail = await this.redisService.getRouteTrail(payload.rotaId);
+
+    client.emit('location:initial', {
+      rotaId: payload.rotaId,
+      lastLocation,
+      trail,
+      rota: {
+        id: rota.id,
+        name: rota.name,
+        status: rota.status,
+        deliveryPerson: {
+          id: rota.deliveryPerson.id,
+          name: rota.deliveryPerson.name,
+        },
+      },
+    });
+  }
+
+  @SubscribeMessage('location:unsubscribe')
+  handleLocationUnsubscribe(
+    client: AuthenticatedSocket,
+    payload: { rotaId: string },
+  ) {
+    const rotaRoom = `rota:${payload.rotaId}`;
+    client.leave(rotaRoom);
+    
+    this.logger.log(
+      `🔕 User ${client.user?.userId} unsubscribed from rota ${payload.rotaId}`,
+    );
+  }
+
+  @SubscribeMessage('heartbeat')
+  async handleHeartbeat(client: AuthenticatedSocket) {
+    const deliveryPersonId = client.user?.deliveryPersonId;
+    
+    if (deliveryPersonId) {
+      await this.redisService.setEntregadorOnlineStatus(deliveryPersonId, true);
+    }
+    
+    client.emit('heartbeat:ack', { timestamp: new Date().toISOString() });
   }
 }

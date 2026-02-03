@@ -113,4 +113,10 @@ export class DeliveryAssignmentsController {
 
     return { success: false, message: 'Nenhuma ação válida fornecida' };
   }
+
+  @Get(':rotaId/location')
+  @Roles('admin', 'manager', 'delivery')
+  getLocation(@Param('rotaId') rotaId: string, @Req() req: RequestWithUser) {
+    return this.deliveryAssignmentsService.getRouteLocation(rotaId, req.user.userId);
+  }
 }
