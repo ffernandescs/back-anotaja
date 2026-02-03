@@ -532,10 +532,15 @@ export class OrdersWebSocketGateway
 
     await this.redisService.cacheLastLocation(deliveryPersonId, locationUpdate);
     await this.redisService.appendToRouteTrail(payload.rotaId, payload.coordinates);
-    await this.redisService.publishLocationUpdate(payload.rotaId, locationUpdate);
+    const trail = await this.redisService.getRouteTrail(payload.rotaId);
+
+    // Incluir trilha no payload para evitar linhas retas na visualização
+    const broadcastPayload = { ...locationUpdate, trail };
+
+    await this.redisService.publishLocationUpdate(payload.rotaId, broadcastPayload);
 
     const rotaRoom = `rota:${payload.rotaId}`;
-    this.server.to(rotaRoom).emit('location:update', locationUpdate);
+    this.server.to(rotaRoom).emit('location:update', broadcastPayload);
 
     this.logger.debug(
       `📍 Location update from ${deliveryPersonId} for rota ${payload.rotaId}`,
