@@ -36,7 +36,7 @@ model Company {
   email               String           @unique
   phone               String           @unique
   active              Boolean          @default(true)
-  onboardingStep      OnboardingStep   @default(PLAN)
+  onboardingStep      OnboardingStep   @default(SCHEDULE)
   onboardingCompleted Boolean          @default(false)
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt

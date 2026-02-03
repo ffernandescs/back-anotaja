@@ -8,6 +8,7 @@ import * as bcrypt from 'bcrypt';
 import { prisma } from '../../../lib/prisma';
 import { Prisma } from '@prisma/client';
 import { GeocodingService } from '../geocoding/geocoding.service';
+import { MailService } from '../mail/mail.service';
 
 export type VerifyCompanyExistDto = {
   phone?: string;
@@ -16,7 +17,10 @@ export type VerifyCompanyExistDto = {
 };
 @Injectable()
 export class CompaniesService {
-  constructor(private readonly geocodingService: GeocodingService) {}
+  constructor(
+    private readonly geocodingService: GeocodingService,
+    private readonly mailService: MailService,
+  ) {}
 
   async createCompany(dto: CreateCompanyDto) {
     const {
@@ -237,8 +241,7 @@ export class CompaniesService {
 
       // 7️⃣ Enviar email de boas-vindas (não bloqueia o cadastro se falhar)
       try {
-        // TODO: Adicionar envio de email de boas-vindas
-        // await this.mailService.sendWelcomeEmail(email, name, trialPlan.trialDays ?? 7);
+        await this.mailService.sendWelcomeEmail(email, name, trialPlan.trialDays ?? 7);
       } catch (emailError) {
         console.error('Erro ao enviar email de boas-vindas:', emailError);
         // Não lança erro para não bloquear o cadastro

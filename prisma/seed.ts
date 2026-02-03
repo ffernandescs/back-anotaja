@@ -4032,6 +4032,35 @@ async function main() {
         },
       });
 
+      // Buscar plano trial e criar assinatura
+      const trialPlan = await prisma.plan.findFirst({
+        where: {
+          type: 'TRIAL',
+          active: true,
+        },
+      });
+
+      if (!trialPlan) {
+        console.warn('⚠️ Plano trial não encontrado. Pulando criação de assinatura.');
+      } else {
+        const now = new Date();
+        const trialEndDate = new Date(now);
+        trialEndDate.setDate(trialEndDate.getDate() + (trialPlan.trialDays ?? 7));
+
+        await prisma.subscription.create({
+          data: {
+            companyId: company.id,
+            planId: trialPlan.id,
+            status: 'ACTIVE',
+            billingPeriod: trialPlan.billingPeriod,
+            startDate: now,
+            endDate: trialEndDate,
+            nextBillingDate: trialEndDate,
+            notes: 'Trial de 7 dias - Criado automaticamente no seed',
+          },
+        });
+      }
+
       // Criar filial matriz (primeira filial) ANTES do admin
       const firstBranchData = companyData.branches[0];
 
@@ -4149,6 +4178,8 @@ async function main() {
         for (let i = 0; i < SEED_CONFIG.deliveryAreasPerBranch; i++) {
           const radius = 5000 + i * 2000;
           const deliveryFee = 5.0 + i * 2.0;
+          const deliveryFeeData = Math.round(Number(deliveryFee) * 100);
+          const minOrderValue = Math.round(20.0 + Math.random() * 10);
 
           await prisma.deliveryArea.create({
             data: {
@@ -4157,8 +4188,8 @@ async function main() {
               centerLat: firstBranchData.lat,
               centerLng: firstBranchData.lng,
               radius: radius,
-              deliveryFee: deliveryFee,
-              minOrderValue: money(20.0 + Math.random() * 10),
+              deliveryFee: deliveryFeeData,
+              minOrderValue: minOrderValue,
               estimatedTime: 30 + i * 10,
               level: i + 1,
               active: true,
@@ -4189,7 +4220,8 @@ async function main() {
         }
 
         // Criar caixa para a filial matriz
-        const openingAmount = money(100.0 + Math.random() * 200);
+        const openingAmount =  Math.random() * 200;
+
         console.log('🔄 Criando caixa para a filial matriz...');
         const cashRegister = await prisma.cashRegister.create({
           data: {
@@ -4246,8 +4278,8 @@ async function main() {
           create: {
             code: freeShippingCouponCode,
             type: 'FIXED',
-            value: 5,
-            minValue: 50,
+            value: 1000,
+            minValue: 500,
             maxUses: 50,
             validFrom: new Date(),
             validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
@@ -4310,154 +4342,11 @@ async function main() {
 
   // Criar planos
   console.log('💳 Criando planos...');
-  const trialPlan = await prisma.plan.upsert({
-    where: { id: 'trial-plan' },
-    update: {},
-    create: {
-      id: 'trial-plan',
-      name: 'Plano Teste',
-      description:
-        'Plano de teste gratuito por 7 dias conforme legislação brasileira',
-      type: 'TRIAL',
-      price: 0,
-      limits: JSON.stringify({
-        branches: 1,
-        users: 3,
-        products: 50,
-        ordersPerMonth: 100,
-        deliveryPersons: 2,
-      }),
-      features: JSON.stringify(['delivery', 'stock', 'reports']),
-      trialDays: 7,
-      active: true,
-      isTrial: true,
-      displayOrder: 0,
-    },
-  });
+  console.log(`✅ ${await prisma.plan.count()} planos já existentes no banco`);
 
-  const basicPlan = await prisma.plan.upsert({
-    where: { id: 'basic-plan' },
-    update: {},
-    create: {
-      id: 'basic-plan',
-      name: 'Plano Básico',
-      description: 'Ideal para pequenas empresas',
-      type: 'BASIC',
-      price: 99.9,
-      limits: JSON.stringify({
-        branches: 1,
-        users: 5,
-        products: 200,
-        ordersPerMonth: 1000,
-        deliveryPersons: 5,
-      }),
-      features: JSON.stringify(['delivery', 'stock', 'reports', 'coupons']),
-      active: true,
-      isTrial: false,
-      displayOrder: 1,
-    },
-  });
-
-  const premiumPlan = await prisma.plan.upsert({
-    where: { id: 'premium-plan' },
-    update: {},
-    create: {
-      id: 'premium-plan',
-      name: 'Plano Premium',
-      description: 'Para empresas em crescimento',
-      type: 'PREMIUM',
-      price: 199.9,
-      limits: JSON.stringify({
-        branches: 5,
-        users: 20,
-        products: 1000,
-        ordersPerMonth: 10000,
-        deliveryPersons: 20,
-      }),
-      features: JSON.stringify([
-        'delivery',
-        'stock',
-        'reports',
-        'coupons',
-        'api',
-        'analytics',
-      ]),
-      active: true,
-      isTrial: false,
-      displayOrder: 2,
-    },
-  });
-
-  const enterprisePlan = await prisma.plan.upsert({
-    where: { id: 'enterprise-plan' },
-    update: {},
-    create: {
-      id: 'enterprise-plan',
-      name: 'Plano Empresarial',
-      description: 'Solução completa para grandes empresas',
-      type: 'ENTERPRISE',
-      price: 499.9,
-      limits: JSON.stringify({
-        branches: -1, // Ilimitado
-        users: -1, // Ilimitado
-        products: -1, // Ilimitado
-        ordersPerMonth: -1, // Ilimitado
-        deliveryPersons: -1, // Ilimitado
-      }),
-      features: JSON.stringify([
-        'delivery',
-        'stock',
-        'reports',
-        'coupons',
-        'api',
-        'analytics',
-        'support',
-        'custom',
-      ]),
-      active: true,
-      isTrial: false,
-      displayOrder: 3,
-    },
-  });
-
-  console.log(`✅ ${await prisma.plan.count()} planos criados`);
-
-  // Criar assinaturas de trial ativas (7 dias grátis) para empresas do seed
-  // Após 7 dias, precisarão assinar um plano
-  console.log(
-    '📋 Criando assinaturas de trial (7 dias grátis) para empresas...',
-  );
-  const allCompaniesFromSeed = await prisma.company.findMany({
-    where: {
-      // Buscar empresas que não têm assinatura
-      subscription: null, // Empresas sem assinatura
-    },
-  });
-
-  let trialSubscriptionsCount = 0;
-  const now = new Date();
-  const trialEndDate = new Date(now);
-  trialEndDate.setDate(trialEndDate.getDate() + 7); // 7 dias a partir de agora
-
-  for (const company of allCompaniesFromSeed) {
-    // Criar assinatura de trial ativa com 7 dias
-    await prisma.subscription.create({
-      data: {
-        companyId: company.id,
-        planId: trialPlan.id,
-        status: 'ACTIVE', // Status ativo (trial)
-        startDate: now,
-        endDate: trialEndDate, // Expira em 7 dias
-        nextBillingDate: trialEndDate, // Próxima cobrança seria após o trial
-        notes: 'Assinatura de teste criada pelo seed - 7 dias grátis',
-      },
-    });
-    trialSubscriptionsCount++;
-  }
-
-  console.log(
-    `✅ ${trialSubscriptionsCount} assinaturas de trial criadas (7 dias grátis - após isso precisarão assinar)`,
-  );
+  // Nota: As assinaturas trial já foram criadas junto com cada empresa no loop acima
+  const subscriptionCount = await prisma.subscription.count();
+  console.log(`✅ ${subscriptionCount} assinaturas criadas (incluindo trials)`);
 
   console.log('✅ Seed concluído com sucesso!');
 }
