@@ -310,6 +310,11 @@ export class DeliveryService {
     return prisma.order.findMany({
       where,
       orderBy: { updatedAt: 'desc' },
+      include: {
+        customer: true,
+        customerAddress:true,
+        payments:true
+      }
     });
   }
 
@@ -324,6 +329,7 @@ export class DeliveryService {
           include: {
             customer: true,
             customerAddress: true,
+            payments:true
           }
         },
       },
