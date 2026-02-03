@@ -1,13 +1,21 @@
-import { Body, Controller, Get, Headers, Post, Query, Param } from '@nestjs/common';
-import { Public } from '../../common/decorators/public.decorator';
+import { Controller, Get, Post, Body, Param, Headers, Query, Req } from '@nestjs/common';
 import { DeliveryService } from './delivery.service';
-import { DeliveryHeartbeatDto } from './dto/delivery-heartbeat.dto';
+import { Public } from '../../common/decorators/public.decorator';
 import { DeliveryLoginDto } from './dto/delivery-login.dto';
+import { DeliveryHeartbeatDto } from './dto/delivery-heartbeat.dto';
 import { OrderStatusDto } from '../orders/dto/create-order-item.dto';
+import { Request } from 'express';
 
 @Controller('delivery')
 export class DeliveryController {
   constructor(private readonly deliveryService: DeliveryService) {}
+
+  private extractDeliveryToken(req: Request, authorization?: string): string | undefined {
+    const bearer = authorization?.replace('Bearer ', '').trim();
+    const headerToken = (req.headers['delivery_token'] as string | undefined)?.trim();
+    const cookieToken = (req.cookies?.delivery_token as string | undefined)?.trim();
+    return bearer || headerToken || cookieToken;
+  }
 
   @Public()
   @Post('login')
@@ -40,15 +48,16 @@ export class DeliveryController {
   listOrders(
     @Headers('authorization') authorization?: string,
     @Query('status') status?: string,
+    @Req() req?: Request,
   ) {
-    const token = authorization?.replace('Bearer ', '').trim();
+    const token = this.extractDeliveryToken(req as Request, authorization);
     return this.deliveryService.getOrders(token, status);
   }
 
   @Public()
   @Get('assignments')
-  listAssignments(@Headers('authorization') authorization?: string) {
-    const token = authorization?.replace('Bearer ', '').trim();
+  listAssignments(@Headers('authorization') authorization?: string, @Req() req?: Request) {
+    const token = this.extractDeliveryToken(req as Request, authorization);
     return this.deliveryService.getAssignments(token);
   }
 
@@ -59,8 +68,9 @@ export class DeliveryController {
     @Param('id') orderId: string,
     @Body('status') status: OrderStatusDto,
     @Headers('authorization') authorization?: string,
+    @Req() req?: Request,
   ) {
-    const token = authorization?.replace('Bearer ', '').trim();
+    const token = this.extractDeliveryToken(req as Request, authorization);
     return this.deliveryService.updateOrderStatus(token, orderId, status);
   }
 
@@ -70,16 +80,17 @@ export class DeliveryController {
   dispatchOrders(
     @Body('orderIds') orderIds: string[],
     @Headers('authorization') authorization?: string,
+    @Req() req?: Request,
   ) {
-    const token = authorization?.replace('Bearer ', '').trim();
+    const token = this.extractDeliveryToken(req as Request, authorization);
     return this.deliveryService.dispatchOrdersBulk(token, orderIds);
   }
 
   // ✅ Marcar onboarding do entregador como concluído
   @Public()
   @Post('onboarding/complete')
-  completeOnboarding(@Headers('authorization') authorization?: string) {
-    const token = authorization?.replace('Bearer ', '').trim();
+  completeOnboarding(@Headers('authorization') authorization?: string, @Req() req?: Request) {
+    const token = this.extractDeliveryToken(req as Request, authorization);
     return this.deliveryService.completeOnboarding(token);
   }
 }
