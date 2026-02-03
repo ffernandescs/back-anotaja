@@ -182,11 +182,13 @@ async function createCategoriesProductsAndComplements(
     for (const productData of products) {
       console.log(`  🔄 Criando produto: ${productData.name}`);
 
+      const priceInCents = Math.round(Number(productData.price) * 100);
+
       const product = await prisma.product.create({
         data: {
           name: productData.name,
           description: productData.description,
-          price: money(productData.price + (Math.random() * 5 - 2.5)),
+          price: priceInCents,
           image: productData.image,
           featured: productData.featured || false,
           active: true,
@@ -235,13 +237,13 @@ async function createCategoriesProductsAndComplements(
           });
 
           for (const optionData of complementData.options) {
+                  const priceInCents = Math.round(Number(optionData.price) * 100);
+
             await prisma.complementOption.create({
               data: {
                 name: optionData.name,
                 branchId: branchId,
-                price: money(
-                  Math.max(0, optionData.price + (Math.random() * 1 - 0.5)),
-                ),
+                price: priceInCents,
                 active: true,
                 complement: {
                   connect: {
