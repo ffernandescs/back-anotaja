@@ -63,4 +63,15 @@ export class DeliveryController {
     const token = authorization?.replace('Bearer ', '').trim();
     return this.deliveryService.updateOrderStatus(token, orderId, status);
   }
+
+  // ✅ Despacho em lote (somente se todos os pedidos estiverem READY)
+  @Public()
+  @Post('orders/dispatch-bulk')
+  dispatchOrders(
+    @Body('orderIds') orderIds: string[],
+    @Headers('authorization') authorization?: string,
+  ) {
+    const token = authorization?.replace('Bearer ', '').trim();
+    return this.deliveryService.dispatchOrdersBulk(token, orderIds);
+  }
 }

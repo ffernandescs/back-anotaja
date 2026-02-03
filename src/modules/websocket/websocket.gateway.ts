@@ -210,6 +210,44 @@ export class OrdersWebSocketGateway
     }
   }
 
+  /**
+   * Emitir evento de rota de entrega para app do entregador e filial
+   */
+  emitDeliveryRouteUpdate(
+    payload: {
+      event: 'route:created' | 'route:updated' | 'route:deleted' | 'route:assigned';
+      assignment: any;
+      branchId: string;
+      deliveryPersonId?: string | null;
+    },
+  ) {
+    if (!this.server || !this.server.sockets) {
+      this.logger.warn('WebSocket server not initialized, cannot emit delivery route');
+      return;
+    }
+
+    const { branchId, deliveryPersonId } = payload;
+
+    // Enviar para filial (para dashboards/admin acompanhar)
+    if (branchId) {
+      const branchRoom = `branch:${branchId}`;
+      this.server.to(branchRoom).emit('delivery:route:update', payload);
+      this.logger.debug(`📤 Emitted delivery:route:update to branch room ${branchRoom}`);
+    }
+
+    // Enviar direto para o entregador se houver
+    if (deliveryPersonId) {
+      const deliveryRoom = `delivery:${deliveryPersonId}`;
+      this.server.to(deliveryRoom).emit('delivery:route:update', payload);
+      // Compatibilidade com room de usuário caso existam listeners antigos
+      const userRoom = `user:${deliveryPersonId}`;
+      this.server.to(userRoom).emit('delivery:route:update', payload);
+      this.logger.log(
+        `📤 Emitted delivery:route:update to delivery rooms delivery:${deliveryPersonId} / user:${deliveryPersonId}`,
+      );
+    }
+  }
+
   async handleDisconnect(client: AuthenticatedSocket) {
     if (client.user?.deliveryPersonId) {
       await prisma.deliveryPerson.update({

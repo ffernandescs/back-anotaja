@@ -10,10 +10,14 @@ import { prisma } from '../../../lib/prisma';
 import { DeliveryLoginDto } from './dto/delivery-login.dto';
 import { OrderStatusDto } from '../orders/dto/create-order-item.dto';
 import { OrderStatus } from '@prisma/client';
+import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
 
 @Injectable()
 export class DeliveryService {
-  constructor(private readonly jwtService: JwtService) {}
+  constructor(
+    private readonly jwtService: JwtService,
+    private readonly wsGateway: OrdersWebSocketGateway,
+  ) {}
 
   private verifyDeliveryToken(token?: string): { deliveryPersonId: string; branchId?: string } {
     if (!token) {
@@ -170,7 +174,12 @@ export class DeliveryService {
       where: { deliveryPersonId },
       orderBy: { createdAt: 'desc' },
       include: {
-        orders: true,
+        orders: {
+          include: {
+            customer: true,
+            customerAddress: true,
+          }
+        },
       },
     });
   }
@@ -241,10 +250,7 @@ export class DeliveryService {
         where: { deliveryAssignmentId: updatedOrder.deliveryAssignmentId },
         select: { id: true, status: true },
       });
-
-      const allDelivered = ordersFromRoute.every(
-        (o) => o.status === OrderStatus.DELIVERED,
-      );
+      const allDelivered = ordersFromRoute.every((o) => o.status === OrderStatus.DELIVERED);
 
       if (allDelivered) {
         await prisma.deliveryAssignment.update({
@@ -254,6 +260,97 @@ export class DeliveryService {
       }
     }
 
+    // Emitir atualização do pedido e rota (se houver)
+    this.wsGateway.emitOrderUpdate(updatedOrder, 'order:status_changed');
+
+    if (updatedOrder.deliveryAssignmentId) {
+      const assignment = await prisma.deliveryAssignment.findUnique({
+        where: { id: updatedOrder.deliveryAssignmentId },
+      });
+
+      if (assignment) {
+        this.wsGateway.emitDeliveryRouteUpdate({
+          event: 'route:updated',
+          assignment,
+          branchId: assignment.branchId,
+          deliveryPersonId: assignment.deliveryPersonId,
+        });
+      }
+    }
+
     return updatedOrder;
+  }
+
+  /**
+   * Despachar pedidos em lote: só permite se TODOS estiverem READY
+   */
+  async dispatchOrdersBulk(token: string | undefined, orderIds: string[]) {
+    const { deliveryPersonId } = this.verifyDeliveryToken(token);
+
+    if (!orderIds || orderIds.length === 0) {
+      throw new BadRequestException('orderIds é obrigatório');
+    }
+
+    const orders = await prisma.order.findMany({
+      where: { id: { in: orderIds }, deliveryPersonId },
+      select: {
+        id: true,
+        status: true,
+        branchId: true,
+        deliveryAssignmentId: true,
+      },
+    });
+
+    if (orders.length !== orderIds.length) {
+      throw new ForbiddenException('Alguns pedidos não pertencem a este entregador');
+    }
+
+    const allReady = orders.every((o) => o.status === OrderStatus.READY);
+    if (!allReady) {
+      throw new BadRequestException('Só é possível despachar quando todos os pedidos estão PRONTO');
+    }
+
+    // Atualizar pedidos para DELIVERING
+    await prisma.order.updateMany({
+      where: { id: { in: orderIds } },
+      data: { status: OrderStatusDto.DELIVERING },
+    });
+
+    // Atualizar assignments relacionados (se houver) para IN_PROGRESS
+    const assignmentIds = Array.from(
+      new Set(orders.map((o) => o.deliveryAssignmentId).filter(Boolean) as string[]),
+    );
+
+    if (assignmentIds.length) {
+      await prisma.deliveryAssignment.updateMany({
+        where: { id: { in: assignmentIds } },
+        data: { status: 'IN_PROGRESS', startedAt: new Date() },
+      });
+    }
+
+    // Emitir eventos WS por pedido e por rota
+    orders.forEach((o) => {
+      this.wsGateway.emitOrderUpdate(
+        { id: o.id, status: OrderStatusDto.DELIVERING, branchId: o.branchId, deliveryPersonId },
+        'order:status_changed',
+      );
+    });
+
+    if (assignmentIds.length) {
+      const assignments = await prisma.deliveryAssignment.findMany({
+        where: { id: { in: assignmentIds } },
+      });
+
+      assignments.forEach((assignment) => {
+        this.wsGateway.emitDeliveryRouteUpdate({
+          event: 'route:updated',
+          assignment,
+          branchId: assignment.branchId,
+          deliveryPersonId: assignment.deliveryPersonId,
+        });
+      });
+    }
+
+    return { success: true };
   }
 }

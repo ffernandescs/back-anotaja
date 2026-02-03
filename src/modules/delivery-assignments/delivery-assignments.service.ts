@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { prisma } from '../../../lib/prisma';
 import { Prisma } from '@prisma/client';
+import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
 import { AutoCreateRoutesDto } from './dto/auto-create-routes.dto';
 import { OptimizeRoutesDto } from './dto/optimize-routes.dto';
 import { CreateDeliveryAssignmentDto } from './dto/create-delivery-assignment.dto';
@@ -59,6 +60,7 @@ export interface AutoCreateRoutesResult {
 
 @Injectable()
 export class DeliveryAssignmentsService {
+  constructor(private readonly wsGateway: OrdersWebSocketGateway) {}
   async create(dto: CreateDeliveryAssignmentDto, userId: string) {
     // Verificar usuário e permissões
     const user = await prisma.user.findUnique({
@@ -182,6 +184,14 @@ export class DeliveryAssignmentsService {
           },
         },
       },
+    });
+
+    // Emitir rota criada/atribuída
+    this.wsGateway.emitDeliveryRouteUpdate({
+      event: 'route:created',
+      assignment,
+      branchId: user.branchId,
+      deliveryPersonId: assignment.deliveryPersonId,
     });
 
     return {
@@ -402,6 +412,13 @@ export class DeliveryAssignmentsService {
       });
     }
 
+    this.wsGateway.emitDeliveryRouteUpdate({
+      event: 'route:updated',
+      assignment: updatedAssignment,
+      branchId: assignment.branchId,
+      deliveryPersonId: updatedAssignment.deliveryPersonId,
+    });
+
     return {
       success: true,
       message: 'Status atualizado com sucesso',
@@ -581,6 +598,30 @@ export class DeliveryAssignmentsService {
       (o) => !assignedOrderIds.includes(o.id),
     );
 
+    if (createdRoutes.length === 0) {
+      return {
+        success: false,
+        message: 'Nenhuma rota criada',
+        routes: [],
+        stats: {
+          totalOrders: ordersWithCoords.length,
+          assignedOrders: assignedOrderIds.length,
+          unassignedOrders: unassignedOrders.length,
+          routesCreated: createdRoutes.length,
+        },
+      };
+    }
+
+    // Emitir rotas criadas
+    createdRoutes.forEach((route) => {
+      this.wsGateway.emitDeliveryRouteUpdate({
+        event: 'route:created',
+        assignment: route,
+        branchId: user.branchId!,
+        deliveryPersonId: route.deliveryPersonId,
+      });
+    });
+
     return {
       success: true,
       message: `${createdRoutes.length} rota(s) criada(s) com sucesso`,
@@ -716,7 +757,6 @@ export class DeliveryAssignmentsService {
       );
     }
 
-
     // Criar pontos da rota
     const points: RoutePoint[] = [
       {
@@ -739,11 +779,8 @@ export class DeliveryAssignmentsService {
         pointLabel: `Ponto ${String.fromCharCode(65 + index)}`,
       };
 
-
-
       points.push(point);
     });
-
 
     // Calcular distância e tempo estimados
     let totalDistance = 0;
@@ -761,7 +798,6 @@ export class DeliveryAssignmentsService {
     const estimatedTime = Math.ceil(
       (totalDistance / 1000 / 30) * 60 + orders.length * 5,
     );
-
 
     return {
       route: points,
@@ -894,6 +930,14 @@ export class DeliveryAssignmentsService {
     await prisma.order.updateMany({
       where: { deliveryAssignmentId: assignmentId },
       data: { deliveryPersonId: deliveryPerson.id },
+    });
+
+    // Emitir rota atribuída
+    this.wsGateway.emitDeliveryRouteUpdate({
+      event: 'route:assigned',
+      assignment: updatedAssignment,
+      branchId: assignment.branchId,
+      deliveryPersonId,
     });
 
     return {

@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
 import { DeliveryController } from './delivery.controller';
 import { DeliveryService } from './delivery.service';
+import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
 
 @Module({
   imports: [
@@ -25,6 +26,6 @@ import { DeliveryService } from './delivery.service';
     }),
   ],
   controllers: [DeliveryController],
-  providers: [DeliveryService],
+  providers: [DeliveryService, OrdersWebSocketGateway],
 })
 export class DeliveryModule {}
