@@ -237,6 +237,19 @@ export class DeliveryService {
       throw new ForbiddenException('Não é possível retroceder o status do pedido');
     }
 
+    // Se for despachar (DELIVERING) e houver rota, exigir que todos estejam READY
+    if (status === OrderStatusDto.DELIVERING && order.deliveryAssignmentId) {
+      const ordersFromRoute = await prisma.order.findMany({
+        where: { deliveryAssignmentId: order.deliveryAssignmentId },
+        select: { id: true, status: true },
+      });
+
+      const allReady = ordersFromRoute.every((o) => o.status === OrderStatus.READY);
+      if (!allReady) {
+        throw new BadRequestException('Só é possível despachar quando todos os pedidos da rota estão PRONTO');
+      }
+    }
+
     const updatedOrder = await prisma.order.update({
       where: { id: orderId },
       data: { status },
