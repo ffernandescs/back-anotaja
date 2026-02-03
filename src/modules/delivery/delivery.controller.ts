@@ -98,6 +98,30 @@ export class DeliveryController {
     return this.deliveryService.dispatchOrdersBulk(token, orderIds);
   }
 
+  // ✅ Conclusão individual (DELIVERING -> DELIVERED)
+  @Public()
+  @Post('orders/complete')
+  completeOrder(
+    @Body('orderId') orderId: string,
+    @Headers('authorization') authorization?: string,
+    @Req() req?: Request,
+  ) {
+    const token = this.extractDeliveryToken(req as Request, authorization);
+    return this.deliveryService.completeOrder(token, orderId);
+  }
+
+  // ✅ Conclusão em lote (somente pedidos em DELIVERING)
+  @Public()
+  @Post('orders/complete-bulk')
+  completeOrders(
+    @Body('orderIds') orderIds: string[],
+    @Headers('authorization') authorization?: string,
+    @Req() req?: Request,
+  ) {
+    const token = this.extractDeliveryToken(req as Request, authorization);
+    return this.deliveryService.completeOrdersBulk(token, orderIds);
+  }
+
 
   // ✅ Marcar onboarding do entregador como concluído
   @Public()

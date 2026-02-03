@@ -39,6 +39,151 @@ export class DeliveryService {
     }
   }
 
+  async completeOrder(token: string | undefined, orderId: string) {
+    const { deliveryPersonId } = this.verifyDeliveryToken(token);
+
+    if (!orderId) {
+      throw new BadRequestException('orderId é obrigatório');
+    }
+
+    const order = await prisma.order.findFirst({
+      where: { id: orderId, deliveryPersonId },
+      select: {
+        id: true,
+        status: true,
+        branchId: true,
+        deliveryAssignmentId: true,
+      },
+    });
+
+    if (!order) {
+      throw new ForbiddenException('Pedido não pertence a este entregador ou não existe');
+    }
+
+    if (order.status !== OrderStatus.DELIVERING) {
+      throw new BadRequestException('Só é possível concluir pedidos em entrega');
+    }
+
+    const updatedOrder = await prisma.order.update({
+      where: { id: orderId },
+      data: { status: OrderStatusDto.DELIVERED },
+    });
+
+    if (order.deliveryAssignmentId) {
+      const ordersFromRoute = await prisma.order.findMany({
+        where: { deliveryAssignmentId: order.deliveryAssignmentId },
+        select: { id: true, status: true },
+      });
+
+      const allDelivered = ordersFromRoute.every((o) => o.status === OrderStatus.DELIVERED);
+
+      if (allDelivered) {
+        await prisma.deliveryAssignment.update({
+          where: { id: order.deliveryAssignmentId },
+          data: { status: 'COMPLETED', completedAt: new Date() },
+        });
+      }
+    }
+
+    this.wsGateway.emitOrderUpdate(
+      { id: order.id, status: OrderStatusDto.DELIVERED, branchId: order.branchId, deliveryPersonId },
+      'order:status_changed',
+    );
+
+    if (order.deliveryAssignmentId) {
+      const assignment = await prisma.deliveryAssignment.findUnique({
+        where: { id: order.deliveryAssignmentId },
+      });
+
+      if (assignment) {
+        this.wsGateway.emitDeliveryRouteUpdate({
+          event: 'route:updated',
+          assignment,
+          branchId: assignment.branchId,
+          deliveryPersonId: assignment.deliveryPersonId,
+        });
+      }
+    }
+
+    return updatedOrder;
+  }
+
+  async completeOrdersBulk(token: string | undefined, orderIds: string[]) {
+    const { deliveryPersonId } = this.verifyDeliveryToken(token);
+
+    if (!orderIds || orderIds.length === 0) {
+      throw new BadRequestException('orderIds é obrigatório');
+    }
+
+    const orders = await prisma.order.findMany({
+      where: { id: { in: orderIds }, deliveryPersonId },
+      select: {
+        id: true,
+        status: true,
+        branchId: true,
+        deliveryAssignmentId: true,
+      },
+    });
+
+    if (orders.length !== orderIds.length) {
+      throw new ForbiddenException('Alguns pedidos não pertencem a este entregador');
+    }
+
+    const allDelivering = orders.every((o) => o.status === OrderStatus.DELIVERING);
+    if (!allDelivering) {
+      throw new BadRequestException('Só é possível concluir pedidos em entrega');
+    }
+
+    await prisma.order.updateMany({
+      where: { id: { in: orderIds } },
+      data: { status: OrderStatusDto.DELIVERED },
+    });
+
+    const assignmentIds = Array.from(
+      new Set(orders.map((o) => o.deliveryAssignmentId).filter(Boolean) as string[]),
+    );
+
+    if (assignmentIds.length) {
+      const assignments = await prisma.deliveryAssignment.findMany({
+        where: { id: { in: assignmentIds } },
+        include: {
+          orders: { select: { status: true } },
+        },
+      });
+
+      for (const assignment of assignments) {
+        const allDelivered = assignment.orders.every((o) => o.status === OrderStatus.DELIVERED);
+        if (allDelivered) {
+          await prisma.deliveryAssignment.update({
+            where: { id: assignment.id },
+            data: { status: 'COMPLETED', completedAt: new Date() },
+          });
+        }
+      }
+    }
+
+    orders.forEach((o) => {
+      this.wsGateway.emitOrderUpdate(
+        { id: o.id, status: OrderStatusDto.DELIVERED, branchId: o.branchId, deliveryPersonId },
+        'order:status_changed',
+      );
+    });
+
+    if (assignmentIds.length) {
+      const assignments = await prisma.deliveryAssignment.findMany({ where: { id: { in: assignmentIds } } });
+      assignments.forEach((assignment) => {
+        this.wsGateway.emitDeliveryRouteUpdate({
+          event: 'route:updated',
+          assignment,
+          branchId: assignment.branchId,
+          deliveryPersonId: assignment.deliveryPersonId,
+        });
+      });
+    }
+
+    return { success: true };
+  }
+
   async heartbeat(deliveryPersonId: string) {
     const deliveryPerson = await prisma.deliveryPerson.findFirst({
       where: { id: deliveryPersonId, active: true },
