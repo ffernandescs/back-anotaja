@@ -298,6 +298,66 @@ export class DeliveryService {
   /**
    * Despachar pedidos em lote: só permite se TODOS estiverem READY
    */
+  async dispatchOrder(token: string | undefined, orderId: string) {
+    const { deliveryPersonId } = this.verifyDeliveryToken(token);
+
+    if (!orderId) {
+      throw new BadRequestException('orderId é obrigatório');
+    }
+
+    const order = await prisma.order.findFirst({
+      where: { id: orderId, deliveryPersonId },
+      select: {
+        id: true,
+        status: true,
+        branchId: true,
+        deliveryAssignmentId: true,
+      },
+    });
+
+    if (!order) {
+      throw new ForbiddenException('Pedido não pertence a este entregador ou não existe');
+    }
+
+    if (order.status !== OrderStatus.READY) {
+      throw new BadRequestException('Só é possível despachar pedidos no status PRONTO');
+    }
+
+    const updatedOrder = await prisma.order.update({
+      where: { id: orderId },
+      data: { status: OrderStatusDto.DELIVERING },
+    });
+
+    if (order.deliveryAssignmentId) {
+      await prisma.deliveryAssignment.updateMany({
+        where: { id: order.deliveryAssignmentId },
+        data: { status: 'IN_PROGRESS', startedAt: new Date() },
+      });
+    }
+
+    this.wsGateway.emitOrderUpdate(
+      { id: order.id, status: OrderStatusDto.DELIVERING, branchId: order.branchId, deliveryPersonId },
+      'order:status_changed',
+    );
+
+    if (order.deliveryAssignmentId) {
+      const assignment = await prisma.deliveryAssignment.findUnique({
+        where: { id: order.deliveryAssignmentId },
+      });
+
+      if (assignment) {
+        this.wsGateway.emitDeliveryRouteUpdate({
+          event: 'route:updated',
+          assignment,
+          branchId: assignment.branchId,
+          deliveryPersonId: assignment.deliveryPersonId,
+        });
+      }
+    }
+
+    return updatedOrder;
+  }
+
   async dispatchOrdersBulk(token: string | undefined, orderIds: string[]) {
     const { deliveryPersonId } = this.verifyDeliveryToken(token);
 

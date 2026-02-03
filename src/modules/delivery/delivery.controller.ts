@@ -11,10 +11,11 @@ export class DeliveryController {
   constructor(private readonly deliveryService: DeliveryService) {}
 
   private extractDeliveryToken(req: Request, authorization?: string): string | undefined {
-    const bearer = authorization?.replace('Bearer ', '').trim();
     const headerToken = (req.headers['delivery_token'] as string | undefined)?.trim();
     const cookieToken = (req.cookies?.delivery_token as string | undefined)?.trim();
-    return bearer || headerToken || cookieToken;
+    const bearer = authorization?.replace('Bearer ', '').trim();
+    // Priorizar delivery_token explícito; se não houver, usar Bearer
+    return headerToken || cookieToken || bearer;
   }
 
   @Public()
@@ -76,6 +77,17 @@ export class DeliveryController {
 
   // ✅ Despacho em lote (somente se todos os pedidos estiverem READY)
   @Public()
+  @Post('orders/dispatch')
+  dispatchOrder(
+    @Body('orderId') orderId: string,
+    @Headers('authorization') authorization?: string,
+    @Req() req?: Request,
+  ) {
+    const token = this.extractDeliveryToken(req as Request, authorization);
+    return this.deliveryService.dispatchOrder(token, orderId);
+  }
+
+   @Public()
   @Post('orders/dispatch-bulk')
   dispatchOrders(
     @Body('orderIds') orderIds: string[],
@@ -85,6 +97,7 @@ export class DeliveryController {
     const token = this.extractDeliveryToken(req as Request, authorization);
     return this.deliveryService.dispatchOrdersBulk(token, orderIds);
   }
+
 
   // ✅ Marcar onboarding do entregador como concluído
   @Public()
