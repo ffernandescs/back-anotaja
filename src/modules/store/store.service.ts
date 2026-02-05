@@ -614,6 +614,54 @@ export class StoreService {
   }
 
   /**
+   * Buscar CEP no ViaCEP e geocodificar para lat/lng
+   */
+  async lookupCep(
+    cep: string,
+    extra?: {
+      street?: string;
+      number?: string;
+      neighborhood?: string;
+      city?: string;
+      state?: string;
+    },
+  ) {
+    const sanitizedCep = (cep || '').replace(/\D/g, '');
+    if (sanitizedCep.length !== 8) {
+      throw new BadRequestException('CEP inválido');
+    }
+
+    const viaCepRes = await fetch(`https://viacep.com.br/ws/${sanitizedCep}/json/`);
+    if (!viaCepRes.ok) {
+      throw new BadRequestException('Erro ao consultar CEP');
+    }
+
+    const viaCepData: any = await viaCepRes.json();
+    if (viaCepData?.erro) {
+      throw new NotFoundException('CEP não encontrado');
+    }
+
+    // Prefer dados preenchidos pelo cliente para maior precisão
+    const street = extra?.street || viaCepData.logradouro || '';
+    const neighborhood = extra?.neighborhood || viaCepData.bairro || '';
+    const city = extra?.city || viaCepData.localidade || '';
+    const state = extra?.state || viaCepData.uf || '';
+    const number = extra?.number;
+
+    const coords = await this.geocodeAddress(street, number, city, state, sanitizedCep, neighborhood);
+
+    return {
+      zipCode: sanitizedCep,
+      street,
+      neighborhood,
+      city,
+      state,
+      lat: coords?.lat ?? null,
+      lng: coords?.lng ?? null,
+    };
+  }
+
+  /**
    * Criar pedido na loja (checkout)
    */
   /**
@@ -1203,7 +1251,7 @@ async createOrder(
     subdomain?: string,
     branchId?: string,
   ) {
-    const branch = await this.getBranch(subdomain, branchId);
+    let branch = await this.getBranch(subdomain, branchId);
 
     if (!branch) {
       throw new NotFoundException('Loja não encontrada');
@@ -1290,7 +1338,7 @@ async createOrder(
     // 3️⃣ BUSCAR CONFIGURAÇÕES
     // level MENOR = maior prioridade
     // ===============================
-    const [areas, routes, exclusions] = await Promise.all([
+    let [areas, routes, exclusions] = await Promise.all([
       prisma.deliveryArea.findMany({
         where: { branchId: branch.id, active: true },
         orderBy: { level: 'asc' },
@@ -1415,16 +1463,6 @@ async createOrder(
     const matched = matchedRoute || matchedArea;
 
     if (!matched) {
-      console.error('[DELIVERY_OUT_OF_AREA]', {
-        branchId: branch.id,
-        address,
-        city,
-        state,
-        zipCode,
-        lat: finalLat,
-        lng: finalLng,
-        subtotal,
-      });
 
       return {
         available: false,
@@ -1935,17 +1973,13 @@ async createOrder(
     city?: string,
     state?: string,
     zipCode?: string,
+    neighborhood?: string,
   ): Promise<{ lat: number; lng: number } | null> {
     try {
       // Montar endereço completo
-      const addressParts = [
-        street,
-        number,
-        city,
-        state,
-        zipCode,
-        'Brasil',
-      ].filter(Boolean);
+      const addressParts = [street, number, neighborhood, city, state, zipCode, 'Brasil'].filter(
+        Boolean,
+      );
 
       const fullAddress = addressParts.join(', ').replace(/\s+/g, ' ').trim();
 
@@ -2022,34 +2056,35 @@ async createOrder(
       });
     }
 
-    // 🔥 Geocodificar endereço se lat/lng não foram fornecidos
-    let lat = createAddressDto.lat;
-    let lng = createAddressDto.lng;
+    // 🔥 Sempre geocodificar no backend para ter mesma origem de coordenadas usada nas áreas
+    let lat: number | null = null;
+    let lng: number | null = null;
 
-    if (!lat || !lng) {
+    const coordinates = await this.geocodeAddress(
+      createAddressDto.street,
+      createAddressDto.number || undefined,
+      createAddressDto.city,
+      createAddressDto.state,
+      createAddressDto.zipCode,
+    );
 
-      const coordinates = await this.geocodeAddress(
-        createAddressDto.street,
-        createAddressDto.number || undefined,
-        createAddressDto.city,
-        createAddressDto.state,
-        createAddressDto.zipCode,
-      );
-
-      if (coordinates) {
-        lat = coordinates.lat;
-        lng = coordinates.lng;
-      } else {
-        console.warn('Could not geocode address, saving without coordinates');
-      }
+    if (coordinates) {
+      lat = coordinates.lat;
+      lng = coordinates.lng;
+    } else if (isValidCoord(createAddressDto.lat) && isValidCoord(createAddressDto.lng)) {
+      // fallback: usar coordenadas fornecidas se geocoding falhar
+      lat = createAddressDto.lat!;
+      lng = createAddressDto.lng!;
+    } else {
+      console.warn('Could not geocode address, saving without coordinates');
     }
 
     // Criar endereço com coordenadas
     const address = await prisma.customerAddress.create({
       data: {
         ...createAddressDto,
-        lat: lat || null,
-        lng: lng || null,
+        lat,
+        lng,
         branchId: createAddressDto.branchId,
         customerId,
       },
@@ -2085,14 +2120,8 @@ async createOrder(
     }
 
     // 🔥 Re-geocodificar se campos relevantes mudaram
-    let lat =
-      updateAddressDto.lat !== undefined
-        ? updateAddressDto.lat
-        : existingAddress.lat;
-    let lng =
-      updateAddressDto.lng !== undefined
-        ? updateAddressDto.lng
-        : existingAddress.lng;
+    let lat = existingAddress.lat;
+    let lng = existingAddress.lng;
 
     const addressChanged =
       (updateAddressDto.street &&
@@ -2106,8 +2135,7 @@ async createOrder(
       (updateAddressDto.zipCode &&
         updateAddressDto.zipCode !== existingAddress.zipCode);
 
-    if (addressChanged && !updateAddressDto.lat && !updateAddressDto.lng) {
-
+    if (addressChanged) {
       const coordinates = await this.geocodeAddress(
         updateAddressDto.street || existingAddress.street,
         updateAddressDto.number || existingAddress.number || undefined,
@@ -2119,6 +2147,9 @@ async createOrder(
       if (coordinates) {
         lat = coordinates.lat;
         lng = coordinates.lng;
+      } else if (isValidCoord(updateAddressDto.lat) && isValidCoord(updateAddressDto.lng)) {
+        lat = updateAddressDto.lat!;
+        lng = updateAddressDto.lng!;
       } else {
         console.warn(
           'Could not re-geocode address, keeping existing coordinates',

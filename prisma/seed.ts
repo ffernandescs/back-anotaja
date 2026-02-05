@@ -4182,17 +4182,33 @@ async function main() {
           const deliveryFeeData = Math.round(Number(deliveryFee) * 100);
           const minOrderValue = Math.round(20.0 + Math.random() * 10);
 
-          await prisma.deliveryArea.create({
-            data: {
-              name: `Área ${i + 1} - ${branch.branchName}`,
+          const level = i + 1;
+
+          await prisma.deliveryArea.upsert({
+            where: {
+              branchId_level: { branchId: branch.id, level },
+            },
+            update: {
+              name: `Área ${level} - ${branch.branchName}`,
               type: 'CIRCLE',
               centerLat: firstBranchData.lat,
               centerLng: firstBranchData.lng,
-              radius: radius,
+              radius,
               deliveryFee: deliveryFeeData,
-              minOrderValue: minOrderValue,
+              minOrderValue,
               estimatedTime: 30 + i * 10,
-              level: i + 1,
+              active: true,
+            },
+            create: {
+              name: `Área ${level} - ${branch.branchName}`,
+              type: 'CIRCLE',
+              centerLat: firstBranchData.lat,
+              centerLng: firstBranchData.lng,
+              radius,
+              deliveryFee: deliveryFeeData,
+              minOrderValue,
+              estimatedTime: 30 + i * 10,
+              level,
               active: true,
               branchId: branch.id,
             },

@@ -14,6 +14,7 @@ import {
   UseGuards,
   UnauthorizedException,
   BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { StoreService } from './store.service';
@@ -69,6 +70,35 @@ export class StoreController {
     }
 
     return {};
+  }
+
+  /**
+   * Buscar endereço e coordenadas por CEP
+   */
+  @Get('cep/:cep')
+  @Public()
+  async lookupCep(
+    @Param('cep') cep: string,
+    @Query('street') street?: string,
+    @Query('number') number?: string,
+    @Query('neighborhood') neighborhood?: string,
+    @Query('city') city?: string,
+    @Query('state') state?: string,
+  ) {
+    try {
+      return await this.storeService.lookupCep(cep, {
+        street,
+        number,
+        neighborhood,
+        city,
+        state,
+      });
+    } catch (err) {
+      if (err instanceof NotFoundException || err instanceof BadRequestException) {
+        throw err;
+      }
+      throw new BadRequestException('Erro ao consultar CEP');
+    }
   }
 
   /**
