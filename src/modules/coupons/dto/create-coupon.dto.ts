@@ -11,11 +11,31 @@ import {
 export enum CouponType {
   PERCENTAGE = 'PERCENTAGE',
   FIXED = 'FIXED',
+  FREE_DELIVERY = 'FREE_DELIVERY',
+}
+
+export enum DayOfWeek {
+  SUNDAY = 'SUNDAY',
+  MONDAY = 'MONDAY',
+  TUESDAY = 'TUESDAY',
+  WEDNESDAY = 'WEDNESDAY',
+  THURSDAY = 'THURSDAY',
+  FRIDAY = 'FRIDAY',
+  SATURDAY = 'SATURDAY',
+}
+
+export enum DeliveryType {
+  PICKUP = 'PICKUP',
+  DELIVERY = 'DELIVERY',
+  DINE_IN = 'DINE_IN',
 }
 
 export class CreateCouponDto {
   @IsString()
   code!: string;
+
+  @IsString()
+  name!: string;
 
   @IsEnum(CouponType)
   type!: CouponType;
@@ -39,15 +59,48 @@ export class CreateCouponDto {
   @Min(1)
   maxUses?: number | null;
 
+  @IsOptional()
   @IsDateString()
-  validFrom!: string;
+  validFrom?: string | null;
 
+  @IsOptional()
   @IsDateString()
-  validUntil!: string;
+  validUntil?: string | null;
+
+  @IsOptional()
+  availableDays?: DayOfWeek[] | null;
+
+  @IsOptional()
+  deliveryTypes?: DeliveryType[] | null;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  minimumOrderValue?: number | null;
+
+  @IsOptional()
+  @IsBoolean()
+  onlyNewCustomers?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  allowMultipleUsesPerCustomer?: boolean;
 
   @IsOptional()
   @IsString()
   branchId?: string | null;
+
+  @IsOptional()
+  paymentMethodIds?: string[] | null;
+
+  @IsOptional()
+  categoryIds?: string[] | null;
+
+  @IsOptional()
+  productIds?: string[] | null;
+
+  @IsOptional()
+  branchIds?: string[] | null;
 
   @IsOptional()
   @IsBoolean()

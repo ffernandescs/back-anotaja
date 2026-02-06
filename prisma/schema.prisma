@@ -251,6 +251,7 @@ model Branch {
   paymentMethods         BranchPaymentMethod[]
   billSplits             BillSplit[]
   complementOptions      ComplementOption[]
+  couponBranches         CouponBranch[]          @relation("CouponBranches")
   address                BranchAddress?          @relation(fields: [addressId], references: [id], onDelete: Restrict)
   addressId              String?
   autoRouteConfig        AutoRouteConfig?
@@ -432,8 +433,9 @@ model Category {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
-  branch      Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branch      Branch           @relation(fields: [branchId], references: [id], onDelete: Cascade)
   products    Product[]
+  coupons     CouponCategory[]
 }
 
 model Product {
@@ -483,6 +485,7 @@ model Product {
   complements                                                             ProductComplement[]
   ingredients                                                             ProductIngredient[]
   stockMovements                                                          StockMovement[]
+  coupons                                                                 CouponProduct[]
 }
 
 model ProductAddition {
@@ -717,21 +720,88 @@ model ComplementOption {
 model Coupon {
   id                                                                              String      @id @default(cuid())
   code                                                                            String      @unique
+  name                                                                            String
   type                                                                            CouponType
   value                                                                           Int
   minValue                                                                        Int?
   maxDiscount Int?       // Desconto máximo em centavos (para cupons percentuais)
   maxUses                                                                         Int?
   usedCount                                                                       Int         @default(0)
-  validFrom                                                                       DateTime
-  validUntil                                                                      DateTime
+  
+  // Período de validade
+  validFrom                                                                       DateTime?
+  validUntil                                                                      DateTime?
+  availableDays                                                                   String?     // JSON array de dias da semana ["MONDAY", "FRIDAY"]
+  
+  // Regras de aplicação
+  deliveryTypes                                                                   String?     // JSON array de tipos de pedido ["DELIVERY", "PICKUP", "DINE_IN"]
+  minimumOrderValue                                                               Int?        // Valor mínimo do pedido em centavos
+  onlyNewCustomers                                                                Boolean     @default(false)
+  allowMultipleUsesPerCustomer                                                    Boolean     @default(false)
+  
   active                                                                          Boolean     @default(true)
   branchId                                                                        String?
   createdAt                                                                       DateTime    @default(now())
   updatedAt                                                                       DateTime    @updatedAt
 
-  branch                                                                          Branch?    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branch                                                                          Branch?                @relation(fields: [branchId], references: [id], onDelete: Cascade)
   orders                                                                          Order[]
+  paymentMethods                                                                  CouponPaymentMethod[]  // Formas de pagamento associadas
+  categories                                                                      CouponCategory[]       // Categorias de produtos associadas
+  products                                                                        CouponProduct[]        // Produtos específicos associados
+  branches                                                                        CouponBranch[]         // Filiais onde o cupom é válido
+}
+
+// Relação entre cupom e formas de pagamento
+model CouponPaymentMethod {
+  id              String        @id @default(cuid())
+  couponId        String
+  paymentMethodId String
+  createdAt       DateTime      @default(now())
+
+  coupon          Coupon               @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  paymentMethod   BranchPaymentMethod  @relation(fields: [paymentMethodId], references: [id], onDelete: Cascade)
+
+  @@unique([couponId, paymentMethodId])
+}
+
+// Relação entre cupom e categorias
+model CouponCategory {
+  id         String   @id @default(cuid())
+  couponId   String
+  categoryId String
+  createdAt  DateTime @default(now())
+
+  coupon     Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([couponId, categoryId])
+}
+
+// Relação entre cupom e produtos
+model CouponProduct {
+  id        String   @id @default(cuid())
+  couponId  String
+  productId String
+  createdAt DateTime @default(now())
+
+  coupon    Coupon  @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([couponId, productId])
+}
+
+// Relação entre cupom e filiais (estabelecimentos)
+model CouponBranch {
+  id        String   @id @default(cuid())
+  couponId  String
+  branchId  String
+  createdAt DateTime @default(now())
+
+  coupon    Coupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  branch    Branch @relation("CouponBranches", fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([couponId, branchId])
 }
 
 model PointsConfig {
@@ -952,6 +1022,17 @@ enum DeliveryType {
 enum CouponType {
   PERCENTAGE
   FIXED
+  FREE_DELIVERY
+}
+
+enum DayOfWeek {
+  SUNDAY
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
 }
 
 enum TableStatus {
@@ -1079,8 +1160,9 @@ model BranchPaymentMethod {
   forDineIn       Boolean        @default(false)
   forDelivery     Boolean        @default(false)
 
-  branch          Branch        @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  paymentMethod   PaymentMethod @relation(fields: [paymentMethodId], references: [id], onDelete: Cascade)
+  branch          Branch                @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  paymentMethod   PaymentMethod         @relation(fields: [paymentMethodId], references: [id], onDelete: Cascade)
+  couponPayments  CouponPaymentMethod[]
 
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
