@@ -4276,6 +4276,7 @@ async function main() {
           where: { code: welcomeCouponCode },
           update: {},
           create: {
+            name: "",
             code: welcomeCouponCode,
             type: 'PERCENTAGE',
             value: 10,
@@ -4293,6 +4294,7 @@ async function main() {
           where: { code: freeShippingCouponCode },
           update: {},
           create: {
+            name: "",
             code: freeShippingCouponCode,
             type: 'FIXED',
             value: 1000,
