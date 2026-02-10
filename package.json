@@ -15,7 +15,6 @@
     "prisma:generate:prod": "dotenv -e environments/.env.prod -- prisma generate",
     "build:dev": "dotenv -e environments/.env.dev -- npm run prisma:generate:dev && npm run prisma:db:push:dev && nest build",
     "build:prod": "dotenv -e environments/.env.prod -- npm run prisma:generate:prod && npm run prisma:db:push:prod && nest build",
-    "postinstall": "prisma generate && prisma db push",
     "start": "node -r tsconfig-paths/register dist/src/main.js",
     "start:prod": "node dist/src/main.js",
     "start:dev": "dotenv -e environments/.env.dev -- nodemon dist/src/main.js",
