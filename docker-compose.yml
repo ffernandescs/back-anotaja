@@ -1,9 +1,7 @@
-version: "3.9"
-
 services:
   api:
-    container_name: anotaja-api
     build: .
+    container_name: anotaja-api
     restart: always
     ports:
       - "3001:3001"

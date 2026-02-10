@@ -7,7 +7,6 @@
   "license": "UNLICENSED",
   "scripts": {
     "postbuild": "node scripts/fix-prisma-path.js",
-    "prebuild": "npm run prisma:generate",
     "build": "prisma generate && nest build",
     "prisma:generate": "prisma generate",
     "migrate:dev": "dotenv -e environments/.env.dev -- prisma migrate dev",

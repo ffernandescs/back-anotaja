@@ -1,24 +1,20 @@
-FROM node:20-alpine
+FROM node:18-alpine
 
 WORKDIR /app
 
-RUN apk add --no-cache openssl libc6-compat
-
-# Copia tudo de uma vez (para incluir prisma)
+# Copia dependências
 COPY package*.json ./
-COPY prisma ./prisma
-COPY environments ./environments
-COPY scripts ./scripts
-COPY src ./src
 
-# Instala dependências
-RUN npm ci
+RUN npm install
 
-ENV NODE_ENV=production
-ENV DOTENV_CONFIG_PATH=environments/.env.prod
+# Copia o resto do projeto
+COPY . .
 
-# Build do NestJS + Prisma
-RUN npm run build:prod
+# Gera Prisma Client
+RUN npx prisma generate
+
+# Build NestJS
+RUN npm run build
 
 EXPOSE 3001
 
