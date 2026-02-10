@@ -4,6 +4,7 @@ import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
 import ms from 'ms'; // ✅ default import
 import { AuthModule } from '../auth/auth.module';
 import { WebSocketModule } from '../websocket/websocket.module';
+import { CouponsModule } from '../coupons/coupons.module';
 import { StoreController } from './store.controller';
 import { StoreService } from './store.service';
 
@@ -11,6 +12,7 @@ import { StoreService } from './store.service';
   imports: [
     WebSocketModule,
     AuthModule,
+    CouponsModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService): JwtModuleOptions => {

@@ -69,6 +69,21 @@ export class CouponsService {
       );
     }
 
+    // Validar métodos de pagamento informados (ids de BranchPaymentMethod)
+    if (paymentMethodIds && paymentMethodIds.length > 0) {
+      const count = await prisma.branchPaymentMethod.count({
+        where: {
+          id: {
+            in: paymentMethodIds,
+          },
+        },
+      });
+
+      if (count !== paymentMethodIds.length) {
+        throw new BadRequestException('Alguma forma de pagamento informada é inválida');
+      }
+    }
+
     const coupon = await prisma.coupon.create({
       data: {
         code: code.toUpperCase(),

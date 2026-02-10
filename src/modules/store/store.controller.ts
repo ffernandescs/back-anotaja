@@ -18,6 +18,7 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { StoreService } from './store.service';
+import { ValidateCouponDto } from './dto/validate-coupon.dto';
 import { Public } from '../../common/decorators/public.decorator';
 import { CreateStoreOrderDto } from './dto/create-store-order.dto';
 import { CreateCustomerAddressDto } from './dto/create-customer-address.dto';
@@ -481,7 +482,7 @@ export class StoreController {
   @Post('validate-coupon')
   @Public()
   async validateCoupon(
-    @Body() body: { code: string; subtotal: number },
+    @Body() body: ValidateCouponDto,
     @Query('branchId') branchId?: string,
     @Headers('x-tenant') xTenant?: string,
     @Req() req?: Request,
@@ -492,11 +493,10 @@ export class StoreController {
       xTenant,
     );
 
-    return await this.storeService.validateCoupon(
-      body.code,
-      body.subtotal,
+    return await this.storeService.validateCoupon({
+      ...body,
       subdomain,
-      branchId || headerBranchId,
-    );
+      branchId: branchId || headerBranchId,
+    });
   }
 }

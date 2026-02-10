@@ -12,6 +12,8 @@ import {
   DeliveryTypeDto,
   OrderStatusDto,
 } from '../orders/dto/create-order-item.dto';
+import { CouponsService } from '../coupons/coupons.service';
+import { ValidateCouponDto } from './dto/validate-coupon.dto';
 import { SubscriptionStatusDto } from '../subscription/dto/create-subscription.dto';
 import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
 import { CalculateDeliveryFeeDto } from './dto/calculate-delivery-fee.dto';
@@ -52,6 +54,7 @@ export class StoreService {
   constructor(
     private webSocketGateway: OrdersWebSocketGateway,
     private jwtService: JwtService,
+    private couponsService: CouponsService,
   ) {}
 
   /**
@@ -491,6 +494,8 @@ export class StoreService {
                 price: true,
                 active: true,
                 displayOrder: true,
+                stockControlEnabled: true,
+                minStock: true,
               },
             },
           },
@@ -500,7 +505,67 @@ export class StoreService {
       orderBy: [{ featured: 'desc' }, { createdAt: 'desc' }],
     });
 
-    return { products };
+    // Buscar movimentações de estoque para produtos e opções
+    const productIds = products.map((p) => p.id);
+    const allOptionIds: string[] = [];
+    products.forEach((p) => {
+      p.complements.forEach((c) => {
+        c.options.forEach((o) => allOptionIds.push(o.id));
+      });
+    });
+
+    const stockMovements = await prisma.stockMovement.findMany({
+      where: {
+        branchId: branch.id,
+        OR: [
+          { productId: { in: productIds } },
+          { optionId: { in: allOptionIds } },
+        ],
+      },
+      select: {
+        productId: true,
+        optionId: true,
+        variation: true,
+      },
+    });
+
+    // Calcular estoque atual por produto
+    const productStockMap = new Map<string, number>();
+    const optionStockMap = new Map<string, number>();
+
+    stockMovements.forEach((m) => {
+      if (m.productId) {
+        productStockMap.set(
+          m.productId,
+          (productStockMap.get(m.productId) || 0) + m.variation,
+        );
+      }
+      if (m.optionId) {
+        optionStockMap.set(
+          m.optionId,
+          (optionStockMap.get(m.optionId) || 0) + m.variation,
+        );
+      }
+    });
+
+    // Adicionar currentStock aos produtos e opções
+    const productsWithStock = products.map((product) => ({
+      ...product,
+      currentStock: product.stockControlEnabled
+        ? productStockMap.get(product.id) || 0
+        : null,
+      complements: product.complements.map((complement) => ({
+        ...complement,
+        options: complement.options.map((option) => ({
+          ...option,
+          currentStock: option.stockControlEnabled
+            ? optionStockMap.get(option.id) || 0
+            : null,
+        })),
+      })),
+    }));
+
+    return { products: productsWithStock };
   }
 
   /**
@@ -1008,6 +1073,68 @@ async createOrder(
           })
         : [],
     ]);
+
+    // ---------------------------------------------------------------
+    // Validar estoque disponível antes de criar o pedido
+    // ---------------------------------------------------------------
+    const productStockMovements = await prisma.stockMovement.findMany({
+      where: {
+        branchId: branch.id,
+        OR: [
+          { productId: { in: Array.from(productQuantities.keys()) } },
+          { optionId: { in: Array.from(optionQuantities.keys()) } },
+        ],
+      },
+      select: {
+        productId: true,
+        optionId: true,
+        variation: true,
+      },
+    });
+
+    const currentProductStock = new Map<string, number>();
+    const currentOptionStock = new Map<string, number>();
+
+    productStockMovements.forEach((m) => {
+      if (m.productId) {
+        currentProductStock.set(
+          m.productId,
+          (currentProductStock.get(m.productId) || 0) + m.variation,
+        );
+      }
+      if (m.optionId) {
+        currentOptionStock.set(
+          m.optionId,
+          (currentOptionStock.get(m.optionId) || 0) + m.variation,
+        );
+      }
+    });
+
+    // Validar produtos
+    for (const product of stockProducts) {
+      if (!product.stockControlEnabled) continue;
+      const requestedQty = productQuantities.get(product.id) || 0;
+      const availableStock = currentProductStock.get(product.id) || 0;
+      
+      if (availableStock < requestedQty) {
+        throw new BadRequestException(
+          `Produto "${product.name}" sem estoque suficiente. Disponível: ${availableStock}, Solicitado: ${requestedQty}`,
+        );
+      }
+    }
+
+    // Validar opções
+    for (const option of stockOptions) {
+      if (!option.stockControlEnabled) continue;
+      const requestedQty = optionQuantities.get(option.id) || 0;
+      const availableStock = currentOptionStock.get(option.id) || 0;
+      
+      if (availableStock < requestedQty) {
+        throw new BadRequestException(
+          `Opção "${option.name}" sem estoque suficiente. Disponível: ${availableStock}, Solicitado: ${requestedQty}`,
+        );
+      }
+    }
 
     // ---------------------------------------------------------------
     // 15. TRANSAÇÃO — apenas escritas aqui dentro
@@ -2425,72 +2552,22 @@ async createOrder(
   /**
    * Validar cupom de desconto
    */
-  async validateCoupon(
-    code: string,
-    subtotal: number,
-    subdomain?: string,
-    branchId?: string,
-  ) {
+  async validateCoupon(data: ValidateCouponDto & { subdomain?: string; branchId?: string }) {
+    const { code, subtotal = 0, subdomain, branchId, deliveryType, paymentMethodId, productIds, customerId } = data;
+
     const branch = await this.getBranch(subdomain, branchId);
     if (!branch) {
       throw new NotFoundException('Loja não encontrada');
     }
 
-    const coupon = await prisma.coupon.findFirst({
-      where: {
-        code: code.toUpperCase(),
-        branchId: branch.id,
-        active: true,
-        validFrom: { lte: new Date() },
-        validUntil: { gte: new Date() },
-      },
+    return this.couponsService.validateCouponForStore({
+      code,
+      branchId: branch.id,
+      customerId,
+      deliveryType,
+      paymentMethodId,
+      productIds,
+      subtotal,
     });
-
-    if (!coupon) {
-      return {
-        valid: false,
-        message: 'Cupom inválido ou expirado',
-      };
-    }
-
-    // Validar uso do cupom
-    if (coupon.maxUses && coupon.usedCount >= coupon.maxUses) {
-      return {
-        valid: false,
-        message: 'Cupom esgotado',
-      };
-    }
-
-    // Validar valor mínimo - só avisa se o subtotal atual não atingir
-    if (coupon.minValue && subtotal < coupon.minValue) {
-      const valorFaltante = coupon.minValue - subtotal;
-      return {
-        valid: false,
-        message: `Adicione mais ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valorFaltante)} para atingir o pedido mínimo de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(coupon.minValue)}`,
-      };
-    }
-
-    // Calcular desconto
-    let discount = 0;
-    if (coupon.type === 'PERCENTAGE') {
-      discount = Math.round((subtotal * coupon.value) / 100);
-      // Aplicar desconto máximo se houver
-      if (coupon.maxDiscount && discount > coupon.maxDiscount) {
-        discount = coupon.maxDiscount;
-      }
-    } else {
-      discount = coupon.value;
-    }
-
-    return {
-      valid: true,
-      discount,
-      message: `Cupom aplicado com sucesso! Desconto de ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(discount)}`,
-      coupon: {
-        code: coupon.code,
-        type: coupon.type,
-        value: coupon.value,
-      },
-    };
   }
 }
