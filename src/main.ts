@@ -4,7 +4,6 @@ import { ConfigService } from '@nestjs/config';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import { AppModule } from './app.module';
 import * as bodyParser from 'body-parser';
-import * as cookieParser from 'cookie-parser';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -61,9 +60,6 @@ async function bootstrap() {
    * Global prefix (somente HTTP)
    */
   app.setGlobalPrefix('api');
-
-  // Habilitar leitura de cookies (necessário para extrair access_token do cookie)
-  app.use(cookieParser());
 
   /**
    * Validation pipe global
