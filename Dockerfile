@@ -14,7 +14,7 @@ COPY . .
 RUN npm run prisma:generate:prod
 
 # Build NestJS
-RUN npm run build
+RUN npm run build:prod
 
 EXPOSE 3001
 
