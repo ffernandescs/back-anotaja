@@ -6,6 +6,7 @@ import { PassportModule } from '@nestjs/passport';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtCustomerStrategy } from './strategies/jwt.strategy.customer';
 import { GeocodingService } from '../geocoding/geocoding.service';
+import { StoreModule } from '../store/store.module';
 
 @Module({
   imports: [
@@ -26,7 +27,7 @@ import { GeocodingService } from '../geocoding/geocoding.service';
       },
       inject: [ConfigService],
     }),
-    CustomersModule,
+    StoreModule,
   ],
   controllers: [CustomersController],
   providers: [CustomersService, JwtCustomerStrategy, GeocodingService],

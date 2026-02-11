@@ -12,12 +12,14 @@ import { LoginCustomerDto } from './dto/login-customer.dto';
 import { JwtService } from '@nestjs/jwt';
 import { CreateCustomerAddressDto } from './dto/create-customer-address.dto';
 import { GeocodingService } from '../geocoding/geocoding.service';
+import { StoreService } from '../store/store.service';
 
 @Injectable()
 export class CustomersService {
   constructor(
     private jwtService: JwtService,
     private readonly geocodingService: GeocodingService,
+    private readonly storeService: StoreService,
   ) {}
 
   async create(dto: CreateCustomerDto, subdomain?: string) {
@@ -101,6 +103,27 @@ export class CustomersService {
       );
     }
 
+    // Validar cobertura antes de salvar
+    const coverage = await this.storeService.calculateDeliveryFee(
+      {
+        zipCode: cleanZipCode,
+        address: dto.street,
+        city: dto.city,
+        state: dto.state,
+        lat,
+        lng,
+        subtotal: 0,
+      },
+      undefined,
+      customer.branchId,
+    );
+
+    if (!coverage.available) {
+      throw new BadRequestException(
+        coverage.message || 'Endereço fora da área de entrega',
+      );
+    }
+
     return prisma.$transaction(async (tx) => {
       if (dto.isDefault) {
         await tx.customerAddress.updateMany({
@@ -161,6 +184,54 @@ export class CustomersService {
 
     if (!address) {
       throw new NotFoundException('Endereço não encontrado');
+    }
+
+    const cleanZipCode = dto.zipCode.replace(/-/g, '');
+    let lat: number | null = null;
+    let lng: number | null = null;
+    const number = dto.number || '';
+
+    try {
+      const coordinates = await this.geocodingService.getCoordinates(
+        dto.street,
+        number,
+        dto.city,
+        cleanZipCode,
+        dto.state,
+      );
+
+      if (coordinates) {
+        lat = coordinates.lat;
+        lng = coordinates.lng;
+      }
+    } catch (error) {
+      console.warn('Erro ao buscar coordenadas (update):', error);
+    }
+
+    if (lat === null || lng === null) {
+      throw new BadRequestException(
+        'Não foi possível geocodificar o endereço. Verifique CEP e número.',
+      );
+    }
+
+    const coverage = await this.storeService.calculateDeliveryFee(
+      {
+        zipCode: cleanZipCode,
+        address: dto.street,
+        city: dto.city,
+        state: dto.state,
+        lat,
+        lng,
+        subtotal: 0,
+      },
+      undefined,
+      customer.branchId,
+    );
+
+    if (!coverage.available) {
+      throw new BadRequestException(
+        coverage.message || 'Endereço fora da área de entrega',
+      );
     }
 
     return prisma.$transaction(async (tx) => {

@@ -185,6 +185,51 @@ export class StoreService {
       date: item.date ? item.date.toISOString() : null,
     }));
 
+    // ================================
+    // Estoque atual (produtos e opções)
+    // ================================
+    const productIds = categories.flatMap((category) =>
+      category.products.map((product) => product.id),
+    );
+    const allOptionIds = categories.flatMap((category) =>
+      category.products.flatMap((product) =>
+        product.complements.flatMap((complement) => complement.options.map((opt) => opt.id)),
+      ),
+    );
+
+    const stockMovements = await prisma.stockMovement.findMany({
+      where: {
+        branchId: branch.id,
+        OR: [
+          { productId: { in: productIds } },
+          { optionId: { in: allOptionIds } },
+        ],
+      },
+      select: {
+        productId: true,
+        optionId: true,
+        variation: true,
+      },
+    });
+
+    const productStockMap = new Map<string, number>();
+    const optionStockMap = new Map<string, number>();
+
+    stockMovements.forEach((movement) => {
+      if (movement.productId) {
+        productStockMap.set(
+          movement.productId,
+          (productStockMap.get(movement.productId) || 0) + movement.variation,
+        );
+      }
+      if (movement.optionId) {
+        optionStockMap.set(
+          movement.optionId,
+          (optionStockMap.get(movement.optionId) || 0) + movement.variation,
+        );
+      }
+    });
+
     return {
       branch: {
         address: address,
@@ -234,6 +279,9 @@ export class StoreService {
           active: product.active,
           stockControlEnabled: product.stockControlEnabled,
           minStock: product.minStock,
+          currentStock: product.stockControlEnabled
+            ? productStockMap.get(product.id) || 0
+            : null,
           installmentEnabled: product.installmentEnabled,
           maxInstallments: product.maxInstallments,
           minInstallmentValue: product.minInstallmentValue,
@@ -262,6 +310,11 @@ export class StoreService {
               price: option.price,
               active: option.active,
               displayOrder: option.displayOrder,
+              stockControlEnabled: option.stockControlEnabled,
+              minStock: option.minStock,
+              currentStock: option.stockControlEnabled
+                ? optionStockMap.get(option.id) || 0
+                : null,
             })),
           })),
         })),
