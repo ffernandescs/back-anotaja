@@ -10,7 +10,7 @@ export class UpdateTableDto {
   @IsOptional()
   identification?: string;
 
-  @IsEnum(['FECHADA', 'ABERTA', 'RESERVED', 'CLEANING', 'MERGED'])
+  @IsEnum(TableStatus)
   @IsOptional()
   status?: TableStatus;
 

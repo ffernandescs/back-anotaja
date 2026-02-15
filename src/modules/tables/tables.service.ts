@@ -110,16 +110,14 @@ export class TablesService {
           where: {
             status: { in: ['PREPARING', 'PENDING', 'CONFIRMED', 'READY'] },
           },
-          select: {
-            id: true,
-            orderNumber: true,
-            total: true,
-            status: true,
-            _count: {
-              select: {
-                items: true,
-              },
+          include: {
+            items: {
+              include: {
+                product: true
+              }
             },
+            customer: true,
+            
           },
         },
       },
@@ -187,15 +185,17 @@ export class TablesService {
       throw new BadRequestException('Status inválido');
     }
 
+    const { number, identification, status, numberOfPeople, customerId } = data;
+
     return prisma.table.update({
       where: { id: tableId },
       data: {
-        ...data,
+        ...(number !== undefined ? { number } : {}),
+        ...(identification !== undefined ? { identification } : {}),
+        ...(status !== undefined ? { status } : {}),
+        ...(numberOfPeople !== undefined ? { numberofpeople: numberOfPeople } : {}),
+        customerId: customerId ?? null,
         userId,
-        customerId: data.customerId ?? null,
-        numberofpeople: data.numberOfPeople ?? null,
-        identification: data.identification ?? null,
-        status: data.status,
       },
     });
   }
