@@ -66,15 +66,15 @@ export class TablesService {
         },
         orders: {
           where: {
-            status: { in: ['PREPARING', 'PENDING', 'CONFIRMED'] },
+            status: { in: ['PREPARING', 'PENDING', 'CONFIRMED', 'READY'] },
           },
-          select: {
-            id: true,
-            orderNumber: true,
-            total: true,
-            _count: {
-              select: {
-                items: true,
+          include: {
+            customer: {
+              select: { id: true, name: true, phone: true },
+            },
+            items: {
+              include: {
+                product: true,
               },
             },
           },
@@ -89,9 +89,15 @@ export class TablesService {
   /**
    * Busca uma mesa específica por ID
    */
-  async getTableById(id: string) {
+  async getTableById(id: string, userId: string) {
+    const branch = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+    if (!branch) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
     const table = await prisma.table.findUnique({
-      where: { id },
+      where: { id, branchId: branch?.id },
       include: {
         user: {
           select: {

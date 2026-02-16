@@ -72,8 +72,8 @@ export class TablesController {
    */
   @Get(':id')
   @Roles('admin', 'waiter', 'manager')
-  async getTable(@Param('id') id: string) {
-    const table = await this.tablesService.getTableById(id);
+  async getTable(@Param('id') id: string, @Req() req: RequestWithUser,) {
+    const table = await this.tablesService.getTableById(id, req.user.userId);
 
     return {
       success: true,
