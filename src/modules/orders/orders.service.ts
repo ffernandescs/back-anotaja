@@ -57,123 +57,124 @@ export class OrdersService {
       throw new NotFoundException('Um ou mais produtos não foram encontrados');
     }
 
-    // Gerar número sequencial do pedido
-    const lastOrder = await prisma.order.findFirst({
-      where: { branchId },
-      orderBy: { orderNumber: 'desc' },
-    });
+    const order = await prisma.$transaction(async (tx) => {
+      const lastOrder = await tx.order.findFirst({
+        where: { branchId },
+        orderBy: { orderNumber: 'desc' },
+        select: { orderNumber: true },
+      });
 
-    const orderNumber = lastOrder?.orderNumber ? lastOrder.orderNumber + 1 : 1;
+      const orderNumber = lastOrder?.orderNumber ? lastOrder.orderNumber + 1 : 1;
 
-    // Criar o pedido com os itens
-    const order = await prisma.order.create({
-      data: {
-        orderNumber,
-        status: createOrderDto.status || OrderStatusDto.PENDING,
-        deliveryType: createOrderDto.deliveryType,
-        paymentStatus: 'PENDING',
+      const created = await tx.order.create({
+        data: {
+          orderNumber,
+          status: createOrderDto.status || OrderStatusDto.PENDING,
+          deliveryType: createOrderDto.deliveryType,
+          paymentStatus: 'PENDING',
 
-        // 💰 Arredondando sempre
-        paidAmount: money(0),
-        total: money(createOrderDto.total),
-        subtotal: money(createOrderDto.subtotal),
-        deliveryFee: money(createOrderDto.deliveryFee || 0),
-        serviceFee: money(createOrderDto.serviceFee || 0),
-        discount: money(createOrderDto.discount || 0),
+          // 💰 Arredondando sempre
+          paidAmount: money(0),
+          total: money(createOrderDto.total),
+          subtotal: money(createOrderDto.subtotal),
+          deliveryFee: money(createOrderDto.deliveryFee || 0),
+          serviceFee: money(createOrderDto.serviceFee || 0),
+          discount: money(createOrderDto.discount || 0),
 
-        notes: createOrderDto.notes || null,
-        customerId: createOrderDto.customerId || null,
-        branchId,
-        userId: userId,
-        couponId: createOrderDto.couponId || null,
-        tableNumber: createOrderDto.tableNumber || null,
-        tableId: createOrderDto.tableId || null,
+          notes: createOrderDto.notes || null,
+          customerId: createOrderDto.customerId || null,
+          branchId,
+          userId: userId,
+          couponId: createOrderDto.couponId || null,
+          tableNumber: createOrderDto.tableNumber || null,
+          tableId: createOrderDto.tableId || null,
 
-        items: {
-          create: createOrderDto.items.map((item) => ({
-            productId: item.productId,
-            quantity: item.quantity,
-            price: money(item.price), // <--- arredondando o price do item
-            notes: item.notes || null,
-            preparationStatus: 'PENDING',
-            dispatchStatus: 'PENDING',
-            additions: item.additions
-              ? {
-                  create: item.additions.map((addition) => ({
-                    additionId: addition.additionId,
-                  })),
-                }
-              : undefined,
-            complements: item.complements
-              ? {
-                  create: item.complements.map((complement) => ({
-                    complementId: complement.complementId,
-                    options: complement.options
-                      ? {
-                          create: complement.options.map((option) => ({
-                            optionId: option.optionId,
-                          })),
-                        }
-                      : undefined,
-                  })),
-                }
-              : undefined,
-          })),
-        },
-      },
-      include: {
-        branch: {
-          select: {
-            id: true,
-            branchName: true,
-            address: true,
+          items: {
+            create: createOrderDto.items.map((item) => ({
+              productId: item.productId,
+              quantity: item.quantity,
+              price: money(item.price), // <--- arredondando o price do item
+              notes: item.notes || null,
+              preparationStatus: 'PENDING',
+              dispatchStatus: 'PENDING',
+              additions: item.additions
+                ? {
+                    create: item.additions.map((addition) => ({
+                      additionId: addition.additionId,
+                    })),
+                  }
+                : undefined,
+              complements: item.complements
+                ? {
+                    create: item.complements.map((complement) => ({
+                      complementId: complement.complementId,
+                      options: complement.options
+                        ? {
+                            create: complement.options.map((option) => ({
+                              optionId: option.optionId,
+                            })),
+                          }
+                        : undefined,
+                    })),
+                  }
+                : undefined,
+            })),
           },
         },
-        customer: true,
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            phone: true,
-          },
-        },
-        items: {
-          include: {
-            product: {
-              select: {
-                id: true,
-                name: true,
-                price: true,
-                image: true,
-              },
+        include: {
+          branch: {
+            select: {
+              id: true,
+              branchName: true,
+              address: true,
             },
-            additions: {
-              include: {
-                addition: {
-                  select: {
-                    id: true,
-                    name: true,
-                    price: true,
+          },
+          customer: true,
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              phone: true,
+            },
+          },
+          items: {
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                  price: true,
+                  image: true,
+                },
+              },
+              additions: {
+                include: {
+                  addition: {
+                    select: {
+                      id: true,
+                      name: true,
+                      price: true,
+                    },
                   },
                 },
               },
-            },
-            complements: {
-              include: {
-                complement: {
-                  select: {
-                    id: true,
-                    name: true,
+              complements: {
+                include: {
+                  complement: {
+                    select: {
+                      id: true,
+                      name: true,
+                    },
                   },
-                },
-                options: {
-                  include: {
-                    option: {
-                      select: {
-                        id: true,
-                        name: true,
-                        price: true,
+                  options: {
+                    include: {
+                      option: {
+                        select: {
+                          id: true,
+                          name: true,
+                          price: true,
+                        },
                       },
                     },
                   },
@@ -181,31 +182,33 @@ export class OrdersService {
               },
             },
           },
-        },
-        coupon: {
-          select: {
-            id: true,
-            code: true,
-            type: true,
-            value: true,
+          coupon: {
+            select: {
+              id: true,
+              code: true,
+              type: true,
+              value: true,
+            },
+          },
+          deliveryPerson: {
+            select: {
+              id: true,
+              name: true,
+              phone: true,
+            },
           },
         },
-        deliveryPerson: {
-          select: {
-            id: true,
-            name: true,
-            phone: true,
-          },
-        },
-      },
-    });
-
-    if (order.tableId) {
-      await prisma.table.update({
-        where: { id: order.tableId },
-        data: { status: 'OPEN' },
       });
-    }
+
+      if (created.tableId) {
+        await tx.table.update({
+          where: { id: created.tableId },
+          data: { status: 'OPEN' },
+        });
+      }
+
+      return created;
+    });
 
     // Emitir evento de criação via WebSocket com payload completo
     const fullCreatedOrder = await this.findOne(order.id, userId);

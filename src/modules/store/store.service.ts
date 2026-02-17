@@ -1189,146 +1189,262 @@ async createOrder(
       }
     }
 
-    // ---------------------------------------------------------------
-    // 15. TRANSAÇÃO — apenas escritas aqui dentro
-    //     timeout elevado para 15 s como safety-net
-    // ---------------------------------------------------------------
-    const order = await prisma.$transaction(
-      async (tx) => {
-        // --- orderNumber atômico ---
-        const lastOrder = await tx.order.findFirst({
-          where: { branchId: branch.id },
-          orderBy: { orderNumber: 'desc' },
-          select: { orderNumber: true }, // select mínimo = mais rápido
-        });
-        const orderNumber = (lastOrder?.orderNumber || 0) + 1;
+const ingredientQuantities = new Map<string, number>();
+for (const pi of productIngredients) {
+  const productQty = productQuantities.get(pi.productId) || 0;
+  ingredientQuantities.set(
+    pi.ingredientId,
+    (ingredientQuantities.get(pi.ingredientId) || 0) +
+      pi.quantity * productQty,
+  );
+}
 
-        // --- criar pedido (sem include pesado) ---
-        const createdOrder = await tx.order.create({
-          data: {
-            orderNumber,
-            branchId: branch.id,
-            customerId: customer.id,
-            status: 'PENDING',
-            deliveryType: deliveryType as any,
-            subtotal,
-            deliveryFee,
-            serviceFee,
-            discount,
-            total,
-            estimatedTime,
-            couponId,
-            customerAddressId: addressId,
-            items: {
-              create: itemsData.map((item) => ({
-                productId: item.productId,
-                quantity: item.quantity,
-                price: item.price,
-                notes: item.notes,
-                complements: item.complements?.length
-                  ? {
-                      create: item.complements.map((comp) => ({
-                        complementId: comp.complementId,
-                        options: {
-                          create: comp.options.map((opt) => ({
-                            optionId: opt.optionId,
-                            quantity: opt.quantity || 1,
-                          })),
-                        },
-                      })),
-                    }
-                  : undefined,
-              })),
-            },
-            payments: {
-              create: payments.map((p) => ({
-                type: p.type,
-                amount: total,
-                paymentMethodId: p.paymentMethodId,
-                change: p.type === PaymentTypeDto.CASH ? change || 0 : 0,
-                status: 'PENDING',
-              })),
-            },
-          },
-        });
+// BuscarProducts / Options / Ingredients para filtrar stockControlEnabled
+const [stockProducts, stockOptions, stockIngredients] = await Promise.all([
+  productQuantities.size
+    ? prisma.product.findMany({
+        where: { id: { in: Array.from(productQuantities.keys()) } },
+        select: { id: true, name: true, stockControlEnabled: true },
+      })
+    : [],
+  optionQuantities.size
+    ? prisma.complementOption.findMany({
+        where: { id: { in: Array.from(optionQuantities.keys()) } },
+        select: { id: true, name: true, stockControlEnabled: true },
+      })
+    : [],
+  ingredientQuantities.size
+    ? prisma.ingredient.findMany({
+        where: { id: { in: Array.from(ingredientQuantities.keys()) } },
+        select: { id: true, name: true, stockControlEnabled: true },
+      })
+    : [],
+]);
 
-        // --- atualizar cupom (se houver) ---
-        if (couponId) {
-          await tx.coupon.update({
-            where: { id: couponId },
-            data: { usedCount: { increment: 1 } },
-          });
-        }
+// ---------------------------------------------------------------
+// Validar estoque disponível antes de criar o pedido
+// ---------------------------------------------------------------
+const productStockMovements = await prisma.stockMovement.findMany({
+  where: {
+    branchId: branch.id,
+    OR: [
+      { productId: { in: Array.from(productQuantities.keys()) } },
+      { optionId: { in: Array.from(optionQuantities.keys()) } },
+    ],
+  },
+  select: {
+    productId: true,
+    optionId: true,
+    variation: true,
+  },
+});
 
-        // --- stock movements na mesma transação ---
-        const movements: Prisma.PrismaPromise<StockMovement>[] = [];
+const currentProductStock = new Map<string, number>();
+const currentOptionStock = new Map<string, number>();
 
-        for (const product of stockProducts) {
-          if (!product.stockControlEnabled) continue;
-          const qty = productQuantities.get(product.id) || 0;
-          if (qty <= 0) continue;
-
-          movements.push(
-            tx.stockMovement.create({
-              data: {
-                type: 'EXIT',
-                quantity: qty,
-                variation: -qty,
-                description: `Venda de produto - Pedido #${orderNumber} - ${product.name}`,
-                productId: product.id,
-                branchId: branch.id,
-              },
-            }),
-          );
-        }
-
-        for (const option of stockOptions) {
-          if (!option.stockControlEnabled) continue;
-          const qty = optionQuantities.get(option.id) || 0;
-          if (qty <= 0) continue;
-
-          movements.push(
-            tx.stockMovement.create({
-              data: {
-                type: 'EXIT',
-                quantity: qty,
-                variation: -qty,
-                description: `Consumo de opção de complemento - Pedido #${orderNumber} - ${option.name}`,
-                optionId: option.id,
-                branchId: branch.id,
-              },
-            }),
-          );
-        }
-
-        for (const ingredient of stockIngredients) {
-          if (!ingredient.stockControlEnabled) continue;
-          const qty = ingredientQuantities.get(ingredient.id) || 0;
-          if (qty <= 0) continue;
-
-          movements.push(
-            tx.stockMovement.create({
-              data: {
-                type: 'EXIT',
-                quantity: qty,
-                variation: -qty,
-                description: `Consumo de insumo (ficha técnica) - Pedido #${orderNumber} - ${ingredient.name}`,
-                ingredientId: ingredient.id,
-                branchId: branch.id,
-              },
-            }),
-          );
-        }
-
-        // executa todos os movements em paralelo dentro da mesma tx
-        if (movements.length > 0) {
-          await Promise.all(movements);
-        }
-
-        return createdOrder;
-      },
-      { timeout: 15000 }, // 15 s — safety-net
+productStockMovements.forEach((m) => {
+  if (m.productId) {
+    currentProductStock.set(
+      m.productId,
+      (currentProductStock.get(m.productId) || 0) + m.variation,
     );
+  }
+  if (m.optionId) {
+    currentOptionStock.set(
+      m.optionId,
+      (currentOptionStock.get(m.optionId) || 0) + m.variation,
+    );
+  }
+});
+
+// Validar produtos
+for (const product of stockProducts) {
+  if (!product.stockControlEnabled) continue;
+  const requestedQty = productQuantities.get(product.id) || 0;
+  const availableStock = currentProductStock.get(product.id) || 0;
+  
+  if (availableStock < requestedQty) {
+    throw new BadRequestException(
+      `Produto "${product.name}" sem estoque suficiente. Disponível: ${availableStock}, Solicitado: ${requestedQty}`,
+    );
+  }
+}
+
+// Validar opções
+for (const option of stockOptions) {
+  if (!option.stockControlEnabled) continue;
+  const requestedQty = optionQuantities.get(option.id) || 0;
+  const availableStock = currentOptionStock.get(option.id) || 0;
+  
+  if (availableStock < requestedQty) {
+    throw new BadRequestException(
+      `Opção "${option.name}" sem estoque suficiente. Disponível: ${availableStock}, Solicitado: ${requestedQty}`,
+    );
+  }
+}
+
+// ---------------------------------------------------------------
+// 15. TRANSAÇÃO — apenas escritas aqui dentro
+//     timeout elevado para 15 s como safety-net
+// ---------------------------------------------------------------
+    // Retry para colisão de orderNumber em alta concorrência
+    let order: any = null;
+    const maxRetries = 3;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        order = await prisma.$transaction(
+          async (tx) => {
+            // --- orderNumber atômico ---
+            const lastOrder = await tx.order.findFirst({
+              where: { branchId: branch.id },
+              orderBy: { orderNumber: 'desc' },
+              select: { orderNumber: true },
+            });
+            const orderNumber = (lastOrder?.orderNumber || 0) + 1;
+
+            // --- criar pedido (sem include pesado) ---
+            const createdOrder = await tx.order.create({
+              data: {
+                orderNumber,
+                branchId: branch.id,
+                customerId: customer.id,
+                status: 'PENDING',
+                deliveryType: deliveryType as any,
+                subtotal,
+                deliveryFee,
+                serviceFee,
+                discount,
+                total,
+                estimatedTime,
+                couponId,
+                customerAddressId: addressId,
+                items: {
+                  create: itemsData.map((item) => ({
+                    productId: item.productId,
+                    quantity: item.quantity,
+                    price: item.price,
+                    notes: item.notes,
+                    complements: item.complements?.length
+                      ? {
+                          create: item.complements.map((comp) => ({
+                            complementId: comp.complementId,
+                            options: {
+                              create: comp.options.map((opt) => ({
+                                optionId: opt.optionId,
+                                quantity: opt.quantity || 1,
+                              })),
+                            },
+                          })),
+                        }
+                      : undefined,
+                  })),
+                },
+                payments: {
+                  create: payments.map((p) => ({
+                    type: p.type,
+                    amount: total,
+                    paymentMethodId: p.paymentMethodId,
+                    change: p.type === PaymentTypeDto.CASH ? change || 0 : 0,
+                    status: 'PENDING',
+                  })),
+                },
+              },
+            });
+
+            // --- atualizar cupom (se houver) ---
+            if (couponId) {
+              await tx.coupon.update({
+                where: { id: couponId },
+                data: { usedCount: { increment: 1 } },
+              });
+            }
+
+            // --- stock movements na mesma transação ---
+            const movements: Prisma.PrismaPromise<StockMovement>[] = [];
+
+            for (const product of stockProducts) {
+              if (!product.stockControlEnabled) continue;
+              const qty = productQuantities.get(product.id) || 0;
+              if (qty <= 0) continue;
+
+              movements.push(
+                tx.stockMovement.create({
+                  data: {
+                    type: 'EXIT',
+                    quantity: qty,
+                    variation: -qty,
+                    description: `Venda de produto - Pedido #${orderNumber} - ${product.name}`,
+                    productId: product.id,
+                    branchId: branch.id,
+                  },
+                }),
+              );
+            }
+
+            for (const option of stockOptions) {
+              if (!option.stockControlEnabled) continue;
+              const qty = optionQuantities.get(option.id) || 0;
+              if (qty <= 0) continue;
+
+              movements.push(
+                tx.stockMovement.create({
+                  data: {
+                    type: 'EXIT',
+                    quantity: qty,
+                    variation: -qty,
+                    description: `Consumo de opção de complemento - Pedido #${orderNumber} - ${option.name}`,
+                    optionId: option.id,
+                    branchId: branch.id,
+                  },
+                }),
+              );
+            }
+
+            for (const ingredient of stockIngredients) {
+              if (!ingredient.stockControlEnabled) continue;
+              const qty = ingredientQuantities.get(ingredient.id) || 0;
+              if (qty <= 0) continue;
+
+              movements.push(
+                tx.stockMovement.create({
+                  data: {
+                    type: 'EXIT',
+                    quantity: qty,
+                    variation: -qty,
+                    description: `Consumo de insumo (ficha técnica) - Pedido #${orderNumber} - ${ingredient.name}`,
+                    ingredientId: ingredient.id,
+                    branchId: branch.id,
+                  },
+                }),
+              );
+            }
+
+            if (movements.length > 0) {
+              await Promise.all(movements);
+            }
+
+            return createdOrder;
+          },
+          { timeout: 15000 },
+        );
+
+        if (order) break;
+      } catch (error: any) {
+        const isUniqueOrderNumber =
+          error?.code === 'P2002' &&
+          Array.isArray(error?.meta?.target) &&
+          error.meta.target.includes('orderNumber') &&
+          error.meta.target.some((t: string) => t.toLowerCase().includes('branch'));
+        if (isUniqueOrderNumber && attempt < maxRetries - 1) {
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    if (!order) {
+      throw new InternalServerErrorException('Não foi possível criar o pedido');
+    }
 
     // ---------------------------------------------------------------
     // 16. Buscar order completo FORA da transação (include pesado aqui)
@@ -1354,10 +1470,8 @@ async createOrder(
       },
     });
 
-    if(!fullOrder) {
-        throw new BadRequestException(
-        'Ao menos uma forma de pagamento é obrigatória',
-      );
+    if (!fullOrder) {
+      throw new BadRequestException('Pedido não encontrado após criação');
     }
 
     // ---------------------------------------------------------------
