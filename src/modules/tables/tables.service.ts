@@ -88,6 +88,9 @@ export class TablesService {
                 product: true,
               },
             },
+            payments: true,
+            billSplit:true,
+            billSplitPersons:true
           },
         },
       },
