@@ -1189,104 +1189,10 @@ async createOrder(
       }
     }
 
-const ingredientQuantities = new Map<string, number>();
-for (const pi of productIngredients) {
-  const productQty = productQuantities.get(pi.productId) || 0;
-  ingredientQuantities.set(
-    pi.ingredientId,
-    (ingredientQuantities.get(pi.ingredientId) || 0) +
-      pi.quantity * productQty,
-  );
-}
-
-// BuscarProducts / Options / Ingredients para filtrar stockControlEnabled
-const [stockProducts, stockOptions, stockIngredients] = await Promise.all([
-  productQuantities.size
-    ? prisma.product.findMany({
-        where: { id: { in: Array.from(productQuantities.keys()) } },
-        select: { id: true, name: true, stockControlEnabled: true },
-      })
-    : [],
-  optionQuantities.size
-    ? prisma.complementOption.findMany({
-        where: { id: { in: Array.from(optionQuantities.keys()) } },
-        select: { id: true, name: true, stockControlEnabled: true },
-      })
-    : [],
-  ingredientQuantities.size
-    ? prisma.ingredient.findMany({
-        where: { id: { in: Array.from(ingredientQuantities.keys()) } },
-        select: { id: true, name: true, stockControlEnabled: true },
-      })
-    : [],
-]);
-
-// ---------------------------------------------------------------
-// Validar estoque disponível antes de criar o pedido
-// ---------------------------------------------------------------
-const productStockMovements = await prisma.stockMovement.findMany({
-  where: {
-    branchId: branch.id,
-    OR: [
-      { productId: { in: Array.from(productQuantities.keys()) } },
-      { optionId: { in: Array.from(optionQuantities.keys()) } },
-    ],
-  },
-  select: {
-    productId: true,
-    optionId: true,
-    variation: true,
-  },
-});
-
-const currentProductStock = new Map<string, number>();
-const currentOptionStock = new Map<string, number>();
-
-productStockMovements.forEach((m) => {
-  if (m.productId) {
-    currentProductStock.set(
-      m.productId,
-      (currentProductStock.get(m.productId) || 0) + m.variation,
-    );
-  }
-  if (m.optionId) {
-    currentOptionStock.set(
-      m.optionId,
-      (currentOptionStock.get(m.optionId) || 0) + m.variation,
-    );
-  }
-});
-
-// Validar produtos
-for (const product of stockProducts) {
-  if (!product.stockControlEnabled) continue;
-  const requestedQty = productQuantities.get(product.id) || 0;
-  const availableStock = currentProductStock.get(product.id) || 0;
-  
-  if (availableStock < requestedQty) {
-    throw new BadRequestException(
-      `Produto "${product.name}" sem estoque suficiente. Disponível: ${availableStock}, Solicitado: ${requestedQty}`,
-    );
-  }
-}
-
-// Validar opções
-for (const option of stockOptions) {
-  if (!option.stockControlEnabled) continue;
-  const requestedQty = optionQuantities.get(option.id) || 0;
-  const availableStock = currentOptionStock.get(option.id) || 0;
-  
-  if (availableStock < requestedQty) {
-    throw new BadRequestException(
-      `Opção "${option.name}" sem estoque suficiente. Disponível: ${availableStock}, Solicitado: ${requestedQty}`,
-    );
-  }
-}
-
-// ---------------------------------------------------------------
-// 15. TRANSAÇÃO — apenas escritas aqui dentro
-//     timeout elevado para 15 s como safety-net
-// ---------------------------------------------------------------
+    // ---------------------------------------------------------------
+    // 15. TRANSAÇÃO — apenas escritas aqui dentro
+    //     timeout elevado para 15 s como safety-net
+    // ---------------------------------------------------------------
     // Retry para colisão de orderNumber em alta concorrência
     let order: any = null;
     const maxRetries = 3;
