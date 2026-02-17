@@ -49,13 +49,13 @@ export class TablesController {
   @Get()
   @Roles('admin', 'waiter', 'manager')
   async getTables(
-    @Query('branchId') branchId: string,
+    @Req() req: RequestWithUser,
     @Query('includeMerged') includeMerged?: string,
     @Query('status') status?: TableStatus,
   ) {
     const include = includeMerged === 'true';
     const tables = await this.tablesService.getTables(
-      branchId,
+      req.user.userId,
       include,
       status,
     );

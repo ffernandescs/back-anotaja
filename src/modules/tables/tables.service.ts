@@ -29,10 +29,21 @@ export class TablesService {
    * Busca todas as mesas de uma filial
    */
   async getTables(
-    branchId: string,
+    userId: string,
     includeMerged: boolean = false,
     status?: TableStatus,
   ) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+    const branchId = user.branchId;
+
+    if(!branchId){
+      throw new NotFoundException('Filial não encontrada');
+    }
     const whereCondition: Prisma.TableWhereInput = { branchId };
 
     if (!includeMerged) {
