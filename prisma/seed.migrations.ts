@@ -53,25 +53,25 @@ async function migrateRoles() {
       data: [
         // ADMIN
         {
-          action: 'MANAGE',
-          subject: 'ALL', // ✅ corrigido
+          action: 'manage',
+          subject: 'all', // ✅ corrigido
           groupId: adminGroup.id,
         },
 
         // OPERADOR
         {
-          action: 'MANAGE',
-          subject: 'ORDER',
+          action: 'manage',
+          subject: 'order',
           groupId: operatorGroup.id,
         },
         {
-          action: 'READ',
-          subject: 'PRODUCT',
+          action: 'read',
+          subject: 'product',
           groupId: operatorGroup.id,
         },
         {
-          action: 'READ',
-          subject: 'CUSTOMER',
+          action: 'read',
+          subject: 'customer',
           groupId: operatorGroup.id,
         },
       ],
@@ -103,8 +103,8 @@ async function migrateRoles() {
       if (!isAdmin) {
         await prisma.permission.create({
           data: {
-            action: 'UPDATE',
-            subject: 'ORDER',
+            action: 'update',
+            subject: 'order',
             userId: user.id,
           },
         });
@@ -114,8 +114,8 @@ async function migrateRoles() {
       if (user.email?.includes('bloqueado')) {
         await prisma.permission.create({
           data: {
-            action: 'DELETE',
-            subject: 'ORDER',
+            action: 'delete',
+            subject: 'order',
             inverted: true, // ❌ nega
             userId: user.id,
           },
