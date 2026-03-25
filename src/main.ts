@@ -84,7 +84,7 @@ async function bootstrap() {
     }),
   );
 
-  await app.listen(port);
+await app.listen(port, '0.0.0.0'); // <-- importante
 
   console.log(`🚀 Application running on port ${port} (prefix: /api)`);
 }
