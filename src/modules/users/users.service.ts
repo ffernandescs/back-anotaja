@@ -11,13 +11,36 @@ import { prisma } from '../../../lib/prisma';
 import { Prisma, User } from '@prisma/client';
 import { PlanType } from '../../ability/types/ability.types';
 import { PLAN_LIMITS } from '../../ability/factory/plan-rules';
+
+
 @Injectable()
 export class UsersService {
-  async create(createUserDto: CreateUserDto) {
+  async create(createUserDto: CreateUserDto, userId?:string) {
+
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { branch: true, company: true },
+    });
+
+    console.log(user,'user')
+
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    if (!user.companyId) {
+      throw new ForbiddenException('Usuário não está associado a uma empresa');
+    }
+
+    
+    if (!user.branchId) {
+      throw new ForbiddenException('Usuário não está associado a uma filial');
+    }
     // 1. Validar Limite de Usuários (se companyId estiver presente)
     if (createUserDto.companyId) {
       const company = await prisma.company.findUnique({
-        where: { id: createUserDto.companyId },
+        where: { id: user.companyId },
         include: {
           subscription: {
             include: { plan: true }
@@ -69,11 +92,11 @@ export class UsersService {
       group: createUserDto.groupId
         ? { connect: { id: createUserDto.groupId } }
         : undefined,
-      company: createUserDto.companyId
-        ? { connect: { id: createUserDto.companyId } }
+      company: user.companyId
+        ? { connect: { id: user.companyId } }
         : undefined,
-      branch: createUserDto.branchId
-        ? { connect: { id: createUserDto.branchId } }
+      branch: user.branchId
+        ? { connect: { id: user.branchId } }
         : undefined,
       active: createUserDto.active ?? true,
       password: createUserDto.password

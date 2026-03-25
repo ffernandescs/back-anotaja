@@ -24,7 +24,7 @@ import {
   PlanType,
   Subject,
 } from '../types/ability.types';
-import { applyPlanRules } from './plan-rules';
+import { applyPlanRules, PLAN_FEATURES, ADDON_FEATURES } from './plan-rules';
 
 @Injectable()
 export class AbilityFactory {
@@ -65,27 +65,49 @@ export class AbilityFactory {
     // (Plano -> Grupo -> Overrides) como se estivesse ativo.
 
     // ── CAMADA 1: Plano do tenant ─────────────────────────────
+    // Define o teto máximo de features disponíveis para o tenant
+    // Esta é a base sobre a qual todas as outras camadas serão construídas
     applyPlanRules(
       can as (action: Action | Action[], subject: Subject | Subject[]) => void,
       ctx.tenant.plan,
       ctx.tenant.addons,
     );
 
-    // ── CAMADA 2: Grupo do usuário ────────────────────────────
+    // ── CAMADA 2: Grupos por filial (Branch) ────────────────────
+    // Admin configura grupos dentro do que o plano permite
+    // Os grupos herdam as permissões permitidas pelo plano
     if (ctx.user.group?.permissions?.length) {
+      // Filtrar permissões do grupo para incluir apenas as permitidas pelo plano
+      const filteredGroupPermissions = this.filterPermissionsByPlan(
+        ctx.user.group.permissions,
+        ctx.tenant.plan,
+        ctx.tenant.addons
+      );
+      
       this.applyRules(
         can as (action: Action, subject: Subject) => void,
         cannot as (action: Action, subject: Subject) => void,
-        ctx.user.group.permissions,
+        filteredGroupPermissions,
       );
     }
 
-    // ── CAMADA 3: Overrides do usuário ────────────────────────
+    // ── CAMADA 3: Overrides por usuário ────────────────────────
+    // Permissões individuais que somam (+) ou removem (−) do grupo
+    // João (Vendedor): + ver relatórios
+    // Maria (Gerente): - criar cupons
     if (ctx.user.permissions?.length) {
+      // Overrides podem adicionar ou remover permissões do grupo
+      // Mas ainda devem respeitar o teto do plano
+      const filteredUserOverrides = this.filterPermissionsByPlan(
+        ctx.user.permissions,
+        ctx.tenant.plan,
+        ctx.tenant.addons
+      );
+      
       this.applyRules(
         can as (action: Action, subject: Subject) => void,
         cannot as (action: Action, subject: Subject) => void,
-        ctx.user.permissions,
+        filteredUserOverrides,
       );
     }
 
@@ -153,5 +175,53 @@ export class AbilityFactory {
         can(action, subject);
       }
     }
+  }
+
+  private filterPermissionsByPlan(
+    permissions: PermissionRule[],
+    plan: PlanType,
+    addons: AddonType[]
+  ): PermissionRule[] {
+    // Obter as permissões permitidas pelo plano + add-ons
+    const planPermissions = this.getPlanPermissions(plan, addons);
+    
+    // Filtrar para incluir apenas permissões que estão no plano
+    return permissions.filter(permission => {
+      // Se for ALL, só permitir se o plano tiver ALL
+      if (permission.subject === Subject.ALL) {
+        return planPermissions.some(p => p.subject === Subject.ALL);
+      }
+      
+      // Verificar se a permissão específica está no plano
+      return planPermissions.some(p => 
+        p.action === permission.action && p.subject === permission.subject
+      );
+    });
+  }
+
+  private getPlanPermissions(plan: PlanType, addons: AddonType[]): PermissionRule[] {
+    const permissions: PermissionRule[] = [];
+    
+    // Adicionar permissões do plano
+    const planFeatures = PLAN_FEATURES[plan] || [];
+    for (const [action, subject] of planFeatures) {
+      if (Array.isArray(subject)) {
+        for (const s of subject) {
+          permissions.push({ action, subject: s, inverted: false });
+        }
+      } else {
+        permissions.push({ action, subject, inverted: false });
+      }
+    }
+    
+    // Adicionar permissões dos add-ons
+    for (const addon of addons) {
+      const addonFeatures = ADDON_FEATURES[addon] || [];
+      for (const [action, subject] of addonFeatures) {
+        permissions.push({ action, subject, inverted: false });
+      }
+    }
+    
+    return permissions;
   }
 }

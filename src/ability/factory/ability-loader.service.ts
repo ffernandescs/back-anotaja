@@ -33,7 +33,7 @@ export class AbilityLoaderService {
     return this.abilityFactory.createForUser(ctx);
   }
 
-  private async buildContext(
+  async buildContext(
     userId: string,
     companyId: string,
   ): Promise<AbilityContext> {
@@ -124,5 +124,49 @@ export class AbilityLoaderService {
         addons: activeAddons,
       },
     };
+  }
+
+  async filterPermissionsByPlan(
+    permissions: any[],
+    plan: PlanType,
+    addons: AddonType[]
+  ): Promise<any[]> {
+    // Importar PLAN_FEATURES e ADDON_FEATURES do plan-rules
+    const { PLAN_FEATURES, ADDON_FEATURES } = await import('./plan-rules');
+    
+    const planPermissions: any[] = [];
+    
+    // Adicionar permissões do plano
+    const planFeatures = PLAN_FEATURES[plan] || [];
+    for (const [action, subject] of planFeatures) {
+      if (Array.isArray(subject)) {
+        for (const s of subject) {
+          planPermissions.push({ action, subject: s, inverted: false });
+        }
+      } else {
+        planPermissions.push({ action, subject, inverted: false });
+      }
+    }
+    
+    // Adicionar permissões dos add-ons
+    for (const addon of addons) {
+      const addonFeatures = ADDON_FEATURES[addon] || [];
+      for (const [action, subject] of addonFeatures) {
+        planPermissions.push({ action, subject, inverted: false });
+      }
+    }
+    
+    // Filtrar para incluir apenas permissões que estão no plano
+    return permissions.filter(permission => {
+      // Se for ALL, só permitir se o plano tiver ALL
+      if (permission.subject === Subject.ALL) {
+        return planPermissions.some(p => p.subject === Subject.ALL);
+      }
+      
+      // Verificar se a permissão específica está no plano
+      return planPermissions.some(p => 
+        p.action === permission.action && p.subject === permission.subject
+      );
+    });
   }
 }

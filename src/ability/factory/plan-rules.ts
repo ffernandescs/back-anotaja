@@ -8,10 +8,19 @@
 import { Action, AddonType, DefinePermission, PlanLimits, PlanType, Subject } from '../types/ability.types';
 
 // Features base por plano (sem add-ons)
-const PLAN_FEATURES: Record<PlanType, Array<[Action, Subject | Subject[]]>> = {
-  // Trial: acesso total (controlado por expiração, não por features)
+export const PLAN_FEATURES: Record<PlanType, Array<[Action, Subject | Subject[]]>> = {
+  // Trial: acesso básico para teste (controlado por expiração e grupo)
   [PlanType.TRIAL]: [
-    [Action.MANAGE, Subject.ALL],
+    [Action.MANAGE, Subject.ORDER],
+    [Action.MANAGE, Subject.PRODUCT],
+    [Action.MANAGE, Subject.CATEGORY],
+    [Action.READ,   Subject.CUSTOMER],
+    [Action.READ,   Subject.REPORT],
+    [Action.MANAGE, Subject.GROUP],
+    [Action.MANAGE, Subject.USER],
+    [Action.READ,   Subject.SUBSCRIPTION],
+    [Action.MANAGE, Subject.PAYMENT_METHOD],
+    [Action.MANAGE, Subject.DELIVERY_AREA],
   ],
 
   // Basic: operação do dia a dia
@@ -36,6 +45,7 @@ const PLAN_FEATURES: Record<PlanType, Array<[Action, Subject | Subject[]]>> = {
     [Action.MANAGE, Subject.CUSTOMER],        // gestão completa de clientes
     [Action.MANAGE, Subject.CASH_REGISTER],
     [Action.MANAGE, Subject.REPORT],          // relatórios completos + exportação
+    [Action.MANAGE, Subject.COUPON],          // relatórios completos + exportação
     [Action.MANAGE, Subject.STOCK],
     [Action.MANAGE, Subject.GROUP],
     [Action.MANAGE, Subject.USER],
@@ -85,7 +95,7 @@ export const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
 };
 
 // Add-ons desbloqueiam subjects específicos independente do plano
-const ADDON_FEATURES: Record<AddonType, Array<[Action, Subject]>> = {
+export const ADDON_FEATURES: Record<AddonType, Array<[Action, Subject]>> = {
   [AddonType.FISCAL_NOTE]:      [[Action.MANAGE, Subject.ORDER]],   // já incluso, mas addon habilita emissão NF
   [AddonType.ADVANCED_REPORTS]: [[Action.MANAGE, Subject.REPORT]],
   [AddonType.MULTI_BRANCH]:     [[Action.MANAGE, Subject.BRANCH]],

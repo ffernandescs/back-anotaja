@@ -317,7 +317,9 @@ export class AuthService {
         },
         permissions: true,
         group: {
-          select: { id: true, name: true },
+          include: {
+            permissions:true
+          },
         },
       },
     });
@@ -390,7 +392,36 @@ export class AuthService {
         user.id,
         user.companyId,
       );
-      permissions = (ability as any).rules;
+      
+      // Retornar apenas as permissões do grupo e overrides do usuário
+      // (não todas as regras da ability que inclui o plano)
+      const effectivePermissions: any[] = [];
+      
+      // Adicionar permissões do grupo (filtradas pelo plano)
+      if (user.group?.permissions?.length) {
+        const ctx = await this.abilityLoaderService.buildContext(user.id, user.companyId);
+        const filteredGroupPermissions = await this.abilityLoaderService.filterPermissionsByPlan(
+          user.group.permissions,
+          ctx.tenant.plan,
+          ctx.tenant.addons
+        );
+        
+        effectivePermissions.push(...filteredGroupPermissions);
+      }
+      
+      // Adicionar overrides do usuário (filtrados pelo plano)
+      if (user.permissions?.length) {
+        const ctx = await this.abilityLoaderService.buildContext(user.id, user.companyId);
+        const filteredUserOverrides = await this.abilityLoaderService.filterPermissionsByPlan(
+          user.permissions,
+          ctx.tenant.plan,
+          ctx.tenant.addons
+        );
+        
+        effectivePermissions.push(...filteredUserOverrides);
+      }
+      
+      permissions = effectivePermissions;
 
       // Calcular trialDaysRemaining para o bootstrap/Header
       if (subscriptionInfo && subscriptionInfo.plan.isTrial) {

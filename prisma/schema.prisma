@@ -10,33 +10,36 @@ datasource db {
 }
 
 enum PermissionAction {
-  CREATE
-  READ
-  UPDATE
-  DELETE
-  MANAGE // equivale a todos os actions
+  create
+  read
+  update
+  delete
+  manage
 }
 
 enum PermissionSubject {
-  ALL           // apenas Trial e admin interno
-  ORDER
-  PRODUCT
-  CATEGORY
-  CUSTOMER
-  REPORT
-  COUPON
-  STOCK
-  DELIVERY_AREA
-  DELIVERY_PERSON
-  CASH_REGISTER
-  TABLE
-  PAYMENT_METHOD
-  POINTS
-  ANNOUNCEMENT
-  GROUP         // quem pode gerenciar grupos de usuários
-  USER          // quem pode convidar/remover usuários
-  SUBSCRIPTION  // quem pode ver/mudar o plano
-  BRANCH        // configurações da filial
+  order
+  product
+  category
+  customer
+  kds
+  commands
+  report
+  coupon
+  delivery_routes
+  stock
+  delivery_area
+  delivery_person
+  cash_register
+  table
+  payment_method
+  points
+  announcement
+  group
+  user
+  subscription
+  branch
+  all
 }
 
 enum AddonType {

@@ -1,40 +1,47 @@
-import { Controller, Get, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Req } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { prisma } from '../../../lib/prisma';
-import { permission } from 'process';
+import { GroupsService } from './groups.service';
+import { CreateGroupDto } from './dto/create-group.dto';
+import { UpdateGroupDto } from './dto/update-group.dto';
+import { CheckAbilities } from '../../ability/decorators/check-abilities.decorator';
+import { Action, Subject } from '../../ability/types/ability.types';
 
+interface RequestWithUser extends Request {
+  user: {
+    userId: string;
+    email?: string;
+    role?: string;
+  };
+}
 @Controller('groups')
 @UseGuards(JwtAuthGuard)
 export class GroupsController {
+  constructor(private readonly groupsService: GroupsService) {}
+
+  @Post()
+  async create(@Body() createGroupDto: CreateGroupDto,  @Req() req: RequestWithUser,) {
+    return this.groupsService.create(createGroupDto, req.user.userId);
+  }
+
   @Get()
-  async findAll(@Req() req: any) {
-    const userId = req.user.userId;
+  async findAll( @Req() req: RequestWithUser,) {
+    return this.groupsService.findAll(req.user.userId);
+  }
 
-    // Buscar o usuário para saber a empresa
-    const userData = await prisma.user.findUnique({
-      where: { id: userId ,},
-      select: { companyId: true, branchId: true },
-    });
+  @Get(':id')
+  async findOne(@Param('id') id: string,  @Req() req: RequestWithUser,) {
+    return this.groupsService.findOne(id, req.user.userId);
+  }
 
-    if (!userData?.branchId) {
-      return [];
-    }
+  @Patch(':id')
+  @CheckAbilities({ action: Action.UPDATE, subject: Subject.GROUP })
+  async update(@Param('id') id: string, @Body() updateGroupDto: UpdateGroupDto,  @Req() req: RequestWithUser,) {
+    return this.groupsService.update(id, updateGroupDto, req.user.userId);
+  }
 
-    return prisma.group.findMany({
-      where: {
-        branchId: userData.branchId,
-      },
-      orderBy: {
-        name: 'asc',
-      },
-    
-      select: {
-        id: true,
-        name: true,
-        description: true,
-        users: true,
-        permissions: true
-      },
-    });
+  @Delete(':id')
+  @CheckAbilities({ action: Action.DELETE, subject: Subject.GROUP })
+  async remove(@Param('id') id: string,  @Req() req: RequestWithUser,) {
+    return this.groupsService.remove(id, req.user.userId);
   }
 }

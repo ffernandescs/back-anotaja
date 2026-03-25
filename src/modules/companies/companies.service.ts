@@ -6,7 +6,7 @@ import {
 import { CreateCompanyDto } from './dto/create-company.dto';
 import * as bcrypt from 'bcrypt';
 import { prisma } from '../../../lib/prisma';
-import { Prisma } from '@prisma/client';
+import { Prisma, User, Company, Branch, PermissionAction, PermissionSubject } from '@prisma/client';
 import { GeocodingService } from '../geocoding/geocoding.service';
 import { MailService } from '../mail/mail.service';
 
@@ -195,29 +195,48 @@ export class CompaniesService {
 
       // 4️⃣ Criar endereço da branch (opcional, se quiser outro endereço)
 
-      // 5️⃣ Criar grupo Administrador com permissão ALL
+      // 5️⃣ Criar grupo Administrador com permissões do plano TRIAL
+      // Obter permissões do plano TRIAL de forma centralizada
+      let trialFeatures: any[] = [];
+      try {
+        const { PLAN_FEATURES } = require('../ability/factory/plan-rules');
+        trialFeatures = PLAN_FEATURES.TRIAL || [];
+      } catch (error) {
+        console.error('Erro ao carregar PLAN_FEATURES:', error);
+        // Fallback para permissões básicas do TRIAL caso não consiga carregar
+        trialFeatures = [
+          ['manage', 'order'],
+          ['manage', 'product'],
+          ['manage', 'category'],
+          ['read', 'customer'],
+          ['read', 'report'],
+          ['manage', 'group'],
+          ['manage', 'user'],
+          ['read', 'subscription'],
+          ['manage', 'payment_method'],
+          ['manage', 'delivery_area'],
+        ];
+      }
+      
+      // Converter o formato [action, subject] para o formato do Prisma
+      const trialPermissions = trialFeatures.map(([action, subject]) => ({
+        action: action as any,
+        subject: Array.isArray(subject) ? subject[0] : subject as any,
+        inverted: false,
+      }));
+
       const adminGroup = await prisma.group.create({
         data: {
           name: 'Administrador',
           branchId: createdBranch.id,
-          description: 'Grupo com acesso total às funcionalidades do plano',
+          description: 'Grupo com acesso total às funcionalidades do plano TRIAL',
+          permissions: {
+            create: trialPermissions,
+          },
         },
       });
 
-      // 6️⃣ Criar usuário admin associado ao grupo
-      await prisma.user.create({
-        data: {
-          name,
-          email,
-          phone,
-          password: hashedPassword,
-          companyId: createdCompany.id,
-          branchId: createdBranch.id,
-          groupId: adminGroup.id,
-        },
-      });
-
-      // 7️⃣ Criar subscription trial automaticamente
+      // 6️⃣ Buscar plano trial para criar subscription
       const trialPlan = await prisma.plan.findFirst({
         where: {
           type: 'TRIAL',
@@ -231,6 +250,20 @@ export class CompaniesService {
         );
       }
 
+      // 7️⃣ Criar usuário admin associado ao grupo
+      await prisma.user.create({
+        data: {
+          name,
+          email,
+          phone,
+          password: hashedPassword,
+          companyId: createdCompany.id,
+          branchId: createdBranch.id,
+          groupId: adminGroup.id,
+        },
+      });
+
+      // 8️⃣ Criar subscription trial automaticamente
       const now = new Date();
       const trialEndDate = new Date(now);
       trialEndDate.setDate(now.getDate() + (trialPlan.trialDays ?? 7));
