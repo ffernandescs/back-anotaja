@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsArray, IsEnum, ValidateNested } from 'class-validator';
+import { IsString, IsOptional, IsArray, IsEnum, IsBoolean, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { Action, Subject } from '../../../ability/types/ability.types';
 
@@ -10,6 +10,7 @@ class PermissionDto {
   subject!: Subject;
 
   @IsOptional()
+  @IsBoolean()
   inverted?: boolean;
 }
 

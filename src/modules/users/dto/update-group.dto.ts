@@ -1,5 +1,18 @@
-import { IsString, IsOptional, IsArray, IsEnum } from 'class-validator';
+import { IsString, IsOptional, IsArray, IsEnum, IsBoolean, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import { Action, Subject } from '../../../ability/types/ability.types';
+
+class PermissionDto {
+  @IsEnum(Action)
+  action!: Action;
+
+  @IsEnum(Subject)
+  subject!: Subject;
+
+  @IsOptional()
+  @IsBoolean()
+  inverted?: boolean;
+}
 
 export class UpdateGroupDto {
   @IsOptional()
@@ -12,10 +25,7 @@ export class UpdateGroupDto {
 
   @IsOptional()
   @IsArray()
-  @IsEnum(Action)
-  permissions?: Array<{
-    action: Action;
-    subject: Subject;
-    inverted?: boolean;
-  }>;
+  @ValidateNested({ each: true })
+  @Type(() => PermissionDto)
+  permissions?: PermissionDto[];
 }
