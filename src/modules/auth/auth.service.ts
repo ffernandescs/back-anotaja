@@ -8,12 +8,15 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { securityConfig } from '../../../src/config/security.config';
+import { PLAN_LIMITS } from '../../ability/factory/plan-rules';
+import { PlanType } from '@prisma/client';
 import { prisma } from '../../../lib/prisma';
 import { MailService } from '../mail/mail.service';
 import { UsersService } from '../users/users.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RegisterDto } from './dto/register.dto';
+import { AbilityLoaderService } from '../../ability/factory/ability-loader.service';
 
 const OTP_EXPIRES_IN_MINUTES = Number(process.env.OTP_EXPIRES_IN_MINUTES ?? 10);
 
@@ -23,6 +26,7 @@ export class AuthService {
     private usersService: UsersService,
     private jwtService: JwtService,
     private mailService: MailService,
+    private abilityLoaderService: AbilityLoaderService,
   ) {}
 
   private async sendResetEmail(email: string, otp: string) {
@@ -56,7 +60,9 @@ export class AuthService {
     const payload = {
       email: user.email || user.phone,
       sub: user.id,
-      role: user.role,
+      companyId: user.companyId,
+      branchId: user.branchId,
+      groupId: user.groupId,
     };
 
     const accessToken = this.jwtService.sign(payload);
@@ -92,7 +98,7 @@ export class AuthService {
         email: user.email,
         name: user.name,
         phone: user.phone,
-        role: user.role,
+        group: user.group,
         companyId: user.companyId || undefined,
         branchId: user.branchId || undefined,
       },
@@ -205,13 +211,13 @@ export class AuthService {
 
     const user = await this.usersService.create({
       ...registerDto,
-      role: 'customer',
+      groupId: undefined,
     });
 
     const payload = {
       email: user.email || user.phone,
       sub: user.id,
-      role: user.role,
+      group: user.group,
     };
 
     return {
@@ -222,7 +228,7 @@ export class AuthService {
         email: user.email,
         name: user.name,
         phone: user.phone,
-        role: user.role,
+        group: user.group,
       },
     };
   }
@@ -253,7 +259,7 @@ export class AuthService {
     const payload = {
       email: refreshToken.user.email || refreshToken.user.phone,
       sub: refreshToken.user.id,
-      role: refreshToken.user.role,
+      groupId: refreshToken.user.groupId,
     };
 
     const accessToken = this.jwtService.sign(payload);
@@ -265,7 +271,7 @@ export class AuthService {
         email: refreshToken.user.email,
         name: refreshToken.user.name,
         phone: refreshToken.user.phone,
-        role: refreshToken.user.role,
+        groupId: refreshToken.user.groupId,
         companyId: refreshToken.user.companyId || undefined,
         branchId: refreshToken.user.branchId || undefined,
       },
@@ -280,7 +286,6 @@ export class AuthService {
         email: true,
         name: true,
         phone: true,
-        role: true,
         active: true,
         companyId: true,
         orders: true,
@@ -289,7 +294,11 @@ export class AuthService {
         updatedAt: true,
         company: {
           include: {
-            subscription: true,
+            subscription: {
+              include: {
+                plan: true,
+              },
+            },
           },
         },
         branch: {
@@ -305,6 +314,10 @@ export class AuthService {
               }
             }
           }
+        },
+        permissions: true,
+        group: {
+          select: { id: true, name: true },
         },
       },
     });
@@ -337,21 +350,97 @@ export class AuthService {
       });
     }
 
+    // Carregar ability consolidada (Plano + Grupo + Overrides)
+    let permissions: any[] = [];
+    let subscriptionInfo = user.company?.subscription;
+    let resourceCounts = {
+      users: 0,
+      products: 0,
+      branches: 0,
+      deliveryPeople: 0,
+      ordersMonth: 0,
+    };
+
+    if (user.companyId) {
+      // 1. Carregar contagens para limites
+      const [usersCount, productsCount, branchesCount, deliveryPeopleCount, ordersMonthCount] = await Promise.all([
+        prisma.user.count({ where: { branchId: user.branchId } }),
+        prisma.product.count({ where: { branchId: user.branchId as string } }),
+        prisma.branch.count({ where: { companyId: user.companyId } }),
+        prisma.deliveryPerson.count({ where: { branchId: user.branchId as string } }),
+        prisma.order.count({
+          where: {
+            branchId: user.branchId as string,
+            createdAt: {
+              gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+            },
+          },
+        }),
+      ]);
+
+      resourceCounts = {
+        users: usersCount,
+        products: productsCount,
+        branches: branchesCount,
+        deliveryPeople: deliveryPeopleCount,
+        ordersMonth: ordersMonthCount,
+      };
+
+      const ability = await this.abilityLoaderService.loadAbility(
+        user.id,
+        user.companyId,
+      );
+      permissions = (ability as any).rules;
+
+      // Calcular trialDaysRemaining para o bootstrap/Header
+      if (subscriptionInfo && subscriptionInfo.plan.isTrial) {
+        const now = new Date();
+        
+        let trialEndDate: Date | undefined;
+        if (subscriptionInfo.endDate) {
+          trialEndDate = new Date(subscriptionInfo.endDate);
+        } else if (subscriptionInfo.startDate) {
+          const trialDays = subscriptionInfo.plan.trialDays ?? 7;
+          trialEndDate = new Date(subscriptionInfo.startDate);
+          trialEndDate.setDate(trialEndDate.getDate() + trialDays);
+        }
+
+        if (trialEndDate) {
+          // Normaliza para comparação de dias inteiros
+          const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          const startOfExpiration = new Date(trialEndDate.getFullYear(), trialEndDate.getMonth(), trialEndDate.getDate());
+          
+          const diffTime = startOfExpiration.getTime() - startOfToday.getTime();
+          const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+          (subscriptionInfo as any).trialDaysRemaining = Math.max(0, diffDays);
+        }
+      }
+    }
+
     return {
       user: {
         id: user.id,
         email: user.email,
         name: user.name,
         phone: user.phone,
-        role: user.role,
+        group: user.group,
         active: user.active,
         companyId: user.companyId || undefined,
         branchId: user.branchId || undefined,
-        company: user.company || undefined,
+        company: user.company ? {
+          ...user.company,
+          subscription: subscriptionInfo ? {
+            ...subscriptionInfo,
+            trialDaysRemaining: (subscriptionInfo as any).trialDaysRemaining,
+            limits: PLAN_LIMITS[subscriptionInfo.plan.type as PlanType]
+          } : null
+        } : undefined,
         branch: user.branch || undefined,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
         orders: user.orders || undefined,
+        permission: permissions,
+        counts: resourceCounts,
       },
       bootstrap: {
         pendingOrders,

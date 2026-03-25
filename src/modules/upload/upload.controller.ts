@@ -20,7 +20,7 @@ export class UploadController {
   constructor(private readonly uploadService: UploadService) {}
 
   @Post('image')
-  @Roles('admin', 'manager')
+  
   @UseInterceptors(FileInterceptor('file'))
   async uploadImage(
     @UploadedFile() file: Express.Multer.File,
@@ -50,7 +50,7 @@ export class UploadController {
   }
 
   @Post('category-image')
-  @Roles('admin', 'manager')
+  
   @UseInterceptors(FileInterceptor('file'))
   async uploadCategoryImage(@UploadedFile() file: Express.Multer.File) {
     if (!file) {
@@ -71,7 +71,7 @@ export class UploadController {
   }
 
   @Post('product-image')
-  @Roles('admin', 'manager')
+  
   @UseInterceptors(FileInterceptor('file'))
   async uploadProductImage(@UploadedFile() file: Express.Multer.File) {
     if (!file) {
@@ -92,7 +92,7 @@ export class UploadController {
   }
 
   @Post('person-image')
-  @Roles('admin', 'manager')
+  
   @UseInterceptors(FileInterceptor('file'))
   async uploadPersonImage(@UploadedFile() file: Express.Multer.File) {
     if (!file) {
@@ -112,7 +112,6 @@ export class UploadController {
   }
 
   @Post('branding')
-  @Roles('admin', 'manager')
   @UseInterceptors(FileInterceptor('file'))
   async uploadBrandingImage(
     @UploadedFile() file: Express.Multer.File,
@@ -145,7 +144,7 @@ export class UploadController {
   }
 
   @Delete('file')
-  @Roles('admin', 'manager')
+  
   async deleteFile(@Body('url') url: string) {
     if (!url) {
       throw new BadRequestException('File URL is required');

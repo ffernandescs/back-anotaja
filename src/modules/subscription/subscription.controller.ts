@@ -36,7 +36,7 @@ export class SubscriptionController {
   ) {}
 
   @Post()
-  @Roles('admin', 'manager')
+  
   create(
     @Body() createSubscriptionDto: CreateSubscriptionDto,
     @Req() req: RequestWithUser,
@@ -87,7 +87,7 @@ export class SubscriptionController {
   }
 
   @Patch(':id')
-  @Roles('admin', 'manager')
+  
   update(
     @Param('id') id: string,
     @Body() updateSubscriptionDto: UpdateSubscriptionDto,

@@ -29,7 +29,7 @@ export class StockController {
   constructor(private readonly stockService: StockService) {}
 
   @Post()
-  @Roles('admin', 'manager')
+  
   create(
     @Body() createStockMovementDto: CreateStockMovementDto,
     @Req() req: RequestWithUser,
@@ -38,7 +38,7 @@ export class StockController {
   }
 
   @Get()
-  @Roles('admin', 'manager')
+  
   findAll(
     @Req() req: RequestWithUser,
     @Query('itemType') itemType?: StockItemType,
@@ -48,13 +48,13 @@ export class StockController {
   }
 
   @Get(':id')
-  @Roles('admin', 'manager')
+  
   findOne(@Param('id') id: string, @Req() req: RequestWithUser) {
     return this.stockService.findOne(id, req.user.userId);
   }
 
   @Delete(':id')
-  @Roles('admin', 'manager')
+  
   remove(@Param('id') id: string, @Req() req: RequestWithUser) {
     return this.stockService.delete(id, req.user.userId);
   }

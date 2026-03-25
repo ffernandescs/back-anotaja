@@ -195,7 +195,16 @@ export class CompaniesService {
 
       // 4️⃣ Criar endereço da branch (opcional, se quiser outro endereço)
 
-      // 5️⃣ Criar usuário admin
+      // 5️⃣ Criar grupo Administrador com permissão ALL
+      const adminGroup = await prisma.group.create({
+        data: {
+          name: 'Administrador',
+          branchId: createdBranch.id,
+          description: 'Grupo com acesso total às funcionalidades do plano',
+        },
+      });
+
+      // 6️⃣ Criar usuário admin associado ao grupo
       await prisma.user.create({
         data: {
           name,
@@ -204,11 +213,11 @@ export class CompaniesService {
           password: hashedPassword,
           companyId: createdCompany.id,
           branchId: createdBranch.id,
-          role: 'admin',
+          groupId: adminGroup.id,
         },
       });
 
-      // 6️⃣ Criar subscription trial automaticamente
+      // 7️⃣ Criar subscription trial automaticamente
       const trialPlan = await prisma.plan.findFirst({
         where: {
           type: 'TRIAL',
@@ -223,19 +232,19 @@ export class CompaniesService {
       }
 
       const now = new Date();
-      const trialEndDate = new Date();
-      trialEndDate.setDate(trialEndDate.getDate() + (trialPlan.trialDays ?? 7));
+      const trialEndDate = new Date(now);
+      trialEndDate.setDate(now.getDate() + (trialPlan.trialDays ?? 7));
 
       await prisma.subscription.create({
         data: {
           companyId: createdCompany.id,
           planId: trialPlan.id,
           status: 'ACTIVE',
-          billingPeriod: trialPlan.billingPeriod, // Usar billingPeriod do plano
+          billingPeriod: trialPlan.billingPeriod,
           startDate: now,
           endDate: trialEndDate,
           nextBillingDate: trialEndDate,
-          notes: 'Trial de 7 dias - Criado automaticamente no cadastro',
+          notes: `Trial de ${trialPlan.trialDays ?? 7} dias - Criado automaticamente no cadastro`,
         },
       });
 

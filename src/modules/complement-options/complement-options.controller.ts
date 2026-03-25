@@ -34,7 +34,7 @@ export class ComplementOptionsController {
   ) {}
 
   @Post()
-  @Roles('admin', 'manager')
+  
   create(
     @Body() createComplementOptionDto: CreateComplementOptionDto,
     @Req() req: RequestWithUser,
@@ -64,7 +64,7 @@ export class ComplementOptionsController {
   }
 
   @Patch(':id')
-  @Roles('admin', 'manager')
+  
   update(
     @Param('id') id: string,
     @Body() updateComplementOptionDto: UpdateComplementOptionDto,
@@ -78,7 +78,7 @@ export class ComplementOptionsController {
   }
 
   @Put(':id')
-  @Roles('admin', 'manager')
+  
   updatePut(
     @Param('id') id: string,
     @Body() updateComplementOptionDto: UpdateComplementOptionDto,
@@ -92,7 +92,7 @@ export class ComplementOptionsController {
   }
 
   @Delete(':id')
-  @Roles('admin', 'manager')
+  
   remove(@Param('id') id: string, @Req() req: RequestWithUser) {
     return this.complementOptionsService.remove(id, req.user.userId);
   }

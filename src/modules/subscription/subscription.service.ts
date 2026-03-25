@@ -49,7 +49,7 @@ export class SubscriptionService {
     }
 
     // Verificar se o usuário tem acesso à empresa (se não for admin)
-    if (user.role !== 'admin' && user.companyId !== companyId) {
+    if (user.groupId !== 'admin' && user.companyId !== companyId) {
       throw new ForbiddenException(
         'Você não tem permissão para criar assinatura nesta empresa',
       );
@@ -137,11 +137,11 @@ export class SubscriptionService {
 
     // Admin pode ver todas, outros só da sua empresa
     // Se não for admin e não tiver companyId, retorna array vazio
-    if (user.role !== 'admin' && !user.companyId) {
-      return [];
-    }
+      if (user.groupId !== 'admin' && !user.companyId) {
+        return [];
+      }
 
-    const where = user.role === 'admin' ? {} : { companyId: user.companyId! };
+    const where = user.groupId === 'admin' ? {} : { companyId: user.companyId! };
 
     return prisma.subscription.findMany({
       where,
@@ -200,7 +200,7 @@ export class SubscriptionService {
     }
 
     // Verificar permissão
-    if (user.role !== 'admin' && subscription.companyId !== user.companyId) {
+    if (user.groupId !== 'admin' && subscription.companyId !== user.companyId) {
       throw new ForbiddenException(
         'Você não tem permissão para acessar esta assinatura',
       );
@@ -220,7 +220,7 @@ export class SubscriptionService {
     }
 
     // Verificar permissão
-    if (user.role !== 'admin' && user.companyId !== companyId) {
+    if (user.companyId !== companyId) {
       throw new ForbiddenException(
         'Você não tem permissão para acessar esta assinatura',
       );

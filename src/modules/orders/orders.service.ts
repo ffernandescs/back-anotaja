@@ -533,17 +533,13 @@ export class OrdersService {
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, role: true },
+      select: { id: true, group: true },
     });
 
     if (!user) {
       throw new NotFoundException('Usuário não encontrado');
     }
 
-    // 🔒 Regras de permissão
-    if (!['admin', 'manager'].includes(user.role)) {
-      throw new ForbiddenException('Sem permissão para atualizar pedidos');
-    }
 
     // 🚫 Não permitir update direto de items
     const { items, ...payload } = dto;
@@ -704,7 +700,7 @@ export class OrdersService {
       where: { id: userId },
       select: {
         id: true,
-        role: true,
+        group: true,
       },
     });
 
@@ -713,39 +709,8 @@ export class OrdersService {
     }
 
     // Verificar se o pedido existe e se o usuário tem permissão
-    const order = await this.findOne(id, userId);
 
-    if (user.role === 'delivery') {
-      const allowedStatuses = [
-        OrderStatusDto.DELIVERING,
-        OrderStatusDto.DELIVERED,
-      ];
-
-      if (!allowedStatuses.includes(status)) {
-        throw new ForbiddenException(
-          'Entregadores só podem atualizar para DELIVERING ou DELIVERED',
-        );
-      }
-
-      const statusFlow: OrderStatusDto[] = [
-        OrderStatusDto.PENDING,
-        OrderStatusDto.CONFIRMED,
-        OrderStatusDto.PREPARING,
-        OrderStatusDto.READY,
-        OrderStatusDto.DELIVERING,
-        OrderStatusDto.DELIVERED,
-        OrderStatusDto.CANCELLED,
-      ];
-
-      const currentIndex = statusFlow.indexOf(order.status as OrderStatusDto);
-      const nextIndex = statusFlow.indexOf(status);
-
-      if (nextIndex < currentIndex) {
-        throw new ForbiddenException(
-          'Não é possível retroceder o status do pedido',
-        );
-      }
-    }
+    
 
     const updatedOrder = await prisma.order.update({
       where: { id },

@@ -6,7 +6,7 @@ export class OnboardingStatusResponseDto {
   trialDaysRemaining?: number;
   trialEndDate?: Date;
   isTrialExpired?: boolean;
-  subscription?: {
+    subscription?: {
     id: string;
     planName: string;
     planType: string;
@@ -14,6 +14,15 @@ export class OnboardingStatusResponseDto {
     startDate?: Date | null;
     endDate?: Date | null;
     nextBillingDate?: Date | null;
+    trialDaysRemaining?: number;
+    daysSinceExpiration?: number;
+    limits?: {
+      maxUsers: number;
+      maxProducts: number;
+      maxOrdersPerMonth: number;
+      maxBranches: number;
+      maxDeliveryPeople: number;
+    };
   };
   missingSteps?: {
     plan: boolean;

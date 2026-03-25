@@ -19,7 +19,7 @@ export class OrderItemsController {
   constructor(private readonly orderItemsService: OrderItemsService) {}
 
   @Patch(':id')
-  @Roles('admin', 'manager')
+  
   /** Atualizar status de preparo ou despacho de um item do pedido */
   async update(
     @Param('id') id: string,

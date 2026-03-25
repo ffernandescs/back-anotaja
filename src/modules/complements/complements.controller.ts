@@ -35,7 +35,7 @@ export class ComplementsController {
   constructor(private readonly complementsService: ComplementsService) {}
 
   @Post()
-  @Roles('admin', 'manager')
+  
   create(
     @Body() createComplementDto: CreateComplementDto,
     @Req() req: RequestWithUser,
@@ -58,7 +58,7 @@ export class ComplementsController {
   }
 
   @Patch(':id')
-  @Roles('admin', 'manager')
+  
   update(
     @Param('id') id: string,
     @Body() updateComplementDto: UpdateComplementDto,
@@ -72,7 +72,7 @@ export class ComplementsController {
   }
 
   @Put(':id')
-  @Roles('admin', 'manager')
+  
   updatePut(
     @Param('id') id: string,
     @Body() updateComplementDto: UpdateComplementDto,
@@ -86,14 +86,14 @@ export class ComplementsController {
   }
 
   @Delete(':id')
-  @Roles('admin', 'manager')
+  
   remove(@Param('id') id: string, @Req() req: RequestWithUser) {
     return this.complementsService.remove(id, req.user.userId);
   }
 
   // Endpoints para gerenciar opções
   @Post(':complementId/options')
-  @Roles('admin', 'manager')
+  
   addOption(
     @Param('complementId') complementId: string,
     @Body() createOptionDto: CreateComplementOptionDto,
@@ -107,7 +107,7 @@ export class ComplementsController {
   }
 
   @Patch(':complementId/options/:optionId')
-  @Roles('admin', 'manager')
+  
   updateOption(
     @Param('complementId') complementId: string,
     @Param('optionId') optionId: string,
@@ -123,7 +123,7 @@ export class ComplementsController {
   }
 
   @Post('associate-many/:productId')
-  @Roles('admin', 'manager')
+  
   associateMany(
     @Param('productId') productId: string,
     @Body() associateDto: AssociateComplementsDto,
@@ -150,7 +150,7 @@ export class ComplementsController {
   }
 
   @Delete(':complementId/options/:optionId')
-  @Roles('admin', 'manager')
+  
   removeOption(
     @Param('complementId') complementId: string,
     @Param('optionId') optionId: string,

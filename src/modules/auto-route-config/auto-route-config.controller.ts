@@ -33,7 +33,6 @@ export class AutoRouteConfigController {
   // GET /api/auto-route-config/:branchId
   // O branchId no parâmetro é ignorado, sempre usa o user.branchId
   @Get()
-  @Roles('admin', 'manager')
   findOne(@Req() req: RequestWithUser, @Param('branchId') branchId: string) {
     // O branchId do parâmetro é ignorado por segurança
     // Sempre usa o branchId do usuário autenticado
@@ -41,7 +40,6 @@ export class AutoRouteConfigController {
   }
 
   @Put()
-  @Roles('admin', 'manager')
   updatePut(
     @Req() req: RequestWithUser,
     @Body() updateDto: UpdateAutoRouteConfigDto,
@@ -52,7 +50,6 @@ export class AutoRouteConfigController {
 
   // PATCH /api/auto-route-config/:branchId
   @Patch()
-  @Roles('admin', 'manager')
   update(
     @Req() req: RequestWithUser,
     @Body() updateDto: UpdateAutoRouteConfigDto,
@@ -63,7 +60,6 @@ export class AutoRouteConfigController {
 
   // POST /api/auto-route-config/:branchId/reset
   @Post('/reset')
-  @Roles('admin', 'manager')
   reset(@Req() req: RequestWithUser, @Param('branchId') branchId: string) {
     // O branchId do parâmetro é ignorado por segurança
     return this.autoRouteConfigService.reset(req.user.userId);

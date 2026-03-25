@@ -33,7 +33,7 @@ export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
   @Post()
-  @Roles('admin', 'manager')
+  
   create(
     @Body() createProductDto: CreateProductDto,
     @Req() req: RequestWithUser,
@@ -75,7 +75,7 @@ export class ProductsController {
   }
 
   @Patch(':id')
-  @Roles('admin', 'manager')
+  
   update(
     @Param('id') id: string,
     @Body() updateProductDto: UpdateProductDto,
@@ -85,7 +85,7 @@ export class ProductsController {
   }
 
   @Patch(':id/advanced-options')
-  @Roles('admin', 'manager')
+  
   async updateAdvancedOptions(
     @Param('id') productId: string,
     @Body() body: UpdateProductAdvancedOptionsDto,
@@ -99,7 +99,7 @@ export class ProductsController {
   }
 
   @Put(':id')
-  @Roles('admin', 'manager')
+  
   updatePut(
     @Param('id') id: string,
     @Body() updateProductDto: UpdateProductDto,
@@ -109,7 +109,7 @@ export class ProductsController {
   }
 
   @Delete(':id')
-  @Roles('admin', 'manager')
+  
   remove(@Param('id') id: string, @Req() req: RequestWithUser) {
     return this.productsService.remove(id, req.user.userId);
   }

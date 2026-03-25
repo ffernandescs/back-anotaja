@@ -9,6 +9,46 @@ datasource db {
   provider = "postgresql"
 }
 
+enum PermissionAction {
+  CREATE
+  READ
+  UPDATE
+  DELETE
+  MANAGE // equivale a todos os actions
+}
+
+enum PermissionSubject {
+  ALL           // apenas Trial e admin interno
+  ORDER
+  PRODUCT
+  CATEGORY
+  CUSTOMER
+  REPORT
+  COUPON
+  STOCK
+  DELIVERY_AREA
+  DELIVERY_PERSON
+  CASH_REGISTER
+  TABLE
+  PAYMENT_METHOD
+  POINTS
+  ANNOUNCEMENT
+  GROUP         // quem pode gerenciar grupos de usuários
+  USER          // quem pode convidar/remover usuários
+  SUBSCRIPTION  // quem pode ver/mudar o plano
+  BRANCH        // configurações da filial
+}
+
+enum AddonType {
+  FISCAL_NOTE        // emissão de nota fiscal
+  ADVANCED_REPORTS   // relatórios avançados + exportação
+  MULTI_BRANCH       // múltiplas filiais
+  LOYALTY_POINTS     // programa de pontos
+  WHATSAPP_NOTIFY    // notificações via WhatsApp
+  ROUTE_OPTIMIZER    // otimização de rota de entrega
+}
+
+
 model MasterUser {
   id        String    @id @default(cuid())
   name      String
@@ -61,6 +101,7 @@ enum SubscriptionStatus {
   CANCELLED // Cancelada
   EXPIRED // Expirada
   SUSPENDED // Suspensa
+  GRACE_PERIOD // Carência
 }
 
 enum BillingPeriod {
@@ -98,15 +139,89 @@ model Plan {
   subscriptions                                                                        Subscription[]
 }
 
+// Opcionais/add-ons disponíveis no sistema
+model PlanAddon {
+  id                                                String               @id @default(cuid())
+  type                                              AddonType            @unique
+  name                                              String
+  description                                       String?
+  price       Int       // preço mensal em centavos
+  active                                            Boolean              @default(true)
+  createdAt                                         DateTime             @default(now())
+  updatedAt                                         DateTime             @updatedAt
+
+  subscriptions                                     SubscriptionAddon[]
+}
+
+// Add-ons contratados por uma assinatura
+model SubscriptionAddon {
+  id             String        @id @default(cuid())
+  subscriptionId String
+  addonId        String
+  // Data de início do add-on (pode diferir da assinatura)
+  startDate      DateTime      @default(now())
+  // Data de término (null = ativo)
+  endDate        DateTime?
+  // Valor pago por este add-on (pode ter desconto negociado)
+  billingAmount  Int?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  addon          PlanAddon    @relation(fields: [addonId], references: [id])
+
+  @@unique([subscriptionId, addonId])
+}
+
+// Grupo de usuários dentro de uma filial
+model Group {
+  id                                                     String        @id @default(cuid())
+  name        String   // "Vendedor", "Gerente", "Caixa"
+  description                                            String?
+  branchId                                               String
+  // Grupo padrão ao convidar novo usuário nesta filial
+  isDefault                                              Boolean       @default(false)
+  createdAt                                              DateTime      @default(now())
+  updatedAt                                              DateTime      @updatedAt
+
+  branch                                                 Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  permissions                                            Permission[]
+  users                                                  User[]
+
+  @@unique([branchId,                                    name])
+}
+
+// Permissão granular — pertence a um grupo OU a um usuário (override)
+model Permission {
+  id        String             @id @default(cuid())
+  action    PermissionAction
+  subject   PermissionSubject
+  // inverted = true significa "cannot" (remove permissão)
+  inverted  Boolean            @default(false)
+
+  // Pertence a um grupo (permissão base) OU a um usuário (override)
+  groupId   String?
+  userId    String?
+
+  createdAt DateTime           @default(now())
+
+  group     Group?            @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user      User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Garante que não existam permissões duplicadas no mesmo grupo/usuário
+  @@unique([groupId, action, subject])
+  @@unique([userId, action, subject])
+}
+
 model Subscription {
-  id                   String              @id @default(cuid())
-  companyId            String              @unique
+  id                   String               @id @default(cuid())
+  companyId            String               @unique
   planId               String
-  status               SubscriptionStatus  @default(ACTIVE)
+  status               SubscriptionStatus   @default(ACTIVE)
   // Periodicidade de cobrança da assinatura
-  billingPeriod        BillingPeriod       @default(MONTHLY)
+  billingPeriod        BillingPeriod        @default(MONTHLY)
   // Data de início da assinatura
-  startDate            DateTime            @default(now())
+  startDate            DateTime             @default(now())
   // Data de término (null = sem término)
   endDate              DateTime?
   // Data do próximo pagamento
@@ -121,11 +236,12 @@ model Subscription {
   lastBillingAmount    Int?
   //                   Observações
   notes                String?
-  createdAt            DateTime            @default(now())
-  updatedAt            DateTime            @updatedAt
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
 
-  company              Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  plan                 Plan               @relation(fields: [planId], references: [id])
+  addons               SubscriptionAddon[]
+  company              Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  plan                 Plan                @relation(fields: [planId], references: [id])
 }
 
 model CompanyAddress {
@@ -225,6 +341,7 @@ model Branch {
   createdAt              DateTime                 @default(now())
   updatedAt              DateTime                 @updatedAt
 
+  groups                 Group[]
   openingHours           BranchSchedule[]
   customers              Customer[]
   company                Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -355,28 +472,30 @@ model CashMovement {
 }
 
 model User {
-  id                                                                                                                              String               @id @default(cuid())
-  name                                                                                                                            String
-  email                                                                                                                           String?              @unique
-  phone                                                                                                                           String               @unique
-  password                                                                                                                        String?
-  role      String // admin, manager, customer (master removido - agora é MasterUser, delivery removido - agora é DeliveryPerson)
-  active                                                                                                                          Boolean              @default(true)
-  companyId                                                                                                                       String?
-  branchId                                                                                                                        String?
-  createdAt                                                                                                                       DateTime             @default(now())
-  updatedAt                                                                                                                       DateTime             @updatedAt
+  id                 String               @id @default(cuid())
+  name               String
+  email              String?              @unique
+  phone              String               @unique
+  password           String?
+  groupId            String?
+  active             Boolean              @default(true)
+  companyId          String?
+  branchId           String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
 
-  company                                                                                                                         Company?            @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  branch                                                                                                                          Branch?             @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  orders                                                                                                                          Order[]
-  cashMovements                                                                                                                   CashMovement[]
-  pointsTransactions                                                                                                              PointsTransaction[] @relation("PointsTransactions")
-  customerPoints                                                                                                                  CustomerPoints?     @relation("CustomerPoints")
-  refreshTokens                                                                                                                   RefreshToken[]
-  notificationReads                                                                                                               NotificationRead[]
-  tables                                                                                                                          Table[]
-  billSplits                                                                                                                      BillSplit[]
+  group              Group?              @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  company            Company?            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  branch             Branch?             @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  orders             Order[]
+  cashMovements      CashMovement[]
+  pointsTransactions PointsTransaction[] @relation("PointsTransactions")
+  customerPoints     CustomerPoints?     @relation("CustomerPoints")
+  refreshTokens      RefreshToken[]
+  notificationReads  NotificationRead[]
+  tables             Table[]
+  billSplits         BillSplit[]
+  permissions        Permission[]
 }
 
 model RefreshToken {
@@ -422,16 +541,16 @@ model DeliveryPerson {
 }
 
 model Category {
-  id          String     @id @default(cuid())
+  id          String            @id @default(cuid())
   name        String
   slug        String
   description String?
   image       String?
-  active      Boolean    @default(true)
-  featured    Boolean    @default(false)
+  active      Boolean           @default(true)
+  featured    Boolean           @default(false)
   branchId    String
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
 
   branch      Branch           @relation(fields: [branchId], references: [id], onDelete: Cascade)
   products    Product[]
@@ -718,34 +837,34 @@ model ComplementOption {
 }
 
 model Coupon {
-  id                                                                              String      @id @default(cuid())
-  code                                                                            String      @unique
-  name                                                                            String
-  type                                                                            CouponType
-  value                                                                           Int
-  minValue                                                                        Int?
+  id                                                                                                                                                             String      @id @default(cuid())
+  code                                                                                                                                                           String      @unique
+  name                                                                                                                                                           String
+  type                                                                                                                                                           CouponType
+  value                                                                                                                                                          Int
+  minValue                                                                                                                                                       Int?
   maxDiscount Int?       // Desconto máximo em centavos (para cupons percentuais)
-  maxUses                                                                         Int?
-  usedCount                                                                       Int         @default(0)
-  
+  maxUses                                                                                                                                                        Int?
+  usedCount                                                                                                                                                      Int         @default(0)
+
   // Período de validade
-  validFrom                                                                       DateTime?
-  validUntil                                                                      DateTime?
+  validFrom                                                                                                                                                      DateTime?
+  validUntil                                                                                                                                                     DateTime?
   availableDays                                                                   String?     // JSON array de dias da semana ["MONDAY", "FRIDAY"]
-  
+
   // Regras de aplicação
   deliveryTypes                                                                   String?     // JSON array de tipos de pedido ["DELIVERY", "PICKUP", "DINE_IN"]
   minimumOrderValue                                                               Int?        // Valor mínimo do pedido em centavos
-  onlyNewCustomers                                                                Boolean     @default(false)
-  allowMultipleUsesPerCustomer                                                    Boolean     @default(false)
-  
-  active                                                                          Boolean     @default(true)
-  branchId                                                                        String?
-  createdAt                                                                       DateTime    @default(now())
-  updatedAt                                                                       DateTime    @updatedAt
+  onlyNewCustomers                                                                                                                                               Boolean     @default(false)
+  allowMultipleUsesPerCustomer                                                                                                                                   Boolean     @default(false)
 
-  branch                                                                          Branch?                @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  orders                                                                          Order[]
+  active                                                                                                                                                         Boolean     @default(true)
+  branchId                                                                                                                                                       String?
+  createdAt                                                                                                                                                      DateTime    @default(now())
+  updatedAt                                                                                                                                                      DateTime    @updatedAt
+
+  branch                                                                                                                                                         Branch?    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  orders                                                                                                                                                         Order[]
   paymentMethods                                                                  CouponPaymentMethod[]  // Formas de pagamento associadas
   categories                                                                      CouponCategory[]       // Categorias de produtos associadas
   products                                                                        CouponProduct[]        // Produtos específicos associados
@@ -754,23 +873,23 @@ model Coupon {
 
 // Relação entre cupom e formas de pagamento
 model CouponPaymentMethod {
-  id              String        @id @default(cuid())
+  id              String               @id @default(cuid())
   couponId        String
   paymentMethodId String
-  createdAt       DateTime      @default(now())
+  createdAt       DateTime             @default(now())
 
-  coupon          Coupon               @relation(fields: [couponId], references: [id], onDelete: Cascade)
-  paymentMethod   BranchPaymentMethod  @relation(fields: [paymentMethodId], references: [id], onDelete: Cascade)
+  coupon          Coupon              @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  paymentMethod   BranchPaymentMethod @relation(fields: [paymentMethodId], references: [id], onDelete: Cascade)
 
   @@unique([couponId, paymentMethodId])
 }
 
 // Relação entre cupom e categorias
 model CouponCategory {
-  id         String   @id @default(cuid())
+  id         String    @id @default(cuid())
   couponId   String
   categoryId String
-  createdAt  DateTime @default(now())
+  createdAt  DateTime  @default(now())
 
   coupon     Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
   category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
@@ -780,26 +899,26 @@ model CouponCategory {
 
 // Relação entre cupom e produtos
 model CouponProduct {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   couponId  String
   productId String
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
-  coupon    Coupon  @relation(fields: [couponId], references: [id], onDelete: Cascade)
-  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  coupon    Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@unique([couponId, productId])
 }
 
 // Relação entre cupom e filiais (estabelecimentos)
 model CouponBranch {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   couponId  String
   branchId  String
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
-  coupon    Coupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
-  branch    Branch @relation("CouponBranches", fields: [branchId], references: [id], onDelete: Cascade)
+  coupon    Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  branch    Branch   @relation("CouponBranches", fields: [branchId], references: [id], onDelete: Cascade)
 
   @@unique([couponId, branchId])
 }
@@ -1154,18 +1273,18 @@ model PaymentMethod {
 }
 
 model BranchPaymentMethod {
-  id              String         @id @default(cuid())
+  id              String                 @id @default(cuid())
   branchId        String
   paymentMethodId String
-  forDineIn       Boolean        @default(false)
-  forDelivery     Boolean        @default(false)
+  forDineIn       Boolean                @default(false)
+  forDelivery     Boolean                @default(false)
 
   branch          Branch                @relation(fields: [branchId], references: [id], onDelete: Cascade)
   paymentMethod   PaymentMethod         @relation(fields: [paymentMethodId], references: [id], onDelete: Cascade)
   couponPayments  CouponPaymentMethod[]
 
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
 
   @@unique([branchId, paymentMethodId])
 }

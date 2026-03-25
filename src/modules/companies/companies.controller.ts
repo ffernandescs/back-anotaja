@@ -26,14 +26,14 @@ export class CompaniesController {
     return this.companiesService.createCompany(dto);
   }
 
-  @Roles('admin', 'manager')
+  
   @Get('onboarding-status')
   async getOnboardingStatus(@Req() req: RequestWithUser) {
     return this.companiesService.getOnboardingStatus(req.user.userId);
   }
 
   @Post('onboarding/complete')
-  @Roles('admin', 'manager')
+  
   completeOnboarding(@Req() req: RequestWithUser) {
     return this.companiesService.completeOnboarding(req.user.userId);
   }

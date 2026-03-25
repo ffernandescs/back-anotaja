@@ -16,9 +16,7 @@ export class PaymentMethodsService {
   async create(dto: CreatePaymentMethodDto, userId: string) {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('Usuário não encontrado');
-    if (user.role !== 'master')
-      throw new ForbiddenException('Apenas master pode criar métodos');
-
+ 
     return prisma.paymentMethod.create({
       data: {
         name: dto.name,
@@ -40,9 +38,7 @@ export class PaymentMethodsService {
   async update(id: string, dto: UpdatePaymentMethodDto, userId: string) {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('Usuário não encontrado');
-    if (user.role !== 'master')
-      throw new ForbiddenException('Apenas master pode atualizar');
-
+    
     await this.findOne(id);
 
     return prisma.paymentMethod.update({ where: { id }, data: dto });
@@ -51,8 +47,6 @@ export class PaymentMethodsService {
   async remove(id: string, userId: string) {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('Usuário não encontrado');
-    if (user.role !== 'master')
-      throw new ForbiddenException('Apenas master pode deletar');
 
     await this.findOne(id);
 

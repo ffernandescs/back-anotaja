@@ -37,6 +37,7 @@ import { CronModule } from './modules/cron/cron.module';
 import { StockModule } from './stock/stock.module';
 import { IngredientsModule } from './ingredients/ingredients.module';
 import { IngredientCategoriesModule } from './ingredient-categories/ingredient-categories.module';
+import { AbilitiesGuard, AbilityModule } from './ability';
 
 @Module({
   imports: [
@@ -79,12 +80,14 @@ import { IngredientCategoriesModule } from './ingredient-categories/ingredient-c
     StockModule,
     IngredientsModule,
     IngredientCategoriesModule,
+    AbilityModule
   ],
   providers: [
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
     },
+    { provide: APP_GUARD, useClass: AbilitiesGuard },
   ],
 })
 export class AppModule {}

@@ -81,7 +81,7 @@ export class PlansController {
   }
 
   @Post('choose')
-  @Roles('admin', 'manager')
+  
   choosePlan(@Req() req: RequestWithUser, @Body() dto: ChoosePlanDto) {
     return this.plansService.choosePlanForCompany(dto, req.user.userId);
   }

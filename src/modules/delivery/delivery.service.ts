@@ -252,7 +252,6 @@ export class DeliveryService {
 
     const token = this.jwtService.sign({
       deliveryPersonId: deliveryPerson.id,
-      role: 'delivery',
       branchId: deliveryPerson.branchId,
     });
 

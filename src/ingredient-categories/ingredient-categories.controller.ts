@@ -28,7 +28,6 @@ export class IngredientCategoriesController {
   constructor(private readonly ingredientCategoriesService: IngredientCategoriesService) {}
 
   @Post()
-  @Roles('admin', 'manager')
   create(@Body() createCategoryDto: any, @Req() req: RequestWithUser) {
     return this.ingredientCategoriesService.create(createCategoryDto, req.user.userId);
   }
@@ -44,7 +43,6 @@ export class IngredientCategoriesController {
   }
 
   @Patch(':id')
-  @Roles('admin', 'manager')
   update(
     @Param('id') id: string,
     @Body() updateCategoryDto: any,
@@ -54,7 +52,6 @@ export class IngredientCategoriesController {
   }
 
   @Delete(':id')
-  @Roles('admin', 'manager')
   remove(@Param('id') id: string, @Req() req: RequestWithUser) {
     return this.ingredientCategoriesService.remove(id, req.user.userId);
   }

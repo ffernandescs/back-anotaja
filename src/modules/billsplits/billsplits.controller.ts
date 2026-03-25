@@ -27,7 +27,7 @@ export class BillSplitsController {
   constructor(private readonly billSplitService: BillSplitsService) {}
 
   @Post()
-  @Roles('admin', 'manager')
+  
   create(@Body() dto: CreateBillSplitDto, @Req() req: RequestWithUser) {
     return this.billSplitService.create(dto, req.user.userId);
   }

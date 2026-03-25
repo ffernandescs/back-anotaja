@@ -31,7 +31,7 @@ export class ComplementOptionsController {
   constructor(private readonly complementsService: ComplementsService) {}
 
   @Post()
-  @Roles('admin', 'manager')
+  
   create(
     @Body() createOptionDto: CreateComplementOptionDto,
     @Req() req: RequestWithUser,
@@ -48,7 +48,7 @@ export class ComplementOptionsController {
   }
 
   @Patch(':id')
-  @Roles('admin', 'manager')
+  
   update(
     @Param('id') id: string,
     @Body() updateOptionDto: UpdateComplementOptionDto,
@@ -62,7 +62,7 @@ export class ComplementOptionsController {
   }
 
   @Delete(':id')
-  @Roles('admin', 'manager')
+  
   remove(@Param('id') id: string, @Req() req: RequestWithUser) {
     return this.complementsService.removeOptionById(id, req.user.userId);
   }

@@ -2098,7 +2098,6 @@ async createOrder(
         name: true,
         email: true,
         phone: true,
-        role: true,
       },
     });
 
@@ -2445,7 +2444,7 @@ async createOrder(
       sub: user.id,
       userId: user.id, // Manter compatibilidade com frontend
       phone: user.phone,
-      role: user.role,
+      groupId: user.groupId,
       email: user.email || undefined,
       companyId: user.companyId || undefined,
       // Garantir branchId no token para clientes (loja) usarem WS por filial

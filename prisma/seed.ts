@@ -4057,7 +4057,7 @@ async function main() {
             startDate: now,
             endDate: trialEndDate,
             nextBillingDate: trialEndDate,
-            notes: 'Trial de 7 dias - Criado automaticamente no seed',
+            notes: `Trial de ${trialPlan.trialDays ?? 7} dias - Criado automaticamente no seed`,
           },
         });
       }
@@ -4155,7 +4155,6 @@ async function main() {
           email: `teste${userCounter}@anotaja.com`,
             phone: adminPhone,
             password: hashedPassword,
-            role: 'admin',
             companyId: company.id,
             branchId: branch.id, // VINCULADO À FILIAL MATRIZ
             active: true,
@@ -4360,8 +4359,85 @@ async function main() {
   );
 
   // Criar planos
-  console.log('💳 Criando planos...');
-  console.log(`✅ ${await prisma.plan.count()} planos já existentes no banco`);
+  console.log('💳 Criando/Atualizando planos...');
+  const plans = [
+    {
+      name: 'Degustação (Trial)',
+      description: 'Experimente todos os recursos por 7 dias',
+      type: 'TRIAL' as const,
+      price: 0,
+      billingPeriod: 'MONTHLY' as const,
+      trialDays: 7,
+      active: true,
+      isTrial: true,
+      isFeatured: false,
+      displayOrder: 0,
+      limits: JSON.stringify({ branches: 1, users: 2, products: 50, ordersPerMonth: 100 }),
+      features: JSON.stringify(["delivery", "stock", "reports"]),
+    },
+    {
+      name: 'Plano Básico',
+      description: 'Ideal para quem está começando',
+      type: 'BASIC' as const,
+      price: 9900, // R$ 99,00
+      billingPeriod: 'MONTHLY' as const,
+      trialDays: 0,
+      active: true,
+      isTrial: false,
+      isFeatured: false,
+      displayOrder: 1,
+      limits: JSON.stringify({ branches: 1, users: 5, products: 200, ordersPerMonth: 1000 }),
+      features: JSON.stringify(["delivery", "stock", "reports", "coupons"]),
+    },
+    {
+      name: 'Plano Premium',
+      description: 'Recursos avançados para o seu negócio decolar',
+      type: 'PREMIUM' as const,
+      price: 19900, // R$ 199,00
+      billingPeriod: 'MONTHLY' as const,
+      trialDays: 0,
+      active: true,
+      isTrial: false,
+      isFeatured: true,
+      displayOrder: 2,
+      limits: JSON.stringify({ branches: 3, users: 15, products: 1000, ordersPerMonth: 5000 }),
+      features: JSON.stringify(["delivery", "stock", "reports", "coupons", "api", "analytics"]),
+    },
+    {
+      name: 'Plano Enterprise',
+      description: 'Solução completa para grandes operações',
+      type: 'ENTERPRISE' as const,
+      price: 49900, // R$ 499,00
+      billingPeriod: 'MONTHLY' as const,
+      trialDays: 0,
+      active: true,
+      isTrial: false,
+      isFeatured: false,
+      displayOrder: 3,
+      limits: JSON.stringify({ branches: -1, users: -1, products: -1, ordersPerMonth: -1 }),
+      features: JSON.stringify(["delivery", "stock", "reports", "coupons", "api", "analytics", "support", "custom"]),
+    },
+  ];
+
+  for (const planData of plans) {
+    const existingPlan = await prisma.plan.findFirst({
+      where: { type: planData.type as any },
+    });
+
+    if (existingPlan) {
+      const { type, ...rest } = planData;
+      await prisma.plan.update({
+        where: { id: existingPlan.id },
+        data: rest,
+      });
+    } else {
+      await prisma.plan.create({
+        data: planData,
+      });
+    }
+  }
+
+  console.log(`✅ ${plans.length} planos sincronizados no banco`);
 
   // Nota: As assinaturas trial já foram criadas junto com cada empresa no loop acima
   const subscriptionCount = await prisma.subscription.count();

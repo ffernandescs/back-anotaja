@@ -17,7 +17,7 @@ interface AuthenticatedSocket extends Socket {
   user?: {
     userId: string;
     email?: string;
-    role?: string;
+    groupId?: string;
     branchId?: string;
     deliveryPersonId?: string;
   };
@@ -75,7 +75,7 @@ export class OrdersWebSocketGateway
           this.logger.log(
             `✅ Public tracking connected without token, joined room: ${orderRoom}`,
           );
-          void client.emit('connected', { orderId, role: 'guest' });
+          void client.emit('connected', { orderId });
           return;
         }
 
@@ -118,7 +118,6 @@ export class OrdersWebSocketGateway
 
         client.user = {
           userId: deliveryPerson.id,
-          role: 'delivery',
           branchId: deliveryPerson.branchId,
           deliveryPersonId: deliveryPerson.id,
         };
@@ -137,7 +136,6 @@ export class OrdersWebSocketGateway
         void client.emit('connected', {
           deliveryPersonId: deliveryPerson.id,
           branchId: deliveryPerson.branchId,
-          role: 'delivery',
         });
       } else if (userId) {
         const user = await prisma.user.findUnique({
@@ -150,7 +148,7 @@ export class OrdersWebSocketGateway
           if (payload.branchId) {
             client.user = {
               userId: userId,
-              role: payload.role || 'customer',
+              group: payload.group ,
               branchId: payload.branchId,
             } as any;
 
@@ -163,7 +161,7 @@ export class OrdersWebSocketGateway
             void client.emit('connected', {
               userId,
               branchId: payload.branchId,
-              role: payload.role || 'customer',
+              group: payload.group,
             });
             return;
           }
@@ -178,7 +176,7 @@ export class OrdersWebSocketGateway
         client.user = {
           userId: user.id,
           email: user.email || undefined,
-          role: user.role,
+          groupId: user.groupId || undefined,
           branchId: user.branchId || undefined,
         };
 
@@ -197,7 +195,7 @@ export class OrdersWebSocketGateway
         void client.emit('connected', {
           userId: user.id,
           branchId: user.branchId,
-          role: user.role,
+          groupId: user.groupId,
         });
       } else {
         this.logger.warn(

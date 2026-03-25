@@ -6,7 +6,8 @@ import {
 import { prisma } from '../../../lib/prisma';
 import { OnboardingStatusResponseDto } from './dto/onboarding-status-response.dto';
 import { UpdateOnboardingStepDto } from './dto/update-onboarding-step.dto';
-import { OnboardingStep } from '@prisma/client';
+import { PLAN_LIMITS } from '../../ability/factory/plan-rules';
+import { OnboardingStep, PlanType } from '@prisma/client';
 
 @Injectable()
 export class OnboardingService {
@@ -41,19 +42,72 @@ export class OnboardingService {
     const company = user.company;
     const subscription = company.subscription;
 
+    // --- Lógica de Expiração baseada em Vigência (startDate/endDate) ---
+    const now = new Date();
+    let trialDaysRemaining: number | undefined;
+    let trialEndDate: Date | undefined;
+    let isTrialExpired = false;
+    let daysSinceExpiration = 0;
+
+    if (subscription) {
+      if (subscription.endDate) {
+        trialEndDate = new Date(subscription.endDate);
+      } else if (subscription.startDate) {
+        const trialDays = parseInt(process.env.TRIAL_DAYS ?? '7', 10);
+        trialEndDate = new Date(subscription.startDate);
+        trialEndDate.setDate(trialEndDate.getDate() + trialDays);
+      }
+
+      if (trialEndDate) {
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const startOfExpiration = new Date(trialEndDate.getFullYear(), trialEndDate.getMonth(), trialEndDate.getDate());
+
+        const diffTime = startOfExpiration.getTime() - startOfToday.getTime();
+        trialDaysRemaining = Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
+        
+        isTrialExpired = startOfToday > startOfExpiration;
+        daysSinceExpiration = isTrialExpired
+          ? Math.abs(Math.floor((startOfToday.getTime() - startOfExpiration.getTime()) / (1000 * 60 * 60 * 24)))
+          : 0;
+      }
+    }
+
+    // --- Determinação do Status de Cobrança ---
+    let billingStatus = subscription?.status || 'INACTIVE';
+    if (isTrialExpired) {
+      const gracePeriodDays = parseInt(process.env.GRACE_PERIOD_DAYS ?? '3', 10);
+      const suspensionDays = parseInt(process.env.SUSPENSION_DAYS ?? '15', 10);
+
+      if (daysSinceExpiration <= gracePeriodDays) {
+        billingStatus = 'GRACE_PERIOD';
+      } else if (daysSinceExpiration <= gracePeriodDays + suspensionDays) {
+        billingStatus = 'SUSPENDED';
+      } else {
+        billingStatus = 'EXPIRED';
+      }
+    }
+
+    const expirationDate = trialEndDate || new Date();
+
     if (company.onboardingCompleted) {
       return {
         completed: true,
         currentStep: OnboardingStep.COMPLETED,
+        trialDaysRemaining,
+        trialEndDate: expirationDate,
+        isTrialExpired,
         subscription: subscription
           ? {
               id: subscription.id,
               planName: subscription.plan.name,
               planType: subscription.plan.type,
-              status: subscription.status,
+              status: billingStatus,
               startDate: subscription.startDate,
               endDate: subscription.endDate,
               nextBillingDate: subscription.nextBillingDate,
+              trialDaysRemaining,
+              daysSinceExpiration,
+              limits: PLAN_LIMITS[subscription.plan.type as PlanType],
             }
           : undefined,
       };
@@ -68,37 +122,29 @@ export class OnboardingService {
       payment: !company.branches.some(
         (branch) => branch.paymentMethods && branch.paymentMethods.length > 0,
       ),
-      branding: !company.branches.some((branch) => !!branch.logoUrl || !!branch.bannerUrl),
+      branding: !company.branches.some(
+        (branch) => !!branch.logoUrl || !!branch.bannerUrl,
+      ),
     };
-
-    let trialDaysRemaining: number | undefined;
-    let trialEndDate: Date | undefined;
-    let isTrialExpired = false;
-
-    if (subscription && subscription.plan.isTrial && subscription.endDate) {
-      trialEndDate = subscription.endDate;
-      const now = new Date();
-      const diffTime = trialEndDate.getTime() - now.getTime();
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      trialDaysRemaining = Math.max(0, diffDays);
-      isTrialExpired = diffDays < 0;
-    }
 
     return {
       completed: false,
       currentStep: company.onboardingStep,
       trialDaysRemaining,
-      trialEndDate,
+      trialEndDate: expirationDate,
       isTrialExpired,
       subscription: subscription
         ? {
             id: subscription.id,
             planName: subscription.plan.name,
             planType: subscription.plan.type,
-            status: subscription.status,
+            status: billingStatus,
             startDate: subscription.startDate,
             endDate: subscription.endDate,
             nextBillingDate: subscription.nextBillingDate,
+            trialDaysRemaining,
+            daysSinceExpiration,
+            limits: PLAN_LIMITS[subscription.plan.type as PlanType],
           }
         : undefined,
       missingSteps,

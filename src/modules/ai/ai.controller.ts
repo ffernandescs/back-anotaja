@@ -11,7 +11,7 @@ export class AiController {
   constructor(private readonly aiService: AiService) {}
 
   @Post('generate-description')
-  @Roles('admin', 'manager')
+  
   async generateDescription(
     @Body() generateDescriptionDto: GenerateDescriptionDto,
   ) {
@@ -26,7 +26,7 @@ export class AiController {
   }
 
   @Post('generate-category-description')
-  @Roles('admin', 'manager')
+  
   async generateCategoryDescription(
     @Body() generateDescriptionDto: GenerateDescriptionDto,
   ) {

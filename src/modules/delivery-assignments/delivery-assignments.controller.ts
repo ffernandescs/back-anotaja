@@ -36,7 +36,7 @@ export class DeliveryAssignmentsController {
   ) {}
 
   @Post()
-  @Roles('admin', 'manager')
+  
   create(
     @Body() createDto: CreateDeliveryAssignmentDto,
     @Req() req: RequestWithUser,
@@ -45,19 +45,19 @@ export class DeliveryAssignmentsController {
   }
 
   @Get()
-  @Roles('admin', 'manager')
+  
   findAll(@Req() req: RequestWithUser) {
     return this.deliveryAssignmentsService.findAll(req.user.userId);
   }
 
   @Get(':id')
-  @Roles('admin', 'manager')
+  
   findOne(@Param('id') id: string, @Req() req: RequestWithUser) {
     return this.deliveryAssignmentsService.findOne(id, req.user.userId);
   }
 
   @Post('auto-create')
-  @Roles('admin', 'manager')
+  
   autoCreateRoutes(
     @Body() autoCreateRoutesDto: AutoCreateRoutesDto,
     @Req() req: RequestWithUser,
@@ -69,7 +69,7 @@ export class DeliveryAssignmentsController {
   }
 
   @Post('optimize')
-  @Roles('admin', 'manager')
+  
   optimizeRoutes(
     @Body() optimizeRoutesDto: OptimizeRoutesDto,
     @Req() req: RequestWithUser,
@@ -81,13 +81,13 @@ export class DeliveryAssignmentsController {
   }
 
   @Delete(':id')
-  @Roles('admin', 'manager')
+  
   remove(@Param('id') id: string, @Req() req: RequestWithUser) {
     return this.deliveryAssignmentsService.remove(id, req.user.userId);
   }
 
   @Put(':id')
-  @Roles('admin', 'manager')
+  
   update(
     @Param('id') id: string,
     @Body() dto: any,

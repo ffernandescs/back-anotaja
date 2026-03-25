@@ -21,37 +21,37 @@ export class DeliveryAreasController {
   constructor(private readonly deliveryAreasService: DeliveryAreasService) {}
 
 
-  @Roles('admin', 'manager')
+  
   @Get('exclusion')
   async findAllExclusion(@Req() req: RequestWithUser) {
     return this.deliveryAreasService.findAllExclusion(req.user.userId);
   }
 
-  @Roles('admin', 'manager')
+  
   @Get('exclusion/:id')
   findOneExclusion(@Param('id') id: string, @Req() req: RequestWithUser) {
     return this.deliveryAreasService.findOneExclusion(req.user.userId, id);
   }
   // ========== DELIVERY AREAS ==========
-  @Roles('admin', 'manager')
+  
   @Post()
   create(@Body() createDeliveryAreaDto: CreateDeliveryAreaDto, @Req() req: RequestWithUser) {
     return this.deliveryAreasService.create(req.user.userId, createDeliveryAreaDto);
   }
 
-  @Roles('admin', 'manager')
+  
   @Get()
   async findAll(@Req() req: RequestWithUser) {
     return this.deliveryAreasService.findAll(req.user.userId);
   }
 
-  @Roles('admin', 'manager')
+  
   @Get(':id')
   findOne(@Param('id') id: string, @Req() req: RequestWithUser) {
     return this.deliveryAreasService.findOne(req.user.userId, id);
   }
 
-  @Roles('admin', 'manager')
+  
   @Patch(':id')
   update(
     @Param('id') id: string,
@@ -61,14 +61,14 @@ export class DeliveryAreasController {
     return this.deliveryAreasService.update(req.user.userId, id, updateDeliveryAreaDto);
   }
 
-  @Roles('admin', 'manager')
+  
   @Delete(':id')
   remove(@Param('id') id: string, @Req() req: RequestWithUser) {
     return this.deliveryAreasService.remove(req.user.userId, id);
   }
 
   // ========== EXCLUSION AREAS ==========
-  @Roles('admin', 'manager')
+  
   @Post('exclusion')
   createExclusion(
     @Body() createDeliveryAreaExclusionDto: CreateDeliveryAreaExclusionDto,
@@ -78,7 +78,7 @@ export class DeliveryAreasController {
   }
 
 
-  @Roles('admin', 'manager')
+  
   @Patch(':id/level')
   updateLevel(
     @Param('id') id: string,
@@ -92,7 +92,7 @@ export class DeliveryAreasController {
     );
 }
 
-  @Roles('admin', 'manager')
+  
   @Patch('exclusion/:id')
   updateExclusion(
     @Param('id') id: string,
@@ -102,7 +102,7 @@ export class DeliveryAreasController {
     return this.deliveryAreasService.updateExclusion(req.user.userId, id, updateDeliveryAreaExclusionDto);
   }
 
-  @Roles('admin', 'manager')
+  
   @Delete('exclusion/:id')
   removeExclusion(@Param('id') id: string, @Req() req: RequestWithUser) {
     return this.deliveryAreasService.removeExclusion(req.user.userId, id);

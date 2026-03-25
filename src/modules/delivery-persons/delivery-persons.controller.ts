@@ -34,7 +34,7 @@ export class DeliveryPersonsController {
   ) {}
 
   @Post()
-  @Roles('admin', 'manager')
+  
   create(
     @Body() createDeliveryPersonDto: CreateDeliveryPersonDto,
     @Req() req: RequestWithUser,
@@ -46,7 +46,7 @@ export class DeliveryPersonsController {
   }
 
   @Post('generate-password')
-  @Roles('admin', 'manager')
+  
   generatePassword(
     @Body() dto: GenerateDeliveryPasswordDto,
     @Req() req: RequestWithUser,
@@ -88,7 +88,7 @@ export class DeliveryPersonsController {
   }
 
   @Patch(':id')
-  @Roles('admin', 'manager')
+  
   update(
     @Param('id') id: string,
     @Body() updateDeliveryPersonDto: UpdateDeliveryPersonDto,
@@ -102,7 +102,7 @@ export class DeliveryPersonsController {
   }
 
   @Patch(':id/online-status')
-  @Roles('admin', 'manager')
+  
   updateOnlineStatus(
     @Param('id') id: string,
     @Body('isOnline') isOnline: boolean,
@@ -116,7 +116,7 @@ export class DeliveryPersonsController {
   }
 
   @Delete(':id')
-  @Roles('admin', 'manager')
+  
   remove(@Param('id') id: string) {
     return this.deliveryPersonsService.remove(id);
   }

@@ -72,7 +72,7 @@ export class OrdersController {
   }
 
   @Patch(':id/status')
-  @Roles('admin', 'manager')
+  
   updateStatus(
     @Param('id') id: string,
     @Body('status') status: OrderStatusDto,
@@ -92,7 +92,7 @@ export class OrdersController {
   }
 
   @Delete(':id')
-  @Roles('admin', 'manager')
+  
   remove(@Param('id') id: string, @Req() req: RequestWithUser) {
     return this.ordersService.remove(id, req.user.userId);
   }

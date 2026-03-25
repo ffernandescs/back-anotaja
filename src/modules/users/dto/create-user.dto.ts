@@ -24,7 +24,8 @@ export class CreateUserDto {
 
   @IsOptional()
   @IsString()
-  role?: string;
+  groupId?: string;
+  
 
   @IsOptional()
   @IsString()

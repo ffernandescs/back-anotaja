@@ -18,7 +18,7 @@ interface RequestWithUser extends Request {
 export class BillingController {
   constructor(private readonly billingService: BillingService) {}
   @Post('checkout')
-  @Roles('admin', 'manager')
+  
   async checkout(@Body() body: { companyId: string; planId: string }) {
     return this.billingService.createCheckout(body.companyId, body.planId);
   }

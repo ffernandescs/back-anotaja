@@ -86,7 +86,7 @@ export class TablesController {
    * Cria uma nova mesa
    */
   @Post()
-  @Roles('admin', 'manager')
+  
   async createTable(
     @Body() createTableDto: CreateTableDto,
     @Req() req: RequestWithUser,
@@ -107,7 +107,7 @@ export class TablesController {
    * Atualiza uma mesa
    */
   @Put(':id')
-  @Roles('admin', 'manager')
+  
   async updateTable(
     @Param('id') id: string,
     @Body() updateTableDto: UpdateTableDto,
@@ -130,7 +130,7 @@ export class TablesController {
    * Remove uma mesa (só se estiver disponível)
    */
   @Delete(':id')
-  @Roles('admin', 'manager')
+  
   async deleteTable(@Param('id') id: string) {
     await this.tablesService.deleteTable(id);
 
@@ -270,7 +270,7 @@ export class TablesController {
   }
 
   @Post('bulk')
-  @Roles('admin', 'manager')
+  
   async bulkCreateTables(
     @Body() bulkCreateDto: BulkCreateTablesDto,
     @Req() req: RequestWithUser,

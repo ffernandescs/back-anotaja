@@ -70,7 +70,6 @@ export class PaymentMethodsController {
   // ✅ Branch associa métodos
   @Post('branch/assign')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'manager') // Branch users
   assignToBranch(
     @Body() payments: BranchAssignPaymentDto[],
     @Req() req: RequestWithUser,

@@ -21,10 +21,6 @@ export class PlansService {
       throw new NotFoundException('Usuário não encontrado');
     }
 
-    if (user.role !== 'admin') {
-      throw new ForbiddenException('Apenas administradores podem criar planos');
-    }
-
     // Criar o plano
     const plan = await prisma.plan.create({
       data: {
@@ -56,18 +52,7 @@ export class PlansService {
       });
 
       // Admin pode ver todos, inclusive inativos
-      if (user?.role === 'admin') {
-        return prisma.plan.findMany({
-          orderBy: [{ displayOrder: 'asc' }, { createdAt: 'desc' }],
-          include: {
-            _count: {
-              select: {
-                subscriptions: true,
-              },
-            },
-          },
-        });
-      }
+      
     }
 
     // Usuários comuns só veem planos ativos
@@ -113,12 +98,6 @@ export class PlansService {
       throw new NotFoundException('Usuário não encontrado');
     }
 
-    if (user.role !== 'admin') {
-      throw new ForbiddenException(
-        'Apenas administradores podem atualizar planos',
-      );
-    }
-
     // Verificar se o plano existe
     await this.findOne(id);
 
@@ -145,11 +124,7 @@ export class PlansService {
       throw new NotFoundException('Usuário não encontrado');
     }
 
-    if (user.role !== 'admin') {
-      throw new ForbiddenException(
-        'Apenas administradores podem deletar planos',
-      );
-    }
+   
 
     // Verificar se o plano existe
     await this.findOne(id);
