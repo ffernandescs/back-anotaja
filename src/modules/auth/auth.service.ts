@@ -9,7 +9,7 @@ import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { securityConfig } from '../../../src/config/security.config';
 import { PLAN_LIMITS } from '../../ability/factory/plan-rules';
-import { PlanType } from '@prisma/client';
+import { PlanType } from '../../ability/types/ability.types';
 import { prisma } from '../../../lib/prisma';
 import { MailService } from '../mail/mail.service';
 import { UsersService } from '../users/users.service';
@@ -17,6 +17,7 @@ import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RegisterDto } from './dto/register.dto';
 import { AbilityLoaderService } from '../../ability/factory/ability-loader.service';
+import { MenuService } from '../../ability/factory/menu.service';
 
 const OTP_EXPIRES_IN_MINUTES = Number(process.env.OTP_EXPIRES_IN_MINUTES ?? 10);
 
@@ -27,6 +28,7 @@ export class AuthService {
     private jwtService: JwtService,
     private mailService: MailService,
     private abilityLoaderService: AbilityLoaderService,
+    private menuService: MenuService,
   ) {}
 
   private async sendResetEmail(email: string, otp: string) {
@@ -446,6 +448,11 @@ export class AuthService {
       }
     }
 
+    // Gerar menu baseado no plano
+    const planType = subscriptionInfo?.plan?.type as PlanType || PlanType.TRIAL;
+    const addons = []; // TODO: Buscar add-ons ativos da subscription
+    const menu = this.menuService.generateMenu(planType, addons);
+
     return {
       user: {
         id: user.id,
@@ -473,6 +480,7 @@ export class AuthService {
       },
       bootstrap: {
         pendingOrders,
+        menu,
       },
     };
   }

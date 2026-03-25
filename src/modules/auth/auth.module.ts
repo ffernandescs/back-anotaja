@@ -8,6 +8,7 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { AbilityModule } from '../../ability/ability.module';
+import { MenuService } from '../../ability/factory/menu.service';
 
 @Module({
   imports: [
@@ -31,7 +32,7 @@ import { AbilityModule } from '../../ability/ability.module';
     UsersModule,
     AbilityModule,
   ],
-  providers: [AuthService, JwtStrategy, MailService],
+  providers: [AuthService, JwtStrategy, MailService, MenuService],
   controllers: [AuthController],
   exports: [AuthService, JwtStrategy, PassportModule],
 })
