@@ -34,13 +34,11 @@ export class GroupsController {
   }
 
   @Patch(':id')
-  @CheckAbilities({ action: Action.UPDATE, subject: Subject.GROUP })
   async update(@Param('id') id: string, @Body() updateGroupDto: UpdateGroupDto,  @Req() req: RequestWithUser,) {
     return this.groupsService.update(id, updateGroupDto, req.user.userId);
   }
 
   @Delete(':id')
-  @CheckAbilities({ action: Action.DELETE, subject: Subject.GROUP })
   async remove(@Param('id') id: string,  @Req() req: RequestWithUser,) {
     return this.groupsService.remove(id, req.user.userId);
   }
