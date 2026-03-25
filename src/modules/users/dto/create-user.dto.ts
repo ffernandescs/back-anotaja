@@ -4,6 +4,7 @@ import {
   MinLength,
   IsOptional,
   IsBoolean,
+  IsArray,
 } from 'class-validator';
 
 export class CreateUserDto {
@@ -38,4 +39,12 @@ export class CreateUserDto {
   @IsOptional()
   @IsBoolean()
   active?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  permissions?: Array<{
+    action: string;
+    subject: string;
+    inverted?: boolean;
+  }>;
 }

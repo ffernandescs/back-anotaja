@@ -352,7 +352,7 @@ export class AuthService {
       });
     }
 
-    // Carregar ability consolidada (Plano + Grupo + Overrides)
+    // Carregar permissões do usuário (grupo + overrides)
     let permissions: any[] = [];
     let subscriptionInfo = user.company?.subscription;
     let resourceCounts = {
@@ -388,18 +388,14 @@ export class AuthService {
         ordersMonth: ordersMonthCount,
       };
 
-      const ability = await this.abilityLoaderService.loadAbility(
-        user.id,
-        user.companyId,
-      );
+      // 2. Obter o contexto para filtrar permissões pelo plano
+      const ctx = await this.abilityLoaderService.buildContext(user.id, user.companyId);
       
-      // Retornar apenas as permissões do grupo e overrides do usuário
-      // (não todas as regras da ability que inclui o plano)
+      // 3. Coletar permissões efetivas (grupo + overrides) filtradas pelo plano
       const effectivePermissions: any[] = [];
       
       // Adicionar permissões do grupo (filtradas pelo plano)
       if (user.group?.permissions?.length) {
-        const ctx = await this.abilityLoaderService.buildContext(user.id, user.companyId);
         const filteredGroupPermissions = await this.abilityLoaderService.filterPermissionsByPlan(
           user.group.permissions,
           ctx.tenant.plan,
@@ -411,7 +407,6 @@ export class AuthService {
       
       // Adicionar overrides do usuário (filtrados pelo plano)
       if (user.permissions?.length) {
-        const ctx = await this.abilityLoaderService.buildContext(user.id, user.companyId);
         const filteredUserOverrides = await this.abilityLoaderService.filterPermissionsByPlan(
           user.permissions,
           ctx.tenant.plan,
@@ -470,7 +465,7 @@ export class AuthService {
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
         orders: user.orders || undefined,
-        permission: permissions,
+        permission: user.permissions,
         counts: resourceCounts,
       },
       bootstrap: {

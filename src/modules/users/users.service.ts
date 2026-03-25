@@ -102,6 +102,16 @@ export class UsersService {
       password: createUserDto.password
         ? await bcrypt.hash(createUserDto.password, 10)
         : undefined,
+      // Adicionar permissões se fornecidas
+      permissions: createUserDto.permissions && createUserDto.permissions.length > 0
+        ? {
+            create: createUserDto.permissions.map(perm => ({
+              action: perm.action as any,
+              subject: perm.subject as any,
+              inverted: perm.inverted ?? false,
+            })),
+          }
+        : undefined,
     };
 
     return prisma.user.create({
@@ -134,7 +144,8 @@ export class UsersService {
             }
           }
         },
-        group: true
+        group: true,
+        permissions: true
       },
       orderBy: { createdAt: 'asc' }
     });
@@ -169,7 +180,8 @@ export class UsersService {
             }
           }
         },
-        group:true
+        group: true,
+        permissions: true
       }
     });
 
@@ -252,8 +264,10 @@ export class UsersService {
     }
 
     // Preparar dados de update, tipado corretamente
+    const { permissions, groupId, branchId, ...otherData } = updateUserDto;
+    
     const updateData: Prisma.UserUpdateInput = {
-      ...updateUserDto,
+      ...otherData,
       // Hash da senha se fornecida
       password: updateUserDto.password
         ? await bcrypt.hash(updateUserDto.password, 10)
@@ -262,9 +276,25 @@ export class UsersService {
       company: updateUserDto.companyId
         ? { connect: { id: updateUserDto.companyId } }
         : undefined,
-      branch: updateUserDto.branchId
-        ? { connect: { id: updateUserDto.branchId } }
+      // Corrigir branchId para branch (relacionamento)
+      branch: branchId
+        ? { connect: { id: branchId } }
         : undefined,
+      // Corrigir groupId para group (relacionamento)
+      group: groupId
+        ? { connect: { id: groupId } }
+        : undefined,
+      // Tratar permissões se fornecidas
+      ...(permissions && {
+        permissions: {
+          deleteMany: {},
+          create: permissions.map(perm => ({
+            action: perm.action as any,
+            subject: perm.subject as any,
+            inverted: perm.inverted ?? false,
+          })),
+        },
+      }),
     };
 
     return prisma.user.update({
