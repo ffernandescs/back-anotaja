@@ -18,4 +18,5 @@ RUN npm run build:prod
 
 EXPOSE 3001
 
-CMD ["node", "dist/src/main.js"]
+COPY environments/.env.prod .env
+CMD ["node", "-r", "dotenv/config", "dist/src/main.js"]
