@@ -101,6 +101,8 @@ export class AuthService {
         group: user.group,
         companyId: user.companyId || undefined,
         branchId: user.branchId || undefined,
+        permission: user.permissions,
+
       },
       pendingOrders,
     };
@@ -274,6 +276,7 @@ export class AuthService {
         groupId: refreshToken.user.groupId,
         companyId: refreshToken.user.companyId || undefined,
         branchId: refreshToken.user.branchId || undefined,
+
       },
     };
   }
