@@ -219,7 +219,11 @@ export class UsersService {
     return prisma.user.findUnique({
       where: { email },
       include: {
-        group:true,
+        group:{
+          include: {
+            permissions:true
+          }
+        },
         permissions: true
       }
     });
