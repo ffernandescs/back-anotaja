@@ -9,6 +9,7 @@ import { prisma } from '../../../lib/prisma';
 import { Prisma, User, Company, Branch, PermissionAction, PermissionSubject } from '@prisma/client';
 import { GeocodingService } from '../geocoding/geocoding.service';
 import { MailService } from '../mail/mail.service';
+import { PLAN_FEATURES } from '../../ability/factory/plan-rules';
 
 export type VerifyCompanyExistDto = {
   phone?: string;
@@ -197,26 +198,7 @@ export class CompaniesService {
 
       // 5️⃣ Criar grupo Administrador com permissões do plano TRIAL
       // Obter permissões do plano TRIAL de forma centralizada
-      let trialFeatures: any[] = [];
-      try {
-        const { PLAN_FEATURES } = require('../ability/factory/plan-rules');
-        trialFeatures = PLAN_FEATURES.TRIAL || [];
-      } catch (error) {
-        console.error('Erro ao carregar PLAN_FEATURES:', error);
-        // Fallback para permissões básicas do TRIAL caso não consiga carregar
-        trialFeatures = [
-          ['manage', 'order'],
-          ['manage', 'product'],
-          ['manage', 'category'],
-          ['read', 'customer'],
-          ['read', 'report'],
-          ['manage', 'group'],
-          ['manage', 'user'],
-          ['read', 'subscription'],
-          ['manage', 'payment_method'],
-          ['manage', 'delivery_area'],
-        ];
-      }
+      const trialFeatures = PLAN_FEATURES.TRIAL || [];
       
       // Converter o formato [action, subject] para o formato do Prisma
       const trialPermissions = trialFeatures.map(([action, subject]) => ({

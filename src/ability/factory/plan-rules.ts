@@ -10,18 +10,22 @@ import { Action, AddonType, DefinePermission, PlanLimits, PlanType, Subject } fr
 // Features base por plano (sem add-ons)
 export const PLAN_FEATURES: Record<PlanType, Array<[Action, Subject | Subject[]]>> = {
   // Trial: acesso básico para teste (controlado por expiração e grupo)
-  [PlanType.TRIAL]: [
-    [Action.MANAGE, Subject.ORDER],
-    [Action.MANAGE, Subject.PRODUCT],
-    [Action.MANAGE, Subject.CATEGORY],
-    [Action.READ,   Subject.CUSTOMER],
-    [Action.READ,   Subject.REPORT],
-    [Action.MANAGE, Subject.GROUP],
-    [Action.MANAGE, Subject.USER],
-    [Action.READ,   Subject.SUBSCRIPTION],
-    [Action.MANAGE, Subject.PAYMENT_METHOD],
-    [Action.MANAGE, Subject.DELIVERY_AREA],
-  ],
+  // Em desenvolvimento: ALL para facilitar testes
+  [PlanType.TRIAL]: 
+    process.env.NODE_ENV === 'development' 
+      ? [[Action.MANAGE, Subject.ALL]]  // DEV: todas as permissões
+      : [
+        [Action.MANAGE, Subject.ORDER],
+        [Action.MANAGE, Subject.PRODUCT],
+        [Action.MANAGE, Subject.CATEGORY],
+        [Action.READ,   Subject.CUSTOMER],
+        [Action.READ,   Subject.REPORT],
+        [Action.MANAGE, Subject.GROUP],
+        [Action.MANAGE, Subject.USER],
+        [Action.READ,   Subject.SUBSCRIPTION],
+        [Action.MANAGE, Subject.PAYMENT_METHOD],
+        [Action.MANAGE, Subject.DELIVERY_AREA],
+      ],
 
   // Basic: operação do dia a dia
   [PlanType.BASIC]: [
