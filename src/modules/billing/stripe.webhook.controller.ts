@@ -71,11 +71,18 @@ export class StripeWebhookController {
       );
       // ✅ Datas corretas da subscription
       const startDate = new Date(subscription.created * 1000); // Data que começou
+      
+      // Se está em trial, a próxima cobrança será após o trial
+      // current_period_end já inclui os dias de trial + período do plano
       const nextBillingDate = subscription.current_period_end
         ? new Date(subscription.current_period_end * 1000)
         : null;
+      
       this.logger.log(
         `nextBillingDate calculada: ${nextBillingDate?.toLocaleString()} (current_period_end=${subscription.current_period_end})`,
+      );
+      this.logger.log(
+        `Trial status: ${subscription.status}, trial_end: ${subscription.trial_end ? new Date(subscription.trial_end * 1000).toLocaleString() : 'N/A'}`,
       );
 
       const endDate = subscription.cancel_at
@@ -91,11 +98,14 @@ export class StripeWebhookController {
         update: {
           status: 'ACTIVE',
           stripeSubscriptionId: subscriptionId,
-          planId,
+          planId, // ← Atualiza para o novo plano
           startDate, // Data que a assinatura foi criada
-          nextBillingDate, // Próxima data de cobrança
+          nextBillingDate, // Próxima data de cobrança (trial + período do plano)
           endDate,
           lastBillingAmount: unitAmount || 0,
+          notes: subscription.trial_end 
+            ? `Plano ativado com trial até ${new Date(subscription.trial_end * 1000).toLocaleDateString()}. Primeira cobrança em ${nextBillingDate?.toLocaleDateString()}`
+            : `Plano ativado. Próxima cobrança em ${nextBillingDate?.toLocaleDateString()}`,
         },
         create: {
           companyId,
@@ -106,11 +116,17 @@ export class StripeWebhookController {
           nextBillingDate,
           endDate,
           lastBillingAmount: unitAmount || 0,
+          notes: subscription.trial_end 
+            ? `Plano ativado com trial até ${new Date(subscription.trial_end * 1000).toLocaleDateString()}. Primeira cobrança em ${nextBillingDate?.toLocaleDateString()}`
+            : `Plano ativado. Próxima cobrança em ${nextBillingDate?.toLocaleDateString()}`,
         },
       });
       this.logger.log(
         `Assinatura criada/atualizada no banco para companyId=${companyId}`,
       );
+
+      // 🔄 Atualizar permissões dos grupos para o novo plano
+      await this.updateGroupPermissionsForNewPlan(companyId, planId);
     }
 
     // ✅ Atualizar próxima data de cobrança quando invoice é gerado
@@ -189,5 +205,84 @@ export class StripeWebhookController {
     }
 
     return { received: true };
+  }
+
+  /**
+   * Atualiza as permissões de todos os grupos da empresa para o novo plano
+   */
+  private async updateGroupPermissionsForNewPlan(companyId: string, newPlanId: string) {
+    try {
+      this.logger.log(`Atualizando permissões dos grupos para o novo plano: ${newPlanId}`);
+
+      // 1. Buscar o plano para obter o tipo
+      const plan = await prisma.plan.findUnique({
+        where: { id: newPlanId },
+      });
+
+      if (!plan) {
+        this.logger.warn(`Plano ${newPlanId} não encontrado. Pulando atualização de permissões.`);
+        return;
+      }
+
+      // 2. Importar as features do plano
+      const { PLAN_FEATURES } = require('../../ability/factory/plan-rules');
+      const planFeatures = PLAN_FEATURES[plan.type] || [];
+
+      // 3. Converter features para formato de permissões
+      const newPermissions = planFeatures.map(([action, subject]: [any, any]) => ({
+        action: action as any,
+        subject: Array.isArray(subject) ? subject[0] : subject as any,
+        inverted: false,
+      }));
+
+      // 4. Buscar todos os grupos da empresa
+      const company = await prisma.company.findUnique({
+        where: { id: companyId },
+        include: {
+          branches: {
+            include: {
+              groups: {
+                include: {
+                  permissions: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!company) {
+        this.logger.warn(`Empresa ${companyId} não encontrada.`);
+        return;
+      }
+
+      // 5. Atualizar permissões de cada grupo
+      for (const branch of company.branches) {
+        for (const group of branch.groups) {
+          this.logger.log(`Atualizando permissões do grupo: ${group.name} (${group.id})`);
+
+          // Deletar permissões antigas
+          await prisma.permission.deleteMany({
+            where: { groupId: group.id },
+          });
+
+          // Criar novas permissões baseadas no plano
+          await prisma.permission.createMany({
+            data: newPermissions.map(perm => ({
+              groupId: group.id,
+              action: perm.action,
+              subject: perm.subject,
+              inverted: perm.inverted,
+            })),
+          });
+
+          this.logger.log(`Permissões atualizadas para o grupo: ${group.name}`);
+        }
+      }
+
+      this.logger.log(`Permissões de todos os grupos atualizadas para o plano ${plan.type}`);
+    } catch (error) {
+      this.logger.error(`Erro ao atualizar permissões dos grupos`);
+    }
   }
 }

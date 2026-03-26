@@ -119,6 +119,33 @@ export class StoreService {
       );
     }
 
+    // Verificar status da subscription da empresa
+    const subscription = await prisma.subscription.findUnique({
+      where: { companyId: branch.companyId },
+      include: { plan: true },
+    });
+
+    let canReceiveOrders = true;
+    let subscriptionReason: 'SUSPENDED' | 'TRIAL_EXPIRED' | null = null;
+
+    if (subscription) {
+      // Verificar se está suspensa
+      if (subscription.status === 'SUSPENDED') {
+        canReceiveOrders = false;
+        subscriptionReason = 'SUSPENDED';
+      }
+
+      // Verificar se trial expirou
+      if (subscription.plan.type === 'TRIAL' && subscription.endDate) {
+        const now = new Date();
+        const endDate = new Date(subscription.endDate);
+        if (now > endDate) {
+          canReceiveOrders = false;
+          subscriptionReason = 'TRIAL_EXPIRED';
+        }
+      }
+    }
+
     // Buscar categorias ativas que tenham pelo menos 1 produto ativo
     const categories = await prisma.category.findMany({
       where: {
@@ -256,6 +283,11 @@ export class StoreService {
         productsCount: branch._count.products,
         categoriesCount: branch._count.categories,
       },
+      subscription: subscription ? {
+        status: subscription.status,
+        canReceiveOrders,
+        reason: subscriptionReason,
+      } : undefined,
       categories: categories.map((category) => ({
         id: category.id,
         name: category.name,

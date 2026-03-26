@@ -407,40 +407,38 @@ export class SubscriptionService {
       return []; // Retorna array vazio se não houver subscription
     }
 
-    // Por enquanto, retornar dados mockados
-    // TODO: Integrar com Stripe para buscar invoices reais
+    // Buscar invoices reais do Stripe
     const invoices: InvoiceResponseDto[] = [];
 
-    // Se não for trial, gerar invoices mockados baseados na data de início
-    if (subscription.plan.type !== 'TRIAL') {
-      const startDate = new Date(subscription.startDate);
-      const now = new Date();
-      let currentDate = new Date(startDate);
-      let invoiceCount = 1;
-
-      while (currentDate <= now) {
-        invoices.push({
-          id: `inv_${invoiceCount}`,
-          date: new Date(currentDate),
-          amount: subscription.plan.price,
-          status: 'PAID',
-          description: `${subscription.plan.name} - ${currentDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}`,
-          invoiceNumber: `INV-${currentDate.getFullYear()}-${String(invoiceCount).padStart(3, '0')}`,
-          companyId,
-          subscriptionId: subscription.id,
-          createdAt: new Date(currentDate),
+    // Só buscar invoices se tiver stripeSubscriptionId (subscription paga)
+    if (subscription.stripeSubscriptionId) {
+      try {
+        // Buscar invoices do Stripe
+        const stripeInvoices = await this.stripeService.stripe.invoices.list({
+          subscription: subscription.stripeSubscriptionId,
+          limit: 100,
         });
 
-        // Avançar para o próximo período
-        if (subscription.billingPeriod === 'MONTHLY') {
-          currentDate.setMonth(currentDate.getMonth() + 1);
-        } else if (subscription.billingPeriod === 'SEMESTRAL') {
-          currentDate.setMonth(currentDate.getMonth() + 6);
-        } else if (subscription.billingPeriod === 'ANNUAL') {
-          currentDate.setFullYear(currentDate.getFullYear() + 1);
+        // Converter invoices do Stripe para o formato do DTO
+        for (const invoice of stripeInvoices.data) {
+          // Só incluir invoices pagas ou pendentes (ignorar drafts)
+          if (invoice.status === 'paid' || invoice.status === 'open') {
+            invoices.push({
+              id: invoice.id,
+              date: new Date(invoice.created * 1000),
+              amount: invoice.amount_paid || invoice.amount_due || 0,
+              status: invoice.status === 'paid' ? 'PAID' : 'PENDING',
+              description: invoice.description || `${subscription.plan.name} - ${new Date(invoice.created * 1000).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}`,
+              invoiceNumber: invoice.number || `INV-${invoice.id.slice(-8)}`,
+              companyId,
+              subscriptionId: subscription.id,
+              createdAt: new Date(invoice.created * 1000),
+            });
+          }
         }
-
-        invoiceCount++;
+      } catch (error) {
+        console.error('Erro ao buscar invoices do Stripe:', error);
+        // Se falhar, retornar array vazio ao invés de dados mockados
       }
     }
 

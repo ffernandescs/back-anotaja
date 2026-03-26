@@ -56,6 +56,29 @@ export class BillingService {
       throw new NotFoundException('Plano inválido');
     }
 
+    /** 🔄 Verificar se tem subscription no Stripe e qual o status real */
+    if (company.subscription?.stripeSubscriptionId) {
+      try {
+        // Buscar status real da subscription no Stripe
+        const stripeSubscription = await this.stripeService.stripe.subscriptions.retrieve(
+          company.subscription.stripeSubscriptionId
+        );
+
+        // Se está ativa ou em trial, fazer upgrade direto
+        if (stripeSubscription.status === 'active' || stripeSubscription.status === 'trialing') {
+          return this.updateSubscriptionPlan(company.subscription.stripeSubscriptionId, plan, company.id);
+        }
+
+        // Se está cancelada, suspensa ou incompleta, criar nova subscription via checkout
+        console.log(`Subscription ${stripeSubscription.id} está ${stripeSubscription.status}. Criando nova checkout session.`);
+      } catch (error) {
+        console.error('Erro ao verificar subscription no Stripe:', error);
+        // Se falhar, continua para criar checkout session
+      }
+    }
+
+    // Se não tem subscription no Stripe ou está inativa, criar checkout session
+
     /** 1️⃣ Criar ou reutilizar customer */
     let customerId = company.subscription?.stripeCustomerId;
 
@@ -112,29 +135,169 @@ export class BillingService {
                 missing_payment_method: 'cancel',
               },
             },
-            proration_behavior: 'none',
           }
-        : {
-            proration_behavior: 'none',
-          },
+        : undefined,
     });
 
-    /** 3️⃣ Criar subscription PENDING */
-    await prisma.subscription.upsert({
+    /** 3️⃣ Atualizar apenas o stripeCustomerId (não muda o plano ainda) */
+    // O plano só será alterado após confirmação do pagamento via webhook
+    await prisma.subscription.update({
       where: { companyId: company.id },
-      update: {
-        status: 'PENDING',
-        planId: plan.id,
-        stripeCustomerId: customerId,
-      },
-      create: {
-        companyId: company.id,
-        planId: plan.id,
-        status: 'PENDING',
+      data: {
         stripeCustomerId: customerId,
       },
     });
 
-    return { checkoutUrl: session.url };
+    return { 
+      checkoutUrl: session.url,
+      message: 'Checkout criado. O plano será ativado após confirmação do pagamento.'
+    };
+  }
+
+  /**
+   * Atualiza o plano de uma assinatura ativa (upgrade/downgrade)
+   */
+  private async updateSubscriptionPlan(stripeSubscriptionId: string, newPlan: any, companyId: string) {
+    try {
+      // 1. Buscar a subscription no Stripe
+      const subscription = await this.stripeService.stripe.subscriptions.retrieve(stripeSubscriptionId);
+
+      // Aceitar subscriptions ativas ou em trial
+      if (!subscription || (subscription.status !== 'active' && subscription.status !== 'trialing')) {
+        throw new Error(`Assinatura não está ativa ou em trial. Status: ${subscription?.status}`);
+      }
+
+      // 2. Criar novo price no Stripe para o plano
+      const price = await this.stripeService.stripe.prices.create({
+        currency: 'brl',
+        unit_amount: calculateStripeAmount(newPlan.price, newPlan.discount),
+        recurring: {
+          interval: mapBillingPeriodToStripeInterval(newPlan.billingPeriod),
+        },
+        product_data: {
+          name: newPlan.name,
+          metadata: {
+            planId: newPlan.id,
+          },
+        },
+      });
+
+      // 3. Atualizar a subscription com o novo price
+      // Padrão SaaS: sempre usar proration para cobrar/creditar a diferença
+      const updatedSubscription = await this.stripeService.stripe.subscriptions.update(stripeSubscriptionId, {
+        items: [
+          {
+            id: subscription.items.data[0].id,
+            price: price.id,
+          },
+        ],
+        proration_behavior: 'create_prorations', // Cobra/credita diferença proporcionalmente
+        metadata: {
+          companyId: companyId,
+          planId: newPlan.id,
+        },
+      });
+
+      // 4. Atualizar no banco de dados
+      await prisma.subscription.update({
+        where: { companyId: companyId },
+        data: {
+          planId: newPlan.id,
+          status: updatedSubscription.status === 'active' ? 'ACTIVE' : 
+                  updatedSubscription.status === 'trialing' ? 'ACTIVE' : 'SUSPENDED',
+          stripeSubscriptionId: updatedSubscription.id,
+          lastBillingAmount: updatedSubscription.items.data[0]?.price?.unit_amount || 0,
+        },
+      });
+
+      // 5. Atualizar permissões dos grupos para o novo plano
+      await this.updateGroupPermissionsForNewPlan(companyId, newPlan.id);
+
+      return {
+        success: true,
+        message: 'Plano atualizado com sucesso',
+        subscription: updatedSubscription,
+      };
+    } catch (error) {
+      console.error('Erro ao atualizar plano:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Atualiza as permissões de todos os grupos da empresa para o novo plano
+   */
+  private async updateGroupPermissionsForNewPlan(companyId: string, newPlanId: string) {
+    try {
+      // 1. Buscar o plano para obter o tipo
+      const plan = await prisma.plan.findUnique({
+        where: { id: newPlanId },
+      });
+
+      if (!plan) {
+        console.warn(`Plano ${newPlanId} não encontrado. Pulando atualização de permissões.`);
+        return;
+      }
+
+      // 2. Importar as features do plano
+      const { PLAN_FEATURES } = require('../ability/factory/plan-rules');
+      const planFeatures = PLAN_FEATURES[plan.type] || [];
+
+      // 3. Converter features para formato de permissões
+      const newPermissions = planFeatures.map(([action, subject]: [any, any]) => ({
+        action: action as any,
+        subject: Array.isArray(subject) ? subject[0] : subject as any,
+        inverted: false,
+      }));
+
+      // 4. Buscar todos os grupos da empresa
+      const company = await prisma.company.findUnique({
+        where: { id: companyId },
+        include: {
+          branches: {
+            include: {
+              groups: {
+                include: {
+                  permissions: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!company) {
+        console.warn(`Empresa ${companyId} não encontrada.`);
+        return;
+      }
+
+      // 5. Atualizar permissões de cada grupo
+      for (const branch of company.branches) {
+        for (const group of branch.groups) {
+          console.log(`Atualizando permissões do grupo: ${group.name} (${group.id})`);
+
+          // Deletar permissões antigas
+          await prisma.permission.deleteMany({
+            where: { groupId: group.id },
+          });
+
+          // Criar novas permissões baseadas no plano
+          await prisma.permission.createMany({
+            data: newPermissions.map(perm => ({
+              groupId: group.id,
+              action: perm.action,
+              subject: perm.subject,
+              inverted: perm.inverted,
+            })),
+          });
+
+          console.log(`Permissões atualizadas para o grupo: ${group.name}`);
+        }
+      }
+
+      console.log(`Permissões de todos os grupos atualizadas para o plano ${plan.type}`);
+    } catch (error) {
+      console.error(`Erro ao atualizar permissões dos grupos:`, error);
+    }
   }
 }

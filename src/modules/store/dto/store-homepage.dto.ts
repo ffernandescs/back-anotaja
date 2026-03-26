@@ -46,6 +46,11 @@ export class StoreHomepageDto {
     productsCount: number;
     categoriesCount: number;
   };
+  subscription?: {
+    status: string;
+    canReceiveOrders: boolean;
+    reason?: 'SUSPENDED' | 'TRIAL_EXPIRED' | null;
+  };
   categories!: Array<{
     id: string;
     name: string;
