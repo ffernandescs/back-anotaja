@@ -54,7 +54,7 @@ export class MenuService {
           label: 'Categorias',
           href: '/admin/categories',
           action: Action.READ,
-          subject: Subject.CATEGORY,
+          subject: Subject.PRODUCT,
         },
         {
           id: 'complements',
@@ -72,7 +72,7 @@ export class MenuService {
               label: 'Opções de Complementos',
               href: '/admin/complement-options',
               action: Action.READ,
-              subject: Subject.COMPLEMENT,
+              subject: Subject.PRODUCT,
             },
           ],
         },
