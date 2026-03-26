@@ -114,6 +114,60 @@ export class AbilityFactory {
     return build();
   }
 
+  /**
+   * ✅ Calcula as permissões efetivas do usuário
+   * Combina: GRUPO + OVERRIDES (respeitando o teto do PLANO)
+   * 
+   * Usado pelo MenuService para filtrar o menu baseado nas permissões reais do usuário
+   */
+  getEffectivePermissions(
+    groupPermissions: PermissionRule[] | undefined,
+    userOverrides: PermissionRule[] | undefined,
+    plan: PlanType,
+    addons: AddonType[]
+  ): PermissionRule[] {
+    const effectivePermissions: PermissionRule[] = [];
+    
+    // 1. Adicionar permissões do grupo (filtradas pelo plano)
+    if (groupPermissions?.length) {
+      const filteredGroupPermissions = this.filterPermissionsByPlan(
+        groupPermissions,
+        plan,
+        addons
+      );
+      effectivePermissions.push(...filteredGroupPermissions);
+    }
+    
+    // 2. Aplicar overrides do usuário (filtrados pelo plano)
+    if (userOverrides?.length) {
+      const filteredUserOverrides = this.filterPermissionsByPlan(
+        userOverrides,
+        plan,
+        addons
+      );
+      
+      for (const override of filteredUserOverrides) {
+        const existingIndex = effectivePermissions.findIndex(
+          p => p.action === override.action && p.subject === override.subject
+        );
+        
+        if (override.inverted) {
+          // Remove permissão (cannot)
+          if (existingIndex !== -1) {
+            effectivePermissions.splice(existingIndex, 1);
+          }
+        } else {
+          // Adiciona permissão (can) se não existir
+          if (existingIndex === -1) {
+            effectivePermissions.push(override);
+          }
+        }
+      }
+    }
+    
+    return effectivePermissions;
+  }
+
   // ── Helpers privados ─────────────────────────────────────────
 
   private getSubscriptionStatus(tenant: AbilityContext['tenant']): { 

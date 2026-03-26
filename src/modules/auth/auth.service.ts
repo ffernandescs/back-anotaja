@@ -18,6 +18,7 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RegisterDto } from './dto/register.dto';
 import { AbilityLoaderService } from '../../ability/factory/ability-loader.service';
 import { MenuService } from '../../ability/factory/menu.service';
+import { AbilityFactory } from '../../ability/factory/ability.factory';
 
 const OTP_EXPIRES_IN_MINUTES = Number(process.env.OTP_EXPIRES_IN_MINUTES ?? 10);
 
@@ -29,6 +30,7 @@ export class AuthService {
     private mailService: MailService,
     private abilityLoaderService: AbilityLoaderService,
     private menuService: MenuService,
+    private abilityFactory: AbilityFactory,
   ) {}
 
   private async sendResetEmail(email: string, otp: string) {
@@ -450,10 +452,33 @@ export class AuthService {
       }
     }
 
-    // Gerar menu baseado no plano
+    // ✅ Gerar menu baseado nas permissões efetivas do usuário (grupo + overrides)
     const planType = subscriptionInfo?.plan?.type as PlanType || PlanType.TRIAL;
     const addons = []; // TODO: Buscar add-ons ativos da subscription
-    const menu = this.menuService.generateMenu(planType, addons);
+    
+    // Converter permissões do Prisma para formato do CASL
+    const groupPermissions = user.group?.permissions?.map(p => ({
+      action: p.action as any,
+      subject: p.subject as any,
+      inverted: p.inverted
+    }));
+    
+    const userPermissions = user.permissions?.map(p => ({
+      action: p.action as any,
+      subject: p.subject as any,
+      inverted: p.inverted
+    }));
+    
+    // Calcular permissões efetivas (grupo + overrides respeitando teto do plano)
+    const effectivePermissions = this.abilityFactory.getEffectivePermissions(
+      groupPermissions,
+      userPermissions,
+      planType,
+      addons
+    );
+    
+    // Gerar menu filtrado pelas permissões efetivas
+    const menu = this.menuService.generateMenu(planType, addons, effectivePermissions);
 
     // Salvar branches antes de transformar company
     const companyBranches = user.company?.branches || [];

@@ -7,63 +7,68 @@
 
 import { Action, AddonType, DefinePermission, PlanLimits, PlanType, Subject } from '../types/ability.types';
 
-// Features base por plano (sem add-ons)
+// ─────────────────────────────────────────────────────────────
+// Features base por plano (com herança)
+// ─────────────────────────────────────────────────────────────
+
+// BASIC: Base para todos os planos
+const BASIC_FEATURES: Array<[Action, Subject]> = [
+  [Action.READ,   Subject.DASHBOARD],       // Dashboard sempre visível
+  [Action.MANAGE, Subject.ORDER],           // Gestão de pedidos
+  [Action.MANAGE, Subject.PRODUCT],         // Gestão de produtos
+  [Action.MANAGE, Subject.CATEGORY],        // Gestão de categorias
+  [Action.READ,   Subject.CUSTOMER],        // Visualizar clientes
+  [Action.READ,   Subject.REPORT],          // Relatórios básicos
+  [Action.MANAGE, Subject.GROUP],           // Gestão de grupos
+  [Action.MANAGE, Subject.USER],            // Gestão de usuários
+  [Action.READ,   Subject.SUBSCRIPTION],    // Visualizar assinatura
+  [Action.READ,   Subject.BRANCH],          // Visualizar filiais
+  [Action.MANAGE, Subject.PAYMENT_METHOD],  // Gestão de métodos de pagamento
+  [Action.MANAGE, Subject.DELIVERY_AREA],   // Gestão de áreas de entrega
+  [Action.READ,   Subject.PROFILE],         // Configurações de perfil
+  [Action.READ,   Subject.HOURS],           // Configurações de horário
+  [Action.READ,   Subject.PAYMENT],         // Configurações de pagamento
+];
+
+// PREMIUM: BASIC + Features avançadas
+const PREMIUM_FEATURES: Array<[Action, Subject]> = [
+  ...BASIC_FEATURES,
+  // Upgrades do BASIC para PREMIUM
+  [Action.MANAGE, Subject.CUSTOMER],        // Gestão completa de clientes (upgrade de READ)
+  [Action.MANAGE, Subject.REPORT],          // Relatórios completos + exportação (upgrade de READ)
+  [Action.MANAGE, Subject.SUBSCRIPTION],    // Gestão de assinatura (upgrade de READ)
+  [Action.MANAGE, Subject.BRANCH],          // Gestão de filiais (upgrade de READ)
+  // Novas features exclusivas do PREMIUM
+  [Action.MANAGE, Subject.CASH_REGISTER],   // Fluxo de caixa
+  [Action.MANAGE, Subject.COUPON],          // Cupons de desconto
+  [Action.MANAGE, Subject.STOCK],           // Controle de estoque
+  [Action.MANAGE, Subject.DELIVERY_PERSON], // Gestão de entregadores
+];
+
+// ENTERPRISE: BASIC + PREMIUM + Features exclusivas
+const ENTERPRISE_FEATURES: Array<[Action, Subject]> = [
+  [Action.MANAGE, Subject.ALL],             // Acesso total a tudo
+];
+
+// ─────────────────────────────────────────────────────────────
+// Exportação final com lógica de ambiente
+// ─────────────────────────────────────────────────────────────
+
 export const PLAN_FEATURES: Record<PlanType, Array<[Action, Subject | Subject[]]>> = {
-  // Trial: acesso básico para teste (controlado por expiração e grupo)
-  // Em desenvolvimento: ALL para facilitar testes
+  // TRIAL: Em DEV = ALL, em PROD = ENTERPRISE (para testes completos)
   [PlanType.TRIAL]: 
-    process.env.NODE_ENV === 'development' 
-      ? [[Action.MANAGE, Subject.ALL]]  // DEV: todas as permissões
-      : [
-        [Action.MANAGE, Subject.ORDER],
-        [Action.MANAGE, Subject.PRODUCT],
-        [Action.MANAGE, Subject.CATEGORY],
-        [Action.READ,   Subject.CUSTOMER],
-        [Action.READ,   Subject.REPORT],
-        [Action.MANAGE, Subject.GROUP],
-        [Action.MANAGE, Subject.USER],
-        [Action.READ,   Subject.SUBSCRIPTION],
-        [Action.MANAGE, Subject.PAYMENT_METHOD],
-        [Action.MANAGE, Subject.DELIVERY_AREA],
-      ],
+    process.env.NODE_ENV === 'development'
+      ? ENTERPRISE_FEATURES
+      : ENTERPRISE_FEATURES,
 
-  // Basic: operação do dia a dia
-  [PlanType.BASIC]: [
-    [Action.MANAGE, Subject.ORDER],
-    [Action.MANAGE, Subject.PRODUCT],
-    [Action.MANAGE, Subject.CATEGORY],
-    [Action.READ,   Subject.CUSTOMER],
-    [Action.READ,   Subject.REPORT],          // relatórios básicos apenas
-    [Action.MANAGE, Subject.GROUP],
-    [Action.MANAGE, Subject.USER],
-    [Action.READ,   Subject.SUBSCRIPTION],
-    [Action.MANAGE, Subject.PAYMENT_METHOD],
-    [Action.MANAGE, Subject.DELIVERY_AREA],
-  ],
+  // BASIC: Plano base
+  [PlanType.BASIC]: BASIC_FEATURES,
 
-  // Premium: tudo do Basic + features avançadas
-  [PlanType.PREMIUM]: [
-    [Action.MANAGE, Subject.ORDER],
-    [Action.MANAGE, Subject.PRODUCT],
-    [Action.MANAGE, Subject.CATEGORY],
-    [Action.MANAGE, Subject.CUSTOMER],        // gestão completa de clientes
-    [Action.MANAGE, Subject.CASH_REGISTER],
-    [Action.MANAGE, Subject.REPORT],          // relatórios completos + exportação
-    [Action.MANAGE, Subject.COUPON],          // relatórios completos + exportação
-    [Action.MANAGE, Subject.STOCK],
-    [Action.MANAGE, Subject.GROUP],
-    [Action.MANAGE, Subject.USER],
-    [Action.MANAGE, Subject.SUBSCRIPTION],
-    [Action.MANAGE, Subject.BRANCH],
-    [Action.MANAGE, Subject.PAYMENT_METHOD],
-    [Action.MANAGE, Subject.DELIVERY_AREA],
-    [Action.MANAGE, Subject.DELIVERY_PERSON],
-  ],
+  // PREMIUM: BASIC + features avançadas
+  [PlanType.PREMIUM]: PREMIUM_FEATURES,
 
-  // Enterprise: tudo do Premium (add-ons são controlados separadamente)
-  [PlanType.ENTERPRISE]: [
-    [Action.MANAGE, Subject.ALL],
-  ],
+  // ENTERPRISE: Acesso total
+  [PlanType.ENTERPRISE]: ENTERPRISE_FEATURES,
 };
 
 // Limites quantitativos por plano

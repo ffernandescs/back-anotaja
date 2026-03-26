@@ -198,7 +198,7 @@ export class CompaniesService {
 
       // 5️⃣ Criar grupo Administrador com permissões do plano TRIAL
       // Obter permissões do plano TRIAL de forma centralizada
-      const trialFeatures = PLAN_FEATURES.TRIAL || [];
+      const trialFeatures = PLAN_FEATURES.BASIC || [];
       
       // Converter o formato [action, subject] para o formato do Prisma
       const trialPermissions = trialFeatures.map(([action, subject]) => ({
@@ -211,7 +211,7 @@ export class CompaniesService {
         data: {
           name: 'Administrador',
           branchId: createdBranch.id,
-          description: 'Grupo com acesso total às funcionalidades do plano TRIAL',
+          description: 'Grupo com acesso total às funcionalidades do plano BASICO',
           permissions: {
             create: trialPermissions,
           },
@@ -221,14 +221,14 @@ export class CompaniesService {
       // 6️⃣ Buscar plano trial para criar subscription
       const trialPlan = await prisma.plan.findFirst({
         where: {
-          type: 'TRIAL',
+          type: 'BASIC',
           active: true,
         },
       });
 
       if (!trialPlan) {
         throw new BadRequestException(
-          'Plano trial não encontrado. Configure um plano trial no sistema.',
+          'Plano basico não encontrado. Configure um plano trial no sistema.',
         );
       }
 
@@ -259,7 +259,7 @@ export class CompaniesService {
           startDate: now,
           endDate: trialEndDate,
           nextBillingDate: trialEndDate,
-          notes: `Trial de ${trialPlan.trialDays ?? 7} dias - Criado automaticamente no cadastro`,
+          notes: `Basico de ${trialPlan.trialDays ?? 7} dias - Criado automaticamente no cadastro`,
         },
       });
 

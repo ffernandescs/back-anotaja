@@ -35,7 +35,7 @@ export class MenuService {
           label: 'Dashboard',
           href: '/admin/dashboard',
           action: Action.READ,
-          subject: Subject.ALL,
+          subject: Subject.DASHBOARD,
         },
       ],
     },
@@ -253,21 +253,21 @@ export class MenuService {
               label: 'Perfil',
               href: '/admin/settings/profile',
               action: Action.READ,
-              subject: Subject.ALL,
+              subject: Subject.PROFILE,
             },
             {
               id: 'hours',
               label: 'Horários',
               href: '/admin/settings/hours',
               action: Action.READ,
-              subject: Subject.ALL,
+              subject: Subject.HOURS,
             },
             {
               id: 'payment',
               label: 'Pagamento',
               href: '/admin/settings/payment',
               action: Action.READ,
-              subject: Subject.ALL,
+              subject: Subject.PAYMENT,
             },
             {
               id: 'announcements',
@@ -283,10 +283,29 @@ export class MenuService {
   ];
 
   /**
-   * Gera menu filtrado baseado no plano e add-ons
+   * ✅ Gera menu filtrado baseado nas permissões efetivas do usuário
+   * 
+   * @param plan - Tipo do plano (define o teto)
+   * @param addons - Add-ons ativos
+   * @param userPermissions - Permissões efetivas do usuário (grupo + overrides)
+   * 
+   * Se userPermissions for fornecido, filtra por: PLANO ∩ USER_PERMISSIONS
+   * Se não for fornecido (compatibilidade), filtra apenas por: PLANO
    */
-  generateMenu(plan: PlanType, addons: string[] = []): MenuGroup[] {
-    const allowedPermissions = this.getAllowedPermissions(plan, addons);
+  generateMenu(
+    plan: PlanType, 
+    addons: string[] = [],
+    userPermissions?: Array<{ action: Action; subject: Subject; inverted: boolean }>
+  ): MenuGroup[] {
+    let allowedPermissions: Set<string>;
+    
+    if (userPermissions && userPermissions.length > 0) {
+      // ✅ NOVO: Filtrar por permissões efetivas do usuário (grupo + overrides)
+      allowedPermissions = this.convertUserPermissionsToSet(userPermissions);
+    } else {
+      // ❌ FALLBACK: Filtrar apenas pelo plano (comportamento antigo)
+      allowedPermissions = this.getAllowedPermissions(plan, addons);
+    }
     
     return this.FULL_MENU.map((group) => ({
       title: group.title,
@@ -295,7 +314,44 @@ export class MenuService {
   }
 
   /**
+   * ✅ Converte permissões do usuário (PermissionRule[]) para Set<string>
+   * Usado para filtrar menu baseado nas permissões efetivas (grupo + overrides)
+   */
+  private convertUserPermissionsToSet(
+    userPermissions: Array<{ action: Action; subject: Subject; inverted: boolean }>
+  ): Set<string> {
+    const permissions = new Set<string>();
+
+    for (const permission of userPermissions) {
+      // Ignorar permissões invertidas (cannot)
+      if (permission.inverted) {
+        continue;
+      }
+
+      const { action, subject } = permission;
+
+      if (subject === Subject.ALL) {
+        // Se tem ALL, permite tudo
+        permissions.add('*');
+      } else {
+        permissions.add(`${action}:${subject}`);
+        
+        // Se tem MANAGE, adiciona todas as actions
+        if (action === Action.MANAGE) {
+          permissions.add(`${Action.CREATE}:${subject}`);
+          permissions.add(`${Action.READ}:${subject}`);
+          permissions.add(`${Action.UPDATE}:${subject}`);
+          permissions.add(`${Action.DELETE}:${subject}`);
+        }
+      }
+    }
+
+    return permissions;
+  }
+
+  /**
    * Coleta todas as permissões permitidas pelo plano + add-ons
+   * (Mantido para compatibilidade - usado quando userPermissions não é fornecido)
    */
   private getAllowedPermissions(plan: PlanType, addons: string[]): Set<string> {
     const permissions = new Set<string>();

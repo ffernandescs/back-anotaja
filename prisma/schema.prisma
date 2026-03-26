@@ -22,24 +22,31 @@ enum PermissionSubject {
   product
   category
   customer
-  kds
-  commands
-  report
-  coupon
-  delivery_routes
-  stock
-  delivery_area
-  delivery_person
-  cash_register
-  table
-  payment_method
-  points
-  announcement
-  group
-  user
-  subscription
-  branch
-  all
+  dashboard          // Dashboard principal
+  profile            // Configurações de perfil
+  hours              // Configurações de horário
+  payment            // Configurações de pagamento
+  kanban             // Kanban de pedidos
+  pdv                // Ponto de venda
+  kds                // Kitchen Display System
+  commands           // Comandas
+  report             // Relatórios
+  coupon             // Cupons de desconto
+  delivery_routes    // Rotas de entrega (mantido para compatibilidade)
+  delivery_route     // Rota de entrega (novo padrão)
+  stock              // Estoque
+  delivery_area      // Áreas de entrega
+  delivery_person    // Entregadores
+  cash_register      // Fluxo de caixa
+  table              // Mesas
+  payment_method     // Métodos de pagamento
+  points             // Programa de pontos
+  announcement       // Avisos
+  group              // Grupos de permissão
+  user               // Usuários
+  subscription       // Assinatura
+  branch             // Filiais
+  all                // Todas as permissões
 }
 
 enum AddonType {
