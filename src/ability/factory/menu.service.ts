@@ -379,6 +379,11 @@ export class MenuService {
       return true;
     }
 
+    // ✅ Subject.ALL sempre é exibido para todos (independente do plano)
+    if (item.subject === Subject.ALL) {
+      return true;
+    }
+
     // Se tem permissão total (*), permite tudo
     if (allowedPermissions.has('*')) {
       return true;

@@ -304,6 +304,7 @@ export class AuthService {
                 plan: true,
               },
             },
+            branches:true
           },
         },
         branch: {
@@ -327,6 +328,7 @@ export class AuthService {
           },
         },
       },
+      
     });
 
     if (!user) {
@@ -453,6 +455,9 @@ export class AuthService {
     const addons = []; // TODO: Buscar add-ons ativos da subscription
     const menu = this.menuService.generateMenu(planType, addons);
 
+    // Salvar branches antes de transformar company
+    const companyBranches = user.company?.branches || [];
+
     return {
       user: {
         id: user.id,
@@ -469,7 +474,8 @@ export class AuthService {
             ...subscriptionInfo,
             trialDaysRemaining: (subscriptionInfo as any).trialDaysRemaining,
             limits: PLAN_LIMITS[subscriptionInfo.plan.type as PlanType]
-          } : null
+          } : null,
+          branches: companyBranches,
         } : undefined,
         branch: user.branch || undefined,
         createdAt: user.createdAt,
@@ -477,10 +483,11 @@ export class AuthService {
         orders: user.orders || undefined,
         permission: user.permissions,
         counts: resourceCounts,
+        menu, // ✅ Menu agora vem dentro do user
       },
       bootstrap: {
         pendingOrders,
-        menu,
+        branches: companyBranches,
       },
     };
   }
