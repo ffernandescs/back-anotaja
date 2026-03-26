@@ -134,6 +134,21 @@ export class CompaniesService {
         message = message.replace(/, $/, ''); // remove última vírgula
         throw new BadRequestException(message);
       }
+
+      // ✅ Verificar duplicidade de email e phone na tabela User
+      const existingUser = await prisma.user.findFirst({
+        where: {
+          OR: [{ email }, { phone }],
+        },
+      });
+
+      if (existingUser) {
+        let message = 'Usuário já existe com: ';
+        if (existingUser.email === email) message += 'email, ';
+        if (existingUser.phone === phone) message += 'telefone, ';
+        message = message.replace(/, $/, ''); // remove última vírgula
+        throw new BadRequestException(message);
+      }
       // 1️⃣ Criar empresa
       const createdCompany = await prisma.company.create({
         data: {
