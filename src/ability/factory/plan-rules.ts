@@ -17,17 +17,17 @@ const BASIC_FEATURES: Array<[Action, Subject]> = [
   [Action.MANAGE, Subject.ORDER],           // Gestão de pedidos
   [Action.MANAGE, Subject.PRODUCT],         // Gestão de produtos
   [Action.MANAGE, Subject.CATEGORY],        // Gestão de categorias
-  [Action.READ,   Subject.CUSTOMER],        // Visualizar clientes
+  [Action.MANAGE,   Subject.CUSTOMER],        // Visualizar clientes
   [Action.READ,   Subject.REPORT],          // Relatórios básicos
   [Action.MANAGE, Subject.GROUP],           // Gestão de grupos
   [Action.MANAGE, Subject.USER],            // Gestão de usuários
   [Action.READ,   Subject.SUBSCRIPTION],    // Visualizar assinatura
-  [Action.READ,   Subject.BRANCH],          // Visualizar filiais
+  [Action.MANAGE,   Subject.BRANCH],          // Visualizar filiais
   [Action.MANAGE, Subject.PAYMENT_METHOD],  // Gestão de métodos de pagamento
   [Action.MANAGE, Subject.DELIVERY_AREA],   // Gestão de áreas de entrega
-  [Action.READ,   Subject.PROFILE],         // Configurações de perfil
-  [Action.READ,   Subject.HOURS],           // Configurações de horário
-  [Action.READ,   Subject.PAYMENT],         // Configurações de pagamento
+  [Action.MANAGE,   Subject.PROFILE],         // Configurações de perfil
+  [Action.MANAGE,   Subject.HOURS],           // Configurações de horário
+  [Action.MANAGE,   Subject.PAYMENT],         // Configurações de pagamento
 ];
 
 // PREMIUM: BASIC + Features avançadas
@@ -74,8 +74,8 @@ export const PLAN_FEATURES: Record<PlanType, Array<[Action, Subject | Subject[]]
 // Limites quantitativos por plano
 export const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
   [PlanType.TRIAL]: {
-    maxUsers: 10,
-    maxProducts: 1000,
+    maxUsers: 2,
+    maxProducts: 1,
     maxOrdersPerMonth: 1000,
     maxBranches: 5,
     maxDeliveryPeople: 10,

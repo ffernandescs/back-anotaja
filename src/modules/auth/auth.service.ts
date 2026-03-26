@@ -506,7 +506,7 @@ export class AuthService {
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
         orders: user.orders || undefined,
-        permission: user.permissions,
+        permission: effectivePermissions, // ✅ Enviar permissões efetivas com conditions/limites
         counts: resourceCounts,
         menu, // ✅ Menu agora vem dentro do user
       },

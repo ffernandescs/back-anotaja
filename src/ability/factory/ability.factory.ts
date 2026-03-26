@@ -165,7 +165,8 @@ export class AbilityFactory {
       }
     }
     
-    return effectivePermissions;
+    // 3. Adicionar conditions (limites) nas permissões de CREATE e MANAGE
+    return this.addConditionsToPermissions(effectivePermissions, plan);
   }
 
   // ── Helpers privados ─────────────────────────────────────────
@@ -277,5 +278,42 @@ export class AbilityFactory {
     }
     
     return permissions;
+  }
+
+  private addConditionsToPermissions(
+    permissions: PermissionRule[],
+    plan: PlanType
+  ): PermissionRule[] {
+    // Importar limites do plano
+    const { PLAN_LIMITS } = require('./plan-rules');
+    const limits = PLAN_LIMITS[plan];
+    
+    if (!limits) return permissions;
+    
+    // Adicionar conditions nas permissões de CREATE e MANAGE
+    return permissions.map(permission => {
+      // Só adicionar conditions para CREATE e MANAGE
+      if (permission.action !== Action.CREATE && permission.action !== Action.MANAGE) {
+        return permission;
+      }
+      
+      let conditions: any = undefined;
+      
+      // Mapear subjects para seus limites
+      if (permission.subject === Subject.USER) {
+        conditions = { currentCount: { $lt: limits.maxUsers } };
+      } else if (permission.subject === Subject.PRODUCT) {
+        conditions = { currentCount: { $lt: limits.maxProducts } };
+      } else if (permission.subject === Subject.BRANCH) {
+        conditions = { currentCount: { $lt: limits.maxBranches } };
+      } else if (permission.subject === Subject.DELIVERY_PERSON) {
+        conditions = { currentCount: { $lt: limits.maxDeliveryPeople } };
+      } else if (permission.subject === Subject.ORDER) {
+        conditions = { currentCount: { $lt: limits.maxOrdersPerMonth } };
+      }
+      
+      // Retornar permissão com ou sem conditions
+      return conditions ? { ...permission, conditions } : permission;
+    });
   }
 }
