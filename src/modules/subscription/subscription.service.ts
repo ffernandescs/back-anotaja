@@ -443,7 +443,11 @@ export class SubscriptionService {
     if (!user) {
       throw new NotFoundException('Usuário não encontrado');
     }
-    const subscriptionId = session.subscription as string | undefined;
+    
+    // ✅ Extrair subscriptionId corretamente (pode ser string ou objeto expandido)
+    const subscriptionId = typeof session.subscription === 'string' 
+      ? session.subscription 
+      : session.subscription?.id;
     const companyId = session.metadata?.companyId as string;
 
     if (!subscriptionId || !companyId) {
