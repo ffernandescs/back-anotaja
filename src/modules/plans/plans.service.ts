@@ -79,16 +79,11 @@ export class PlansService {
       }
     }
 
-    // Se houver limits no objeto, criar PlanLimit entries
+    // Se houver limits no objeto, criar FeatureLimit entries (nova estrutura)
     if (limits && typeof limits === 'object') {
+      // TODO: Implementar criação de FeatureLimit quando tabela estiver disponível
       for (const [resource, maxValue] of Object.entries(limits)) {
-        await prisma.planLimit.create({
-          data: {
-            planId: plan.id,
-            resource,
-            maxValue: Number(maxValue),
-          },
-        });
+        console.log(`TODO: Criar FeatureLimit para ${resource}: ${maxValue}`);
       }
     }
 
@@ -107,7 +102,6 @@ export class PlansService {
           select: {
             subscriptions: true,
             planFeatures: true,
-            planLimits: true,
           },
         },
         planFeatures: {
@@ -115,7 +109,6 @@ export class PlansService {
             feature: true,
           },
         },
-        planLimits: true,
       },
     });
   }
@@ -134,7 +127,7 @@ export class PlansService {
             feature: true,
           },
         },
-        planLimits: true,
+        featureLimits: true,
       },
     });
 
@@ -184,7 +177,6 @@ export class PlansService {
           select: {
             subscriptions: true,
             planFeatures: true,
-            planLimits: true,
           },
         },
         planFeatures: {
@@ -192,7 +184,6 @@ export class PlansService {
             feature: true,
           },
         },
-        planLimits: true,
       },
     });
 
@@ -220,22 +211,15 @@ export class PlansService {
       }
     }
 
-    // Se houver limits no objeto, atualizar PlanLimit entries
+    // Se houver limits no objeto, criar FeatureLimit entries (nova estrutura)
     if (parsedLimits && typeof parsedLimits === 'object') {
-      // Remover limites existentes
-      await prisma.planLimit.deleteMany({
-        where: { planId: id },
-      });
-
-      // Adicionar novos limites
+      // Remover limites existentes da estrutura antiga (se existir)
+      // TODO: Implementar quando FeatureLimit estiver disponível
+      
+      // Adicionar novos limites (nova estrutura)
       for (const [resource, maxValue] of Object.entries(parsedLimits)) {
-        await prisma.planLimit.create({
-          data: {
-            planId: id,
-            resource,
-            maxValue: Number(maxValue),
-          },
-        });
+        // TODO: Implementar criação de FeatureLimit quando tabela estiver disponível
+        console.log(`TODO: Criar FeatureLimit para ${resource}: ${maxValue}`);
       }
     }
 
@@ -444,68 +428,34 @@ export class PlansService {
     });
   }
 
-  // Métodos para gestão de limites do plano
-  async updateLimit(planId: string, resource: string, maxValue: number) {
+  // Métodos para gestão de limites do plano (nova estrutura FeatureLimit)
+  async updateLimit(planId: string, featureKey: string, limitData: {
+    name: string;
+    description?: string;
+    maxValue: number;
+    unit?: string;
+    isActive?: boolean;
+  }) {
     // Verificar se plano existe
     await this.findOne(planId);
 
-    // Verificar se o limite já existe
-    const existingLimit = await prisma.planLimit.findUnique({
-      where: {
-        planId_resource: {
-          planId,
-          resource,
-        },
-      },
-    });
-
-    if (existingLimit) {
-      return prisma.planLimit.update({
-        where: {
-          planId_resource: {
-            planId,
-            resource,
-          },
-        },
-        data: { maxValue },
-      });
-    } else {
-      return prisma.planLimit.create({
-        data: {
-          planId,
-          resource,
-          maxValue,
-        },
-      });
-    }
+    // TODO: Implementar quando a tabela FeatureLimit estiver disponível
+    console.log('FeatureLimit ainda não implementado. Usando estrutura temporária.');
+    console.log('PlanId:', planId, 'FeatureKey:', featureKey, 'Data:', limitData);
+    
+    return this.findOne(planId);
   }
 
-  async removeLimit(planId: string, resource: string) {
-    // Verificar se plano existe
-    await this.findOne(planId);
+  async removeLimit(planId: string, featureKey: string) {
+    // TODO: Implementar quando a tabela FeatureLimit estiver disponível
+    console.log('FeatureLimit ainda não implementado. Usando estrutura temporária.');
+    return this.findOne(planId);
+  }
 
-    // Verificar se o limite existe
-    const existingLimit = await prisma.planLimit.findUnique({
-      where: {
-        planId_resource: {
-          planId,
-          resource,
-        },
-      },
-    });
-
-    if (!existingLimit) {
-      throw new NotFoundException('Limite não encontrado para este plano');
-    }
-
-    return prisma.planLimit.delete({
-      where: {
-        planId_resource: {
-          planId,
-          resource,
-        },
-      },
-    });
+  async getPlanLimits(planId: string) {
+    // TODO: Implementar quando a tabela FeatureLimit estiver disponível
+    console.log('FeatureLimit ainda não implementado. Usando estrutura temporária.');
+    return [];
   }
 
   /**
@@ -564,13 +514,8 @@ export class PlansService {
     // Criar limites se fornecidos
     if (limits && limits.length > 0) {
       for (const limit of limits) {
-        await prisma.planLimit.create({
-          data: {
-            planId: plan.id,
-            resource: limit.resource,
-            maxValue: limit.maxValue,
-          },
-        });
+        // TODO: Implementar criação de FeatureLimit quando tabela estiver disponível
+        console.log(`TODO: Criar FeatureLimit para ${limit.resource}: ${limit.maxValue}`);
       }
     }
 

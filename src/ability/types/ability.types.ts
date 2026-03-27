@@ -78,13 +78,21 @@ export enum PlanType {
   ENTERPRISE = 'ENTERPRISE',
 }
 
-// Limites quantitativos por plano
+// Limites por feature (estrutura genérica e personalizável)
+export interface FeatureLimit {
+  featureKey: string;      // "product", "user", "order"
+  name: string;            // "Produtos", "Usuários", "Pedidos"
+  description?: string;    // "Limite de produtos cadastrados"
+  maxValue: number;         // -1 = ilimitado
+  unit?: string;          // "itens", "usuários", "pedidos/mês"
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Limites quantitativos por plano (agora genérico e dinâmico)
 export interface PlanLimits {
-  maxUsers: number;
-  maxProducts: number;
-  maxOrdersPerMonth: number;
-  maxBranches: number;
-  maxDeliveryPeople: number;
+  [featureKey: string]: FeatureLimit;
 }
 
 export const createAppAbility = (

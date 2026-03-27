@@ -407,42 +407,64 @@ export class AuthService {
       const effectivePermissions: any[] = [];
       let userOverrides: any[] = [];
       
-      // Adicionar permissões do grupo (filtradas pelo plano)
+      // Adicionar permissões do grupo (SEM FILTRAR pelo plano)
       if (user.group?.permissions?.length) {
-        console.log('🔍 Group permissions before filtering:', user.group.permissions);
-        const filteredGroupPermissions = await this.abilityLoaderService.filterPermissionsByPlan(
-          user.group.permissions,
-          ctx.tenant.plan,
-          ctx.tenant.addons
-        );
-        console.log('🔍 Group permissions after filtering:', filteredGroupPermissions);
+        // ✅ Forma correta de buscar features associadas ao planId
+        const planFeatures = await prisma.planFeature.findMany({
+          where: {
+            planId: user.company?.subscription?.planId
+          },
+          include: {
+            feature: {
+              include: {
+                featureMenuGroups: {
+                  include: {
+                    group: true
+                  }
+                }
+              }
+            }
+          }
+        });
         
-        effectivePermissions.push(...filteredGroupPermissions);
+        console.log('🔍 Features do plano:', planFeatures.map(pf => ({
+          featureKey: pf.feature.key,
+          featureName: pf.feature.name,
+          href: pf.feature.href
+        })));
+        
+        // ✅ NÃO FILTRAR permissões do grupo - usar direto
+        console.log('🔍 Group permissions (RAW):', user.group.permissions);
+        effectivePermissions.push(...user.group.permissions);
       }
       
-      // Adicionar overrides do usuário (filtrados pelo plano)
+      // Adicionar overrides do usuário (SEM FILTRAR pelo plano)
       if (user.permissions?.length) {
-        userOverrides = await this.abilityLoaderService.filterPermissionsByPlan(
-          user.permissions,
-          ctx.tenant.plan,
-          ctx.tenant.addons
-        );
-        
-        effectivePermissions.push(...userOverrides);
+        console.log('🔍 User permissions (RAW):', user.permissions);
+        effectivePermissions.push(...user.permissions);
+        userOverrides = user.permissions;
       }
+      
+      // ✅ Gerar menu baseado nas features do plano e permissões do usuário
+      console.log('🔍 Calling generateMenuFromPlanFeatures with plan:', ctx.tenant.plan);
+      console.log('🔍 Plan subscription:', user.company?.subscription?.plan);
+      console.log('🔍 Plan ID:', user.company?.subscription?.planId);
+      
+      menu = await this.menuService.generateMenuFromPlanFeatures(
+        ctx.tenant.plan,
+        ctx.tenant.addons,
+        effectivePermissions
+      );
       
       // ✅ permissions no response = apenas overrides do usuário
       permissions = userOverrides;
 
-      // Gerar menu filtrado pelas permissões efetivas (já filtradas pelo plano)
-      const planType = subscriptionInfo?.plan?.type as PlanType || PlanType.TRIAL;
-      const addons = []; // TODO: Buscar add-ons ativos da subscription
       
       // ✅ USAR MENU DINÂMICO A PARTIR DAS FEATURES com permissões efetivas (grupo + overrides)
       try {
         console.log('🔍 Passing to MenuService - effectivePermissions:', effectivePermissions);
-        console.log('🔍 Passing to MenuService - planType:', planType);
-        menu = await this.menuService.generateMenuFromFeatures(planType, addons, effectivePermissions);
+        console.log('🔍 Passing to MenuService - planType:', ctx.tenant.plan);
+        menu = await this.menuService.generateMenuFromFeatures(ctx.tenant.plan, ctx.tenant.addons, effectivePermissions);
       } catch (error) {
         console.warn('Erro ao gerar menu:', error);
         menu = [];
@@ -488,6 +510,17 @@ export class AuthService {
     // Salvar branches antes de transformar company
     const companyBranches = user.company?.branches || [];
 
+    // Buscar limites do plano de forma assíncrona
+    let planLimits: any = null;
+    if (subscriptionInfo) {
+      try {
+        planLimits = await getPlanLimits(subscriptionInfo.plan.type as PlanType);
+      } catch (error) {
+        console.warn('Erro ao buscar limites do plano:', error);
+        planLimits = null;
+      }
+    }
+
     return {
       user: {
         id: user.id,
@@ -503,7 +536,7 @@ export class AuthService {
           subscription: subscriptionInfo ? {
             ...subscriptionInfo,
             trialDaysRemaining: (subscriptionInfo as any).trialDaysRemaining,
-            limits: await getPlanLimits(subscriptionInfo.plan.type as PlanType)
+            limits: planLimits
           } : null,
           branches: companyBranches,
         } : undefined,

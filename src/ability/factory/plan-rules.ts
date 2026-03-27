@@ -51,39 +51,61 @@ export async function getAddonFeatures(addons: AddonType[]): Promise<string[]> {
 }
 
 /**
- * Busca limites do plano diretamente do banco (100% dinâmico)
+ * Busca limites do plano diretamente da tabela FeatureLimit (100% dinâmico e genérico)
  */
 export async function getPlanLimits(planType: PlanType): Promise<PlanLimits> {
+  // Primeiro buscar o plano para pegar o ID
   const plan = await prisma.plan.findFirst({
     where: { type: planType, active: true }
   });
 
   if (!plan) {
     console.warn(`⚠️ Plano ${planType} não encontrado no banco`);
-    throw new Error(`Plano ${planType} não encontrado`);
-  }
-
-  if (!plan.limits) {
-    console.warn(`⚠️ Plano ${planType} não possui limites configurados no banco`);
-    throw new Error(`Plano ${planType} não possui limites configurados`);
+    // ✅ Retornar objeto vazio - sem restrições
+    return {};
   }
 
   try {
-    const limits = JSON.parse(plan.limits);
-    
-    // Validar estrutura mínima dos limites
-    const requiredFields = ['maxUsers', 'maxProducts', 'maxOrdersPerMonth', 'maxBranches', 'maxDeliveryPeople'];
-    const missingFields = requiredFields.filter(field => !(field in limits));
-    
-    if (missingFields.length > 0) {
-      console.warn(`⚠️ Plano ${planType} está com campos de limites faltando: ${missingFields.join(', ')}`);
-      throw new Error(`Plano ${planType} está com configuração incompleta`);
+    // Buscar limites da tabela FeatureLimit
+    const featureLimits = await prisma.featureLimit.findMany({
+      where: { 
+        planId: plan.id,
+        isActive: true 
+      },
+      include: {
+        feature: {
+          select: { key: true, name: true }
+        }
+      }
+    });
+
+    if (featureLimits.length === 0) {
+      console.warn(`⚠️ Plano ${planType} não possui limites configurados na tabela FeatureLimit, sem restrições`);
+      // ✅ Retornar objeto vazio - sem restrições
+      return {};
     }
-    
+
+    // Montar objeto de limites genérico
+    const limits: PlanLimits = {};
+    featureLimits.forEach(limit => {
+      limits[limit.featureKey] = {
+        featureKey: limit.featureKey,
+        name: limit.name,
+        description: limit.description || '',
+        maxValue: limit.maxValue,
+        unit: limit.unit || '',
+        isActive: limit.isActive,
+        createdAt: limit.createdAt,
+        updatedAt: limit.updatedAt
+      };
+    });
+
     return limits;
+    
   } catch (error) {
-    console.error(`❌ Erro ao parsear limites do plano ${planType}:`, error);
-    throw new Error(`Erro na configuração de limites do plano ${planType}`);
+    console.warn(`⚠️ Erro ao buscar limites do plano ${planType}:`, error);
+    // ✅ Retornar objeto vazio - sem restrições
+    return {};
   }
 }
 

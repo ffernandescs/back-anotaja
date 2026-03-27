@@ -22,6 +22,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { JwtOwnerAuthGuard } from 'src/common/guards/jwt-owner.guard';
 import { FeaturePermissionsService } from '../../ability/factory/feature-permissions.service';
+import { CreateFeaturesService } from './create-features.service';
 
 interface RequestWithUser extends Request {
   user: {
@@ -35,7 +36,8 @@ interface RequestWithUser extends Request {
 export class FeaturesController {
   constructor(
     private readonly featuresService: FeaturesService,
-    private readonly featurePermissions: FeaturePermissionsService
+    private readonly featurePermissions: FeaturePermissionsService,
+    private readonly createFeaturesService: CreateFeaturesService
   ) {}
 
   /**
@@ -74,6 +76,14 @@ export class FeaturesController {
   @Roles('master')
   listFeaturesWithPermissions() {
     return this.featurePermissions.listAllFeaturesWithPermissions();
+  }
+
+  @Post('seed-basic')
+  @Public()
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  async seedBasicFeatures() {
+    return this.createFeaturesService.createBasicFeatures();
   }
 
   @Public()

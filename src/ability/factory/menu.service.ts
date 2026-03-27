@@ -1,11 +1,11 @@
 // ─────────────────────────────────────────────────────────────
 // ability/factory/menu.service.ts
 //
-// Gera menu dinâmico baseado nas permissões do plano
+// Gera menu dinâmico baseado nas permissões do usuário
 // ─────────────────────────────────────────────────────────────
 
 import { Injectable } from '@nestjs/common';
-import { Action, PlanType, Subject } from '../types/ability.types';
+import { Action, Subject } from '../types/ability.types';
 import { prisma } from '../../../lib/prisma';
 
 export interface MenuItem {
@@ -26,173 +26,265 @@ export interface MenuGroup {
 @Injectable()
 export class MenuService {
   /**
-   * ✅ Gera menu dinâmico a partir das features do plano
-   * Busca features ativas do plano e agrupa por menu groups
+   * Gera menu dinâmico baseado nas features do plano e permissões do usuário
    */
-  async generateMenuFromFeatures(
-    plan: PlanType,
+  async generateMenuFromPlanFeatures(
+    plan: string,
     addons: string[] = [],
     userPermissions?: Array<{ action: Action; subject: Subject; inverted: boolean }>
   ): Promise<MenuGroup[]> {
-    // ✅ Construir allowed permissions a partir das permissões do usuário
+    // Construir set de permissões permitidas
     const allowedPermissions = new Set<string>();
     
     if (userPermissions?.length) {
       for (const permission of userPermissions) {
-        // Se tem permissão manage para um subject, permite todas as actions
         if (permission.action === Action.MANAGE && !permission.inverted) {
+          // Permissão manage concede todas as actions para o subject
           allowedPermissions.add(`${Action.CREATE}:${permission.subject}`);
           allowedPermissions.add(`${Action.READ}:${permission.subject}`);
           allowedPermissions.add(`${Action.UPDATE}:${permission.subject}`);
           allowedPermissions.add(`${Action.DELETE}:${permission.subject}`);
         } else if (!permission.inverted) {
-          // Adiciona permissão específica
           allowedPermissions.add(`${permission.action}:${permission.subject}`);
         }
       }
     }
-    
-    // Debug: mostrar permissões permitidas
-    console.log('🔍 Allowed permissions for menu:', Array.from(allowedPermissions));
-    console.log('🔍 User permissions:', userPermissions);
 
-    // ✅ Buscar features do plano com grupos associados
-    const planFeatures = await prisma.feature.findMany({
+    console.log('🔍 User permissions:', userPermissions);
+    console.log('🔍 Allowed permissions:', Array.from(allowedPermissions));
+
+    // ✅ Buscar TODAS as features ativas do banco (sem filtrar por plano primeiro)
+    const allFeatures = await prisma.feature.findMany({
       where: {
         active: true,
-        planFeatures: {
-          some: {
-            plan: {
-              type: plan,
-            },
-          },
-        },
       },
       include: {
         featureMenuGroups: {
           include: {
-            group: true,
-          },
-        },
+            group: true
+          }
+        }
       },
       orderBy: {
-        name: 'asc',
-      },
+        name: 'asc'
+      }
     });
 
-    // Debug: mostrar features encontradas
-    console.log('🔍 Plan features found:', planFeatures.map(f => ({ key: f.key, name: f.name, active: f.active })));
+    console.log('🔍 All features in DB:', allFeatures.map(f => ({ 
+      key: f.key, 
+      name: f.name, 
+      href: f.href 
+    })));
+    console.log('🔍 All features count:', allFeatures.length);
 
-    // ✅ Agrupar features por menu groups
-    const menuGroupsMap = new Map<string, MenuItem[]>();
-
-    for (const feature of planFeatures) {
-      // Verificar se usuário tem permissão para esta feature
+    // Filtrar features baseado nas permissões do usuário
+    const allowedMenuItems: MenuItem[] = [];
+    
+    for (const feature of allFeatures) {
       const featureKey = feature.key;
-      const requiredPermission = `${Action.READ}:${featureKey}`;
       
-      // ✅ Verificar se tem permissão READ para esta feature
-      const hasReadPermission = allowedPermissions.has(requiredPermission);
+      // ✅ Verificar se o usuário tem permissão para este subject/key
+      const hasReadPermission = allowedPermissions.has(`${Action.READ}:${featureKey}`);
+      const hasManagePermission = allowedPermissions.has(`${Action.MANAGE}:${featureKey}`);
+      const hasCreatePermission = allowedPermissions.has(`${Action.CREATE}:${featureKey}`);
+      const hasUpdatePermission = allowedPermissions.has(`${Action.UPDATE}:${featureKey}`);
+      const hasDeletePermission = allowedPermissions.has(`${Action.DELETE}:${featureKey}`);
+      
+      // ✅ Verificar se tem qualquer permissão para este subject
+      const hasAnyPermission = Array.from(allowedPermissions).some(permission => {
+        const [action, subject] = permission.split(':');
+        return subject === featureKey; // Comparar subject com key da feature
+      });
+      
+      // ✅ Ter qualquer permissão (read, manage, create, update, delete) dá acesso ao menu
+      const hasPermission = hasReadPermission || hasManagePermission || hasCreatePermission || 
+                          hasUpdatePermission || hasDeletePermission || hasAnyPermission;
+      
+      console.log(`🔍 Checking feature "${featureKey}":`);
+      console.log(`  - READ: ${hasReadPermission}`);
+      console.log(`  - MANAGE: ${hasManagePermission}`);
+      console.log(`  - CREATE: ${hasCreatePermission}`);
+      console.log(`  - UPDATE: ${hasUpdatePermission}`);
+      console.log(`  - DELETE: ${hasDeletePermission}`);
+      console.log(`  - ANY: ${hasAnyPermission}`);
+      console.log(`  - Final: ${hasPermission}`);
+      
+      if (hasPermission) {
+        const menuItem: MenuItem = {
+          id: feature.key,
+          label: feature.name,
+          href: feature.href || undefined,
+          action: Action.READ,
+          subject: this.inferSubjectFromFeatureKey(feature.key),
+        };
+        
+        allowedMenuItems.push(menuItem);
+        console.log(`✅ Added menu item: ${menuItem.label} (${featureKey})`);
+      } else {
+        console.log(`❌ Skipped menu item: ${feature.name} (${featureKey}) - no permission`);
+      }
+    }
+
+    // Agrupar menu items por categorias
+    const menuGroups = this.groupMenuItems(allowedMenuItems);
+    
+    console.log(`📋 Generated ${menuGroups.length} menu groups with ${allowedMenuItems.length} items`);
+    
+    return menuGroups;
+  }
+
+  /**
+   * Gera menu dinâmico baseado nas permissões do usuário (método original)
+   */
+  async generateMenuFromFeatures(
+    plan: string,
+    addons: string[] = [],
+    userPermissions?: Array<{ action: Action; subject: Subject; inverted: boolean }>
+  ): Promise<MenuGroup[]> {
+    // Construir set de permissões permitidas
+    const allowedPermissions = new Set<string>();
+    
+    if (userPermissions?.length) {
+      for (const permission of userPermissions) {
+        if (permission.action === Action.MANAGE && !permission.inverted) {
+          // Permissão manage concede todas as actions para o subject
+          allowedPermissions.add(`${Action.CREATE}:${permission.subject}`);
+          allowedPermissions.add(`${Action.READ}:${permission.subject}`);
+          allowedPermissions.add(`${Action.UPDATE}:${permission.subject}`);
+          allowedPermissions.add(`${Action.DELETE}:${permission.subject}`);
+        } else if (!permission.inverted) {
+          allowedPermissions.add(`${permission.action}:${permission.subject}`);
+        }
+      }
+    }
+
+    console.log('🔍 User permissions:', userPermissions);
+    console.log('🔍 Allowed permissions:', Array.from(allowedPermissions));
+
+    // Buscar features do banco dinamicamente
+    const dbFeatures = await prisma.feature.findMany({
+      where: {
+        active: true,
+      },
+      include: {
+        featureMenuGroups: {
+          include: {
+            group: true
+          }
+        }
+      },
+      orderBy: {
+        name: 'asc'
+      }
+    });
+
+    console.log('🔍 Found features in DB:', dbFeatures.map(f => ({ key: f.key, name: f.name, href: f.href })));
+
+    // Filtrar features baseado nas permissões do usuário
+    const allowedMenuItems: MenuItem[] = [];
+    
+    for (const feature of dbFeatures) {
+      const featureKey = feature.key;
+      const hasReadPermission = allowedPermissions.has(`${Action.READ}:${featureKey}`);
       const hasManagePermission = allowedPermissions.has(`${Action.MANAGE}:${featureKey}`);
       const hasAnyPermission = Array.from(allowedPermissions).some(permission => 
         permission.endsWith(`:${featureKey}`)
       );
       
       const hasPermission = hasReadPermission || hasManagePermission || hasAnyPermission;
-
-      console.log(`🔍 Checking feature "${featureKey}":`);
-      console.log(`  - Required: "${requiredPermission}"`);
-      console.log(`  - Has READ: ${hasReadPermission}`);
-      console.log(`  - Has MANAGE: ${hasManagePermission}`);
-      console.log(`  - Has ANY: ${hasAnyPermission}`);
-      console.log(`  - Final hasPermission: ${hasPermission}`);
-      console.log(`  - All allowed permissions:`, Array.from(allowedPermissions));
-
-      if (!hasPermission) {
-        console.log(`❌ Skipping feature "${featureKey}" - no permission`);
-        continue;
-      }
-
-      console.log(`✅ Adding feature "${featureKey}" to menu`);
-
-      // Criar menu item
-      const menuItem: MenuItem = {
-        id: feature.key,
-        label: feature.name,
-        href: feature.href || undefined,
-        action: Action.READ, // ✅ Permissão padrão para menu
-        subject: this.inferSubjectFromFeatureKey(feature.key),
-      };
-
-      // Se feature tem grupos, adicionar a cada grupo
-      if (feature.featureMenuGroups.length > 0) {
-        for (const featureMenuGroup of feature.featureMenuGroups) {
-          const group = featureMenuGroup.group;
-          if (group) {
-            if (!menuGroupsMap.has(group.id)) {
-              menuGroupsMap.set(group.id, []);
-            }
-            menuGroupsMap.get(group.id)!.push(menuItem);
-          }
-        }
+      
+      if (hasPermission) {
+        const menuItem: MenuItem = {
+          id: feature.key,
+          label: feature.name,
+          href: feature.href || undefined,
+          action: Action.READ,
+          subject: this.inferSubjectFromFeatureKey(feature.key),
+        };
+        
+        allowedMenuItems.push(menuItem);
+        console.log(`✅ Added menu item: ${menuItem.label} (${featureKey})`);
       } else {
-        // Se não tem grupo, adicionar em "Outros"
-        if (!menuGroupsMap.has('outros')) {
-          menuGroupsMap.set('outros', []);
-        }
-        menuGroupsMap.get('outros')!.push(menuItem);
+        console.log(`❌ Skipped menu item: ${feature.name} (${featureKey}) - no permission`);
       }
     }
 
-    // ✅ Buscar informações dos grupos
-    const groupIds = Array.from(menuGroupsMap.keys()).filter(id => id !== 'outros');
-    const groups = await prisma.menuGroup.findMany({
-      where: {
-        id: { in: groupIds },
-        active: true,
-      },
-      orderBy: {
-        displayOrder: 'asc',
-      },
-    });
+    // Agrupar menu items por categorias
+    const menuGroups = this.groupMenuItems(allowedMenuItems);
+    
+    console.log(`📋 Generated ${menuGroups.length} menu groups with ${allowedMenuItems.length} items`);
+    
+    return menuGroups;
+  }
 
-    // ✅ Construir menu groups final
+  /**
+   * Agrupa menu items em categorias lógicas baseadas nos grupos do banco
+   */
+  private groupMenuItems(menuItems: MenuItem[]): MenuGroup[] {
+    const groupsMap = new Map<string, MenuItem[]>();
+
+    // Agrupar por grupos definidos no banco ou usar fallback
+    for (const item of menuItems) {
+      let groupName = 'Outros'; // grupo padrão
+
+      // Aqui poderíamos buscar os grupos do banco se tivéssemos a referência
+      // Por ora, usar fallback baseado no ID do item
+      switch (item.id) {
+        case 'dashboard':
+          groupName = 'Principal';
+          break;
+        case 'product':
+        case 'category':
+          groupName = 'Produtos e Catálogo';
+          break;
+        case 'order':
+        case 'customer':
+        case 'delivery_person':
+          groupName = 'Vendas';
+          break;
+        case 'stock':
+          groupName = 'Operações';
+          break;
+        case 'user':
+        case 'group':
+        case 'subscription':
+        case 'coupon':
+          groupName = 'Configurações';
+          break;
+        case 'report':
+          groupName = 'Relatórios';
+          break;
+      }
+
+      if (!groupsMap.has(groupName)) {
+        groupsMap.set(groupName, []);
+      }
+      groupsMap.get(groupName)!.push(item);
+    }
+
+    // Construir menu final apenas com grupos que têm itens
     const menuGroups: MenuGroup[] = [];
-
-    // Adicionar grupos ordenados
-    for (const group of groups) {
-      const items = menuGroupsMap.get(group.id) || [];
+    const orderedGroups = ['Principal', 'Produtos e Catálogo', 'Vendas', 'Operações', 'Configurações', 'Relatórios', 'Outros'];
+    
+    for (const groupName of orderedGroups) {
+      const items = groupsMap.get(groupName) || [];
       if (items.length > 0) {
         menuGroups.push({
-          title: group.title,
-          items,
+          title: groupName,
+          items
         });
       }
-    }
-
-    // Adicionar "Outros" se tiver itens
-    const outrosItems = menuGroupsMap.get('outros') || [];
-    if (outrosItems.length > 0) {
-      menuGroups.push({
-        title: 'Outros',
-        items: outrosItems,
-      });
     }
 
     return menuGroups;
   }
 
   /**
-   * ✅ Infere subject a partir da feature key
-   * A key da feature já é o subject correto
+   * Infere subject a partir da feature key
    */
   private inferSubjectFromFeatureKey(featureKey: string): Subject {
-    // ✅ A key da feature já é o subject, só converter para o tipo Subject
-    console.log(`🔍 Using feature key as subject: "${featureKey}"`);
-    
     // Converter string para o tipo Subject (validar se existe no enum)
     if (Object.values(Subject).includes(featureKey as Subject)) {
-      console.log(`✅ Valid subject: ${featureKey}`);
       return featureKey as Subject;
     }
     

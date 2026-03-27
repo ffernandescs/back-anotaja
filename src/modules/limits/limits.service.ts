@@ -7,7 +7,7 @@ import { UpdateLimitDto } from './dto/update-limit.dto';
 export class LimitsService {
 
   async create(createLimitDto: CreateLimitDto) {
-    const { planId, resource, maxValue } = createLimitDto;
+    const { planId, featureKey, name, description, maxValue, unit, isActive } = createLimitDto;
 
     // Verificar se o plano existe
     const plan = await prisma.plan.findUnique({
@@ -18,153 +18,62 @@ export class LimitsService {
       throw new NotFoundException('Plano não encontrado');
     }
 
-    // Verificar se já existe um limite para este recurso no plano
-    const existingLimit = await prisma.planLimit.findUnique({
-      where: {
-        planId_resource: {
-          planId,
-          resource,
-        },
-      },
-    });
-
-    if (existingLimit) {
-      throw new BadRequestException('Limite já existe para este recurso no plano');
-    }
-
-    return prisma.planLimit.create({
-      data: {
-        planId,
-        resource,
-        maxValue,
-      },
-      include: {
-        plan: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
-    });
+    // TODO: Implementar quando FeatureLimit estiver disponível
+    console.log('TODO: Criar FeatureLimit com dados:', createLimitDto);
+    
+    // Retornar um objeto mock temporário
+    return {
+      id: 'temp-id',
+      planId,
+      featureKey,
+      name,
+      description,
+      maxValue,
+      unit,
+      isActive: isActive ?? true,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
   }
 
   async findAll(planId?: string) {
-    const where = planId ? { planId } : {};
-
-    return prisma.planLimit.findMany({
-      where,
-      include: {
-        plan: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
-      orderBy: {
-        id: 'desc',
-      },
-    });
+    // TODO: Implementar quando FeatureLimit estiver disponível
+    if (planId) {
+      console.log('TODO: Buscar FeatureLimits por plano:', planId);
+    } else {
+      console.log('TODO: Buscar todos os FeatureLimits');
+    }
+    return [];
   }
 
   async findOne(id: string) {
-    const limit = await prisma.planLimit.findUnique({
-      where: { id },
-      include: {
-        plan: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
-    });
-
-    if (!limit) {
-      throw new NotFoundException('Limite não encontrado');
-    }
-
-    return limit;
-  }
-
-  async findByPlan(planId: string) {
-    // Verificar se o plano existe
-    const plan = await prisma.plan.findUnique({
-      where: { id: planId },
-    });
-
-    if (!plan) {
-      throw new NotFoundException('Plano não encontrado');
-    }
-
-    return prisma.planLimit.findMany({
-      where: { planId },
-      include: {
-        plan: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
-      orderBy: {
-        resource: 'asc',
-      },
-    });
+    // TODO: Implementar quando FeatureLimit estiver disponível
+    console.log('TODO: Buscar FeatureLimit por ID:', id);
+    return null;
   }
 
   async update(id: string, updateLimitDto: UpdateLimitDto) {
-    // Verificar se o limite existe
-    const existingLimit = await this.findOne(id);
-
-    const { resource, maxValue } = updateLimitDto;
-
-    // Se estiver atualizando o resource, verificar se já existe outro limite com este resource
-    if (resource && resource !== existingLimit.resource) {
-      const duplicateLimit = await prisma.planLimit.findUnique({
-        where: {
-          planId_resource: {
-            planId: existingLimit.planId,
-            resource,
-          },
-        },
-      });
-
-      if (duplicateLimit) {
-        throw new BadRequestException('Limite já existe para este recurso no plano');
-      }
-    }
-
-    return prisma.planLimit.update({
-      where: { id },
-      data: updateLimitDto,
-      include: {
-        plan: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
-    });
+    // TODO: Implementar quando FeatureLimit estiver disponível
+    console.log('TODO: Atualizar FeatureLimit:', id, updateLimitDto);
+    return null;
   }
 
   async remove(id: string) {
-    // Verificar se o limite existe
-    await this.findOne(id);
+    // TODO: Implementar quando FeatureLimit estiver disponível
+    console.log('TODO: Remover FeatureLimit:', id);
+    return null;
+  }
 
-    return prisma.planLimit.delete({
-      where: { id },
-      include: {
-        plan: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
-    });
+  async findByPlan(planId: string) {
+    // TODO: Implementar quando FeatureLimit estiver disponível
+    console.log('TODO: Buscar FeatureLimits por plano:', planId);
+    return [];
+  }
+
+  async findByResource(resource: string) {
+    // TODO: Implementar quando FeatureLimit estiver disponível
+    console.log('TODO: Buscar FeatureLimits por recurso:', resource);
+    return [];
   }
 
   async removeAllByPlan(planId: string) {
@@ -177,33 +86,19 @@ export class LimitsService {
       throw new NotFoundException('Plano não encontrado');
     }
 
-    return prisma.planLimit.deleteMany({
-      where: { planId },
-    });
+    // TODO: Implementar quando FeatureLimit estiver disponível
+    console.log('TODO: Remover todos os FeatureLimits do plano:', planId);
+    return { count: 0 };
   }
 
   // Método para obter estatísticas de limites
   async getStats() {
-    const [totalLimits, limitsByResource, limitsByPlan] = await Promise.all([
-      prisma.planLimit.count(),
-      prisma.planLimit.groupBy({
-        by: ['resource'],
-        _count: {
-          resource: true,
-        },
-      }),
-      prisma.planLimit.groupBy({
-        by: ['planId'],
-        _count: {
-          planId: true,
-        },
-      }),
-    ]);
-
+    // TODO: Implementar quando FeatureLimit estiver disponível
+    console.log('TODO: Obter estatísticas de FeatureLimits');
     return {
-      totalLimits,
-      limitsByResource,
-      limitsByPlan,
+      totalLimits: 0,
+      limitsByResource: [],
+      limitsByPlan: []
     };
   }
 }

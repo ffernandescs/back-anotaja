@@ -30,6 +30,8 @@
     "db:seed:prod": "dotenv -e environments/.env.prod -- tsx prisma/seed.ts",
     "db:seed-plans:dev": "dotenv -e environments/.env.dev -- tsx prisma/seed-plans.ts",
     "db:seed-plans:prod": "dotenv -e environments/.env.prod -- tsx prisma/seed-plans.ts",
+    "db:seed-features:dev": "dotenv -e environments/.env.dev -- tsx prisma/seed-features.ts",
+    "db:seed-features:prod": "dotenv -e environments/.env.prod -- tsx prisma/seed-features.ts",
     "prisma:push": "node scripts/prisma-push.js",
     "prisma:migrate": "dotenv -e .env -- prisma migrate dev",
     "prisma:studio": "dotenv -e .env -- prisma studio",

@@ -105,6 +105,7 @@ model Feature {
   planFeatures                                                               PlanFeature[]
   addonFeatures                                                              AddonFeature[]
   featureMenuGroups                                                          FeatureMenuGroup[]
+  featureLimits                                                              FeatureLimit[]
 }
 
 model MenuGroup {
@@ -131,14 +132,24 @@ model FeatureMenuGroup {
   @@unique([featureId, groupId])
 }
 
-model PlanLimit {
-  id                                                                      String  @id @default(cuid())
-  planId                                                                  String
-  resource String  // "branches", "users", "products", "orders_per_month"
-  maxValue Int     // -1 = ilimitado
-  plan                                                                    Plan   @relation(fields: [planId], references: [id], onDelete: Cascade)
-
-  @@unique([planId,                                                       resource])
+model FeatureLimit {
+  id              String   @id @default(cuid())
+  featureKey      String   // "product", "user", "order", etc.
+  planId          String
+  name            String   // Nome amigável: "Produtos", "Usuários", "Pedidos por mês"
+  description     String?  // Descrição do limite
+  maxValue        Int      // -1 = ilimitado
+  unit            String?  // "itens", "usuários", "pedidos/mês"
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  feature         Feature? @relation(fields: [featureKey], references: [key], onDelete: Cascade)
+  plan            Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+  
+  @@unique([featureKey, planId])
+  @@index([planId])
+  @@index([featureKey])
 }
 
 // ─── ADDON: agora é data-driven, não enum ─────────────────────────
@@ -203,7 +214,7 @@ model Plan {
   createdAt                                                                            DateTime        @default(now())
   updatedAt                                                                            DateTime        @updatedAt
 
-  planLimits                                                                           PlanLimit[]
+  featureLimits                                                                        FeatureLimit[]
   planFeatures                                                                         PlanFeature[]
   subscriptions                                                                        Subscription[]
 }

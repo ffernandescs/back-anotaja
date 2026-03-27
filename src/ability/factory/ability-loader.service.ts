@@ -35,7 +35,7 @@ export class AbilityLoaderService {
    */
   async loadAbility(userId: string, companyId: string): Promise<AppAbility> {
     const ctx = await this.buildContext(userId, companyId);
-    return this.abilityFactory.createForUser(ctx);
+    return await this.abilityFactory.createForUser(ctx);
   }
 
   async buildContext(

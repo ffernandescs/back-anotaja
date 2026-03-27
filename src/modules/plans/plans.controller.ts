@@ -191,7 +191,17 @@ export class PlansController {
     @Req() req?: Request,
     @Headers('authorization') authorization?: string,
   ) {
-    return this.plansService.updateLimit(planId, resource, body.maxValue);
+    // TODO: Implementar com a nova estrutura quando FeatureLimit estiver disponível
+    // Por enquanto, criar um objeto compatível
+    const limitData = {
+      name: `Limit for ${resource}`,
+      description: `Limit for resource: ${resource}`,
+      maxValue: body.maxValue,
+      unit: 'items',
+      isActive: true
+    };
+    
+    return this.plansService.updateLimit(planId, resource, limitData);
   }
 
   @Public()

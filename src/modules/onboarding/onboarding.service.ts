@@ -107,7 +107,7 @@ export class OnboardingService {
               nextBillingDate: subscription.nextBillingDate,
               trialDaysRemaining,
               daysSinceExpiration,
-              limits: await getPlanLimits(subscription.plan.type as any),
+              limits: await getPlanLimits(subscription.plan.type as any) as any,
             }
           : undefined,
       };
@@ -144,7 +144,7 @@ export class OnboardingService {
             nextBillingDate: subscription.nextBillingDate,
             trialDaysRemaining,
             daysSinceExpiration,
-            limits: await getPlanLimits(subscription.plan.type as any),
+            limits: await getPlanLimits(subscription.plan.type as any) as any,
           }
         : undefined,
       missingSteps,

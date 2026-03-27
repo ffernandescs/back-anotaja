@@ -17,11 +17,11 @@ export class OnboardingStatusResponseDto {
     trialDaysRemaining?: number;
     daysSinceExpiration?: number;
     limits?: {
-      maxUsers: number;
-      maxProducts: number;
-      maxOrdersPerMonth: number;
-      maxBranches: number;
-      maxDeliveryPeople: number;
+      maxUsers?: number;
+      maxProducts?: number;
+      maxOrdersPerMonth?: number;
+      maxBranches?: number;
+      maxDeliveryPeople?: number;
     };
   };
   missingSteps?: {
