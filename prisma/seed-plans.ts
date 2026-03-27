@@ -269,18 +269,18 @@ const plans = [
 async function main() {
   console.log('💳 Criando planos...');
 
-  for (const plan of plans) {
-    await prisma.plan.upsert({
-      where: { id: plan.id },
-      update: {},
-      create: {
-        ...plan,
-        limits: JSON.stringify(plan.limits),
-        features: JSON.stringify(plan.features),
-      },
-    });
-  }
-  console.log(`✅ ${await prisma.plan.count()} planos criados/atualizados`);
+  // for (const plan of plans) {
+  //   await prisma.plan.upsert({
+  //     where: { id: plan.id },
+  //     update: {},
+  //     create: {
+  //       ...plan,
+  //       limits: JSON.stringify(plan.limits),
+  //       features: JSON.stringify(plan.features),
+  //     },
+  //   });
+  // }
+  // console.log(`✅ ${await prisma.plan.count()} planos criados/atualizados`);
 
   for (const method of paymentMethods) {
     await prisma.paymentMethod.upsert({

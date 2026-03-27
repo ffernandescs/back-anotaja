@@ -211,32 +211,10 @@ export class CompaniesService {
 
       // 4️⃣ Criar endereço da branch (opcional, se quiser outro endereço)
 
-      // 5️⃣ Criar grupo Administrador com permissões do plano TRIAL
-      // Obter permissões do plano TRIAL de forma centralizada
-      const trialFeatures = PLAN_FEATURES.TRIAL || [];
-      
-      // Converter o formato [action, subject] para o formato do Prisma
-      const trialPermissions = trialFeatures.map(([action, subject]) => ({
-        action: action as any,
-        subject: Array.isArray(subject) ? subject[0] : subject as any,
-        inverted: false,
-      }));
-
-      const adminGroup = await prisma.group.create({
-        data: {
-          name: 'Administrador',
-          branchId: createdBranch.id,
-          description: 'Grupo com acesso total às funcionalidades do plano TRIAL',
-          permissions: {
-            create: trialPermissions,
-          },
-        },
-      });
-
-      // 6️⃣ Buscar plano trial para criar subscription
+      // 5️⃣ Buscar plano trial para criar subscription
       const trialPlan = await prisma.plan.findFirst({
         where: {
-          type: 'TRIAL',
+          isTrial: true,
           active: true,
         },
       });
@@ -247,7 +225,41 @@ export class CompaniesService {
         );
       }
 
-      // 7️⃣ Criar usuário admin associado ao grupo
+      // 6️⃣ Criar grupo Administrador com permissões do plano trial
+      // Buscar as features do plano trial e gravar as permissões no grupo
+      const planFeatures = await prisma.planFeature.findMany({
+        where: { planId: trialPlan.id },
+        include: {
+          feature: true,
+        },
+      });
+
+      // Gerar permissões baseadas nas features do plano
+      const trialPermissions = planFeatures.flatMap(({ feature }) => {
+        // ✅ Usar permissões já configuradas na feature
+        const defaultActions = feature.defaultActions ? JSON.parse(feature.defaultActions) : ['read'];
+        
+        // ✅ Gerar permissões diretamente do array
+        return defaultActions.map((action: string) => ({
+          action: action as any, // ✅ Usa o action diretamente como string
+          subject: feature.key as any,
+          inverted: false,
+        }));
+      });
+
+      const adminGroup = await prisma.group.create({
+        data: {
+          name: 'Administrador',
+          branchId: createdBranch.id,
+          companyId: createdBranch.companyId,
+          description: 'Grupo com acesso total às funcionalidades do plano',
+          permissions: {
+            create: trialPermissions, // ✅ Gravar permissões do plano no grupo
+          },
+        },
+      });
+
+      // 8️⃣ Criar usuário admin associado ao grupo
       await prisma.user.create({
         data: {
           name,

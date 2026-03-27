@@ -25,6 +25,8 @@ import {
   Subject,
 } from '../types/ability.types';
 import { applyPlanRules, PLAN_FEATURES, ADDON_FEATURES } from './plan-rules';
+import { FeaturePermissionsService } from './feature-permissions.service';
+import { prisma } from '../../../lib/prisma';
 
 @Injectable()
 export class AbilityFactory {
@@ -166,7 +168,8 @@ export class AbilityFactory {
     }
     
     // 3. Adicionar conditions (limites) nas permissões de CREATE e MANAGE
-    return this.addConditionsToPermissions(effectivePermissions, plan);
+    // As conditions são aplicadas diretamente pelo applyPlanRules no camada 1
+    return effectivePermissions;
   }
 
   // ── Helpers privados ─────────────────────────────────────────
@@ -257,63 +260,173 @@ export class AbilityFactory {
   private getPlanPermissions(plan: PlanType, addons: AddonType[]): PermissionRule[] {
     const permissions: PermissionRule[] = [];
     
-    // Adicionar permissões do plano
+    // Obter features do plano
     const planFeatures = PLAN_FEATURES[plan] || [];
-    for (const [action, subject] of planFeatures) {
-      if (Array.isArray(subject)) {
-        for (const s of subject) {
-          permissions.push({ action, subject: s, inverted: false });
+    
+    // Gerar permissões das features do plano (buscando do BD)
+    for (const featureKey of planFeatures) {
+      const actions = this.getFeaturePermissionsFromCache(featureKey);
+      const subject = this.mapFeatureToSubject(featureKey);
+      
+      if (subject && actions.length > 0) {
+        for (const action of actions) {
+          permissions.push({ action, subject, inverted: false });
         }
-      } else {
-        permissions.push({ action, subject, inverted: false });
       }
     }
     
     // Adicionar permissões dos add-ons
     for (const addon of addons) {
       const addonFeatures = ADDON_FEATURES[addon] || [];
-      for (const [action, subject] of addonFeatures) {
-        permissions.push({ action, subject, inverted: false });
+      for (const featureKey of addonFeatures) {
+        const actions = this.getFeaturePermissionsFromCache(featureKey);
+        const subject = this.mapFeatureToSubject(featureKey);
+        
+        if (subject && actions.length > 0) {
+          for (const action of actions) {
+            permissions.push({ action, subject, inverted: false });
+          }
+        }
       }
     }
     
     return permissions;
   }
 
-  private addConditionsToPermissions(
-    permissions: PermissionRule[],
-    plan: PlanType
-  ): PermissionRule[] {
-    // Importar limites do plano
-    const { PLAN_LIMITS } = require('./plan-rules');
-    const limits = PLAN_LIMITS[plan];
+  /**
+   * Cache simples para permissões de features (evita buscar no BD toda hora)
+   * Futuramente: implementar cache real com Redis ou similar
+   */
+  private featurePermissionsCache: Map<string, Action[]> = new Map();
+
+  private getFeaturePermissionsFromCache(featureKey: string): Action[] {
+    // Se já estiver em cache, retorna
+    if (this.featurePermissionsCache.has(featureKey)) {
+      return this.featurePermissionsCache.get(featureKey)!;
+    }
+
+    // Se não, busca do BD (de forma síncrona para não quebrar o fluxo)
+    // Por enquanto, retorna permissão básica até que a feature seja configurada
+    const basicPermissions: Action[] = [Action.READ];
     
-    if (!limits) return permissions;
+    // Cache o resultado básico
+    this.featurePermissionsCache.set(featureKey, basicPermissions);
     
-    // Adicionar conditions nas permissões de CREATE e MANAGE
-    return permissions.map(permission => {
-      // Só adicionar conditions para CREATE e MANAGE
-      if (permission.action !== Action.CREATE && permission.action !== Action.MANAGE) {
-        return permission;
+    // Dispara busca assíncrona para atualizar o cache
+    this.updateFeaturePermissionsCache(featureKey);
+    
+    return basicPermissions;
+  }
+
+  /**
+   * Atualiza o cache de permissões de uma feature de forma assíncrona
+   */
+  private async updateFeaturePermissionsCache(featureKey: string): Promise<void> {
+    try {
+      // Buscar feature no banco
+      const feature = await prisma.feature.findUnique({
+        where: { key: featureKey },
+        select: { key: true, name: true }
+      });
+
+      if (!feature) {
+        // Feature não existe no banco, mantém permissão básica
+        return;
       }
+
+      // Se a feature existe no banco, assume permissões padrão
+      // Futuramente: ler de um campo defaultActions ou configuração específica
+      const defaultPermissions = this.getDefaultPermissionsForExistingFeature(featureKey);
       
-      let conditions: any = undefined;
-      
-      // Mapear subjects para seus limites
-      if (permission.subject === Subject.USER) {
-        conditions = { currentCount: { $lt: limits.maxUsers } };
-      } else if (permission.subject === Subject.PRODUCT) {
-        conditions = { currentCount: { $lt: limits.maxProducts } };
-      } else if (permission.subject === Subject.BRANCH) {
-        conditions = { currentCount: { $lt: limits.maxBranches } };
-      } else if (permission.subject === Subject.DELIVERY_PERSON) {
-        conditions = { currentCount: { $lt: limits.maxDeliveryPeople } };
-      } else if (permission.subject === Subject.ORDER) {
-        conditions = { currentCount: { $lt: limits.maxOrdersPerMonth } };
+      // Atualiza o cache
+      this.featurePermissionsCache.set(featureKey, defaultPermissions);
+    } catch (error) {
+      console.error(`Erro ao atualizar cache de permissões da feature ${featureKey}:`, error);
+    }
+  }
+
+  /**
+   * Permissões padrão para features que existem no banco
+   * Isso é um fallback temporário até que o Master possa configurar as permissões
+   */
+  private getDefaultPermissionsForExistingFeature(featureKey: string): Action[] {
+    // Se a feature existe no banco, dá permissões básicas de gestão
+    // O Master poderá personalizar isso futuramente
+    const managementPermissions: Action[] = [
+      Action.READ, 
+      Action.CREATE, 
+      Action.UPDATE, 
+      Action.DELETE, 
+      Action.MANAGE
+    ];
+    
+    const readOnlyPermissions: Action[] = [Action.READ, Action.MANAGE];
+    
+    // Features que devem ser apenas leitura por padrão
+    const readOnlyFeatures = ['dashboard', 'reports', 'subscription'];
+    
+    return readOnlyFeatures.includes(featureKey) ? readOnlyPermissions : managementPermissions;
+  }
+
+  private mapFeatureToSubject(featureKey: string): Subject | null {
+    // Se já estiver em cache, retorna
+    if (this.featureSubjectCache.has(featureKey)) {
+      return this.featureSubjectCache.get(featureKey)!;
+    }
+
+    // Se não, retorna null (feature não mapeada ainda)
+    // O Master precisará configurar isso quando criar a feature
+    this.featureSubjectCache.set(featureKey, null);
+    
+    // Dispara busca assíncrona para descobrir o subject
+    this.updateFeatureSubjectCache(featureKey);
+    
+    return null;
+  }
+
+  /**
+   * Cache para mapeamento de features para subjects
+   */
+  private featureSubjectCache: Map<string, Subject | null> = new Map();
+
+  /**
+   * Atualiza o cache de subject de uma feature de forma assíncrona
+   */
+  private async updateFeatureSubjectCache(featureKey: string): Promise<void> {
+    try {
+      // Buscar feature no banco para descobrir o subject
+      const feature = await prisma.feature.findUnique({
+        where: { key: featureKey },
+        select: { key: true, name: true }
+      });
+
+      if (!feature) {
+        // Feature não existe no banco, mantém null
+        this.featureSubjectCache.set(featureKey, null);
+        return;
       }
+
+      // Se a feature existe, tenta inferir o subject baseado na key
+      const inferredSubject = this.inferSubjectFromFeatureKey(featureKey);
       
-      // Retornar permissão com ou sem conditions
-      return conditions ? { ...permission, conditions } : permission;
-    });
+      // Atualiza o cache
+      this.featureSubjectCache.set(featureKey, inferredSubject);
+    } catch (error) {
+      console.error(`Erro ao atualizar cache de subject da feature ${featureKey}:`, error);
+    }
+  }
+
+  /**
+   * Tenta inferir o Subject baseado na key da feature
+   * Isso é um fallback temporário até que o Master possa configurar explicitamente
+   */
+  private inferSubjectFromFeatureKey(featureKey: string): Subject | null {
+    // Se o Master não configurou explicitamente, não podemos assumir nada
+    // Retornar null força o Master a configurar quando criar a feature
+    
+    // Futuramente: buscar configuração do Master no banco
+    // Ex: feature.defaultSubject ou feature.subjectMapping
+    
+    return null;
   }
 }

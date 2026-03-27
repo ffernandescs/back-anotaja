@@ -89,13 +89,17 @@ export class SubscriptionService {
         endDate: createSubscriptionDto.endDate
           ? new Date(createSubscriptionDto.endDate)
           : null,
+        trialEndsAt: createSubscriptionDto.trialEndsAt
+          ? new Date(createSubscriptionDto.trialEndsAt)
+          : null,
+        cancelAtPeriodEnd: createSubscriptionDto.cancelAtPeriodEnd || false,
+        paymentRetryCount: createSubscriptionDto.paymentRetryCount || 0,
         nextBillingDate: createSubscriptionDto.nextBillingDate
           ? new Date(createSubscriptionDto.nextBillingDate)
           : null,
         lastBillingDate: createSubscriptionDto.lastBillingDate
           ? new Date(createSubscriptionDto.lastBillingDate)
           : null,
-        lastBillingAmount: createSubscriptionDto.lastBillingAmount || null,
         stripeSubscriptionId:
           createSubscriptionDto.strapiSubscriptionId || null,
         stripeCustomerId: createSubscriptionDto.strapiCustomerId || null,

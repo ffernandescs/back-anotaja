@@ -93,7 +93,7 @@ export class StripeWebhookController {
         session.metadata?.planId || subscription.items.data[0]?.price.id;
 
       // Salvar no banco
-      await prisma.subscription.upsert({
+      const subscriptionRecord = await prisma.subscription.upsert({
         where: { companyId },
         update: {
           status: 'ACTIVE',
@@ -102,7 +102,6 @@ export class StripeWebhookController {
           startDate, // Data que a assinatura foi criada
           nextBillingDate, // Próxima data de cobrança (trial + período do plano)
           endDate,
-          lastBillingAmount: unitAmount || 0,
           notes: subscription.trial_end 
             ? `Plano ativado com trial até ${new Date(subscription.trial_end * 1000).toLocaleDateString()}. Primeira cobrança em ${nextBillingDate?.toLocaleDateString()}`
             : `Plano ativado. Próxima cobrança em ${nextBillingDate?.toLocaleDateString()}`,
@@ -115,12 +114,25 @@ export class StripeWebhookController {
           startDate,
           nextBillingDate,
           endDate,
-          lastBillingAmount: unitAmount || 0,
           notes: subscription.trial_end 
             ? `Plano ativado com trial até ${new Date(subscription.trial_end * 1000).toLocaleDateString()}. Primeira cobrança em ${nextBillingDate?.toLocaleDateString()}`
             : `Plano ativado. Próxima cobrança em ${nextBillingDate?.toLocaleDateString()}`,
         },
       });
+
+      // Criar registro de invoice se houver valor
+      if (unitAmount && unitAmount > 0) {
+        await prisma.invoice.create({
+          data: {
+            subscriptionId: subscriptionRecord.id,
+            amount: unitAmount,
+            status: 'PAID',
+            billingPeriodStart: new Date(),
+            billingPeriodEnd: new Date(),
+            paidAt: new Date(),
+          },
+        });
+      }
       this.logger.log(
         `Assinatura criada/atualizada no banco para companyId=${companyId}`,
       );
@@ -148,9 +160,27 @@ export class StripeWebhookController {
           data: {
             status: 'ACTIVE',
             nextBillingDate: new Date(subscription.current_period_end * 1000),
-            lastBillingAmount: invoice.amount_paid || 0,
           },
         });
+
+        // Criar registro de invoice
+        const subscriptionRecord = await prisma.subscription.findFirst({
+          where: { stripeSubscriptionId: invoice.subscription },
+          select: { id: true }
+        });
+
+        if (subscriptionRecord) {
+          await prisma.invoice.create({
+            data: {
+              subscriptionId: subscriptionRecord.id,
+              amount: invoice.amount_paid || 0,
+              status: 'PAID',
+              billingPeriodStart: new Date(),
+              billingPeriodEnd: new Date(),
+              paidAt: new Date(),
+            },
+          });
+        }
         this.logger.log(
           `Próxima data de cobrança atualizada para subscriptionId=${invoice.subscription}`,
         );

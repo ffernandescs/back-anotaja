@@ -42,11 +42,11 @@ export class CreatePlanDto {
 
   @IsOptional()
   @IsString()
-  limits?: string; // JSON string
+  features?: string; // JSON string com array de feature keys
 
   @IsOptional()
   @IsString()
-  features?: string; // JSON string
+  limits?: string; // JSON string com objeto de limites { branches: 1, users: 5 }
 
   @IsOptional()
   @IsInt()

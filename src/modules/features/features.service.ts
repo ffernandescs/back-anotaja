@@ -1,0 +1,222 @@
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  BadRequestException,
+} from '@nestjs/common';
+import { CreateFeatureDto } from './dto/create-feature.dto';
+import { UpdateFeatureDto } from './dto/update-feature.dto';
+import { prisma } from '../../../lib/prisma';
+
+@Injectable()
+export class FeaturesService {
+  async create(createFeatureDto: CreateFeatureDto) {
+    const { key, name, description, defaultActions, href, menuGroupId } = createFeatureDto;
+
+    // Verificar se já existe feature com esta key
+    const existingFeature = await prisma.feature.findUnique({
+      where: { key },
+    });
+
+    if (existingFeature) {
+      throw new ConflictException(`Feature com key '${key}' já existe`);
+    }
+
+    // Criar a feature
+    const feature = await prisma.feature.create({
+      data: {
+        key,
+        name,
+        description,
+        active: true,
+        defaultActions: defaultActions ? JSON.stringify(defaultActions) : JSON.stringify(['read', 'manage']),
+        href,
+      },
+    });
+
+    // ✅ Se foi informado um grupo, associar a feature ao grupo
+    if (menuGroupId) {
+      await prisma.featureMenuGroup.create({
+        data: {
+          featureId: feature.id,
+          groupId: menuGroupId,
+        },
+      });
+    }
+
+    return feature;
+  }
+
+  async findAll() {
+    return prisma.feature.findMany({
+      where: { active: true },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        _count: {
+          select: {
+            planFeatures: true,
+            addonFeatures: true,
+          },
+        },
+        featureMenuGroups: {
+          include: {
+            group: {
+              select: {
+                id: true,
+                title: true,
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  async findAllIncludingInactive() {
+    return prisma.feature.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        _count: {
+          select: {
+            planFeatures: true,
+            addonFeatures: true,
+          },
+        },
+      },
+    });
+  }
+
+  async findOne(id: string) {
+    const feature = await prisma.feature.findUnique({
+      where: { id },
+      include: {
+        planFeatures: {
+          include: {
+            plan: true,
+          },
+        },
+        addonFeatures: {
+          include: {
+            addon: true,
+          },
+        },
+      },
+    });
+
+    if (!feature) {
+      throw new NotFoundException('Feature não encontrada');
+    }
+
+    return feature;
+  }
+
+  async findByKey(key: string) {
+    const feature = await prisma.feature.findUnique({
+      where: { key },
+      include: {
+        _count: {
+          select: {
+            planFeatures: true,
+            addonFeatures: true,
+          },
+        },
+      },
+    });
+
+    if (!feature) {
+      throw new NotFoundException('Feature não encontrada');
+    }
+
+    return feature;
+  }
+
+  async update(id: string, updateFeatureDto: UpdateFeatureDto) {
+    const feature = await this.findOne(id);
+
+    // Se estiver atualizando a key, verificar duplicidade
+    if (updateFeatureDto.key && updateFeatureDto.key !== feature.key) {
+      const existingFeature = await prisma.feature.findUnique({
+        where: { key: updateFeatureDto.key },
+      });
+
+      if (existingFeature) {
+        throw new ConflictException(`Feature com key '${updateFeatureDto.key}' já existe`);
+      }
+    }
+
+    // ✅ Preparar dados para update, convertendo defaultActions para JSON se fornecido
+    const updateData: any = {
+      ...updateFeatureDto,
+    };
+
+    // Remover defaultActions do objeto se não for fornecido
+    if (updateFeatureDto.defaultActions !== undefined) {
+      updateData.defaultActions = JSON.stringify(updateFeatureDto.defaultActions);
+    } else if ('defaultActions' in updateFeatureDto) {
+      // Se defaultActions foi explicitamente definido como undefined, remover do update
+      delete updateData.defaultActions;
+    }
+
+    // ✅ Remover menuGroupId do update da feature (é tratado separadamente)
+    const { menuGroupId, ...featureUpdateData } = updateData;
+
+    // ✅ Atualizar a feature
+    const updatedFeature = await prisma.feature.update({
+      where: { id },
+      data: featureUpdateData,
+    });
+
+    // ✅ Se menuGroupId foi fornecido, atualizar a associação
+    if (menuGroupId !== undefined) {
+      // Remover associações existentes
+      await prisma.featureMenuGroup.deleteMany({
+        where: { featureId: id },
+      });
+
+      // Criar nova associação se menuGroupId não for vazio
+      if (menuGroupId) {
+        await prisma.featureMenuGroup.create({
+          data: {
+            featureId: id,
+            groupId: menuGroupId,
+          },
+        });
+      }
+    }
+
+    return updatedFeature;
+  }
+
+  async remove(id: string) {
+    const feature = await this.findOne(id);
+
+    // Verificar se há planos usando esta feature
+    const planFeaturesCount = await prisma.planFeature.count({
+      where: { featureId: id },
+    });
+
+    const addonFeaturesCount = await prisma.addonFeature.count({
+      where: { featureId: id },
+    });
+
+    if (planFeaturesCount > 0 || addonFeaturesCount > 0) {
+      throw new ConflictException(
+        `Não é possível deletar a feature. Ela está sendo usada em ${planFeaturesCount} plano(s) e ${addonFeaturesCount} addon(s).`,
+      );
+    }
+
+    // Soft delete - apenas desativar
+    return prisma.feature.delete({
+      where: { id },
+    });
+  }
+
+  async toggleActive(id: string) {
+    const feature = await this.findOne(id);
+
+    return prisma.feature.update({
+      where: { id },
+      data: { active: !feature.active },
+    });
+  }
+}

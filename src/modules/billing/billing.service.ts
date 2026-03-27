@@ -206,9 +206,25 @@ export class BillingService {
           status: updatedSubscription.status === 'active' ? 'ACTIVE' : 
                   updatedSubscription.status === 'trialing' ? 'ACTIVE' : 'SUSPENDED',
           stripeSubscriptionId: updatedSubscription.id,
-          lastBillingAmount: updatedSubscription.items.data[0]?.price?.unit_amount || 0,
         },
       });
+
+      // 5. Criar registro de invoice se houver valor
+      if (updatedSubscription.items.data[0]?.price?.unit_amount) {
+        await prisma.invoice.create({
+          data: {
+            subscriptionId: (await prisma.subscription.findUnique({
+              where: { companyId },
+              select: { id: true }
+            }))!.id,
+            amount: updatedSubscription.items.data[0]?.price?.unit_amount || 0,
+            status: 'PAID',
+            billingPeriodStart: new Date(),
+            billingPeriodEnd: new Date(),
+            paidAt: new Date(),
+          },
+        });
+      }
 
       // 5. Atualizar permissões dos grupos para o novo plano
       await this.updateGroupPermissionsForNewPlan(companyId, newPlan.id);

@@ -9,6 +9,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { prisma } from '../../../lib/prisma';
 import { AbilityFactory } from './ability.factory';
+import { FeaturePermissionsService } from './feature-permissions.service';
 import {
   AbilityContext,
   Action,
@@ -22,6 +23,7 @@ import {
 export class AbilityLoaderService {
   constructor(
     private readonly abilityFactory: AbilityFactory,
+    private readonly featurePermissionsService: FeaturePermissionsService,
   ) {}
 
   /**
@@ -74,7 +76,7 @@ export class AbilityLoaderService {
                 ],
               },
               select: {
-                addon: { select: { type: true } },
+                addon: { select: { key: true } },
               },
             },
             startDate: true,
@@ -93,7 +95,7 @@ export class AbilityLoaderService {
     // Vamos garantir que sempre haja um PlanType para o applyPlanRules.
     const planType = (company.subscription?.plan?.type as PlanType) || PlanType.BASIC;
     const activeAddons = company.subscription?.addons?.map(
-      (sa) => sa.addon.type as AddonType,
+      (sa) => sa.addon.key as AddonType,
     ) || [];
 
     return {
@@ -131,30 +133,30 @@ export class AbilityLoaderService {
     plan: PlanType,
     addons: AddonType[]
   ): Promise<any[]> {
-    // Importar PLAN_FEATURES e ADDON_FEATURES do plan-rules
+    // ✅ Usar o sistema de features dinâmicas
+    const allFeatures = await this.featurePermissionsService.listAllFeaturesWithPermissions();
+    
+    // ✅ Obter features do plano usando o sistema dinâmico
     const { PLAN_FEATURES, ADDON_FEATURES } = await import('./plan-rules');
+    const planFeatureKeys = PLAN_FEATURES[plan] || [];
+    const addonFeatureKeys = addons.flatMap(addon => ADDON_FEATURES[addon] || []);
     
-    const planPermissions: any[] = [];
+    // Combinar features do plano + addons
+    const allowedFeatureKeys = [...planFeatureKeys, ...addonFeatureKeys];
     
-    // Adicionar permissões do plano
-    const planFeatures = PLAN_FEATURES[plan] || [];
-    for (const [action, subject] of planFeatures) {
-      if (Array.isArray(subject)) {
-        for (const s of subject) {
-          planPermissions.push({ action, subject: s, inverted: false });
-        }
-      } else {
-        planPermissions.push({ action, subject, inverted: false });
-      }
-    }
+    // Filtrar features permitidas
+    const allowedFeatures = allFeatures.filter(feature => 
+      allowedFeatureKeys.includes(feature.key)
+    );
     
-    // Adicionar permissões dos add-ons
-    for (const addon of addons) {
-      const addonFeatures = ADDON_FEATURES[addon] || [];
-      for (const [action, subject] of addonFeatures) {
-        planPermissions.push({ action, subject, inverted: false });
-      }
-    }
+    // Gerar permissões do plano baseado nas features permitidas
+    const planPermissions = allowedFeatures.flatMap(feature => 
+      feature.actions.map(action => ({
+        action: action,
+        subject: feature.key as any, // ✅ Usa feature key como subject
+        inverted: false
+      }))
+    );
     
     // Filtrar para incluir apenas permissões que estão no plano
     return permissions.filter(permission => {

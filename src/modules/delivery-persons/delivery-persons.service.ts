@@ -62,6 +62,9 @@ export class DeliveryPersonsService {
       },
     });
 
+       if (!user.companyId) {
+      throw new ForbiddenException('O Entregador não pertence à sua empresa');
+    }
     if (existingDeliveryPerson) {
       throw new ConflictException(
         'Já existe um entregador com este telefone nesta filial',
@@ -73,6 +76,7 @@ export class DeliveryPersonsService {
       data: {
         ...createDeliveryPersonDto,
         branchId: user.branchId, // Sempre usar branchId do usuário logado
+        companyId: user.companyId,
         active: createDeliveryPersonDto.active ?? true,
         isOnline: createDeliveryPersonDto.isOnline ?? false,
       },

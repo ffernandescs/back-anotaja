@@ -8,11 +8,15 @@ import {
   Delete,
   Req,
   UseGuards,
+  Headers,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { PlansService } from './plans.service';
+import { PlanSyncService } from './plan-sync.service';
 import { CreatePlanDto } from './dto/create-plan.dto';
+import { CreateDynamicPlanDto } from './dto/create-dynamic-plan.dto';
 import { UpdatePlanDto } from './dto/update-plan.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { JwtOwnerAuthGuard } from '../../common/guards/jwt-owner.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Public } from '../../common/decorators/public.decorator';
@@ -28,61 +32,210 @@ interface RequestWithUser extends Request {
 
 @Controller('plans')
 export class PlansController {
-  constructor(private readonly plansService: PlansService) {}
+  constructor(
+    private readonly plansService: PlansService,
+    private readonly planSyncService: PlanSyncService,
+  ) {}
 
+  @Public()
   @Post()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin')
-  create(@Body() createPlanDto: CreatePlanDto, @Req() req: RequestWithUser) {
-    return this.plansService.create(createPlanDto, req.user.userId);
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  create(
+    @Body() createPlanDto: CreatePlanDto,
+    @Headers('authorization') authorization?: string,
+    @Req() req?: Request,
+  ) {
+    return this.plansService.create(createPlanDto);
   }
 
+  @Public()
+  @Post('dynamic')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  createDynamic(
+    @Body() createPlanDto: CreateDynamicPlanDto,
+    @Headers('authorization') authorization?: string,
+    @Req() req?: Request,
+  ) {
+    return this.plansService.createDynamic(createPlanDto);
+  }
+
+  @Public()
   @Get()
-  @Public()
-  findAll(@Req() req?: RequestWithUser) {
-    const userId = req?.user?.userId;
-    return this.plansService.findAll(userId);
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  findAll(@Req() req?: Request) {
+    return this.plansService.findAll();
   }
 
-  @Get('active')
   @Public()
+  @Get('active')
   findActive() {
     return this.plansService.findActive();
   }
 
-  @Get('featured')
   @Public()
+  @Get('features')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  listAvailableFeatures() {
+    return this.plansService.listAvailableFeatures();
+  }
+
+  @Public()
+  @Get('featured')
   findFeatured() {
     return this.plansService.findFeatured();
   }
 
-  @Get(':id')
   @Public()
+  @Get(':id')
   findOne(@Param('id') id: string) {
     return this.plansService.findOne(id);
   }
 
+  @Public()
   @Patch(':id')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin')
-  update(
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  async update(
     @Param('id') id: string,
     @Body() updatePlanDto: UpdatePlanDto,
-    @Req() req: RequestWithUser,
+    @Headers('authorization') authorization?: string,
+    @Req() req?: Request,
   ) {
-    return this.plansService.update(id, updatePlanDto, req.user.userId);
+    const updatedPlan = await this.plansService.update(id, updatePlanDto);
+    
+    // ✅ Sincronizar permissões se o plano foi atualizado
+    if (updatedPlan) {
+      try {
+        await this.planSyncService.syncPlanPermissions(id);
+      } catch (error) {
+        console.error('Erro ao sincronizar permissões do plano:', error);
+        // Não falhar a atualização se a sincronização falhar
+      }
+    }
+    
+    return updatedPlan;
   }
 
+  @Public()
   @Delete(':id')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin')
-  remove(@Param('id') id: string, @Req() req: RequestWithUser) {
-    return this.plansService.remove(id, req.user.userId);
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  remove(
+    @Param('id') id: string,
+    @Headers('authorization') authorization?: string,
+    @Req() req?: Request,
+  ) {
+    return this.plansService.remove(id);
   }
 
+  @Public()
   @Post('choose')
-  
-  choosePlan(@Req() req: RequestWithUser, @Body() dto: ChoosePlanDto) {
-    return this.plansService.choosePlanForCompany(dto, req.user.userId);
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  choosePlan(
+    @Body() dto: ChoosePlanDto,
+    @Req() req?: Request,
+    @Headers('authorization') authorization?: string,
+  ) {
+    return this.plansService.choosePlanForCompany(dto);
+  }
+
+  // Endpoints para gestão de features do plano
+  @Public()
+  @Post(':id/features/:featureId')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  addFeature(
+    @Param('id') planId: string,
+    @Param('featureId') featureId: string,
+    @Req() req?: Request,
+    @Headers('authorization') authorization?: string,
+  ) {
+    return this.plansService.addFeature(planId, featureId);
+  }
+
+  @Public()
+  @Delete(':id/features/:featureId')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  removeFeature(
+    @Param('id') planId: string,
+    @Param('featureId') featureId: string,
+    @Req() req?: Request,
+    @Headers('authorization') authorization?: string,
+  ) {
+    return this.plansService.removeFeature(planId, featureId);
+  }
+
+  // Endpoints para gestão de limites do plano
+  @Public()
+  @Patch(':id/limits/:resource')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  updateLimit(
+    @Param('id') planId: string,
+    @Param('resource') resource: string,
+    @Body() body: { maxValue: number },
+    @Req() req?: Request,
+    @Headers('authorization') authorization?: string,
+  ) {
+    return this.plansService.updateLimit(planId, resource, body.maxValue);
+  }
+
+  @Public()
+  @Delete(':id/limits/:resource')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  removeLimit(
+    @Param('id') planId: string,
+    @Param('resource') resource: string,
+    @Req() req?: Request,
+    @Headers('authorization') authorization?: string,
+  ) {
+    return this.plansService.removeLimit(planId, resource);
+  }
+
+  // ✅ Endpoints para sincronização de permissões
+  @Public()
+  @Post(':id/sync')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  async syncPlanPermissions(
+    @Param('id') planId: string,
+    @Req() req?: Request,
+    @Headers('authorization') authorization?: string,
+  ) {
+    await this.planSyncService.syncPlanPermissions(planId);
+    return { message: 'Permissões sincronizadas com sucesso' };
+  }
+
+  @Public()
+  @Post('sync/company/:companyId')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  async syncCompanyPermissions(
+    @Param('companyId') companyId: string,
+    @Req() req?: Request,
+    @Headers('authorization') authorization?: string,
+  ) {
+    await this.planSyncService.syncCompanyPermissions(companyId);
+    return { message: 'Permissões da empresa sincronizadas com sucesso' };
+  }
+
+  @Public()
+  @Post('sync/branch/:branchId')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  async syncBranchPermissions(
+    @Param('branchId') branchId: string,
+    @Req() req?: Request,
+    @Headers('authorization') authorization?: string,
+  ) {
+    await this.planSyncService.syncBranchPermissions(branchId);
+    return { message: 'Permissões da branch sincronizadas com sucesso' };
   }
 }

@@ -3,34 +3,54 @@ import {
   NotFoundException,
   ConflictException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { CreatePlanDto } from './dto/create-plan.dto';
+import { CreateDynamicPlanDto } from './dto/create-dynamic-plan.dto';
 import { UpdatePlanDto } from './dto/update-plan.dto';
 import { prisma } from '../../../lib/prisma';
 import { BillingPeriod, ChoosePlanDto } from './dto/choose-plan.dto';
+import { FeaturePermissionsService } from '../../ability/factory/feature-permissions.service';
 
 @Injectable()
 export class PlansService {
-  async create(createPlanDto: CreatePlanDto, userId: string) {
-    // Apenas admin pode criar planos
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-    });
+  constructor(private readonly featurePermissions: FeaturePermissionsService) {}
+  async create(createPlanDto: CreatePlanDto) {
+    // Extrair features e limits do DTO se existirem
+    const { features, limits, ...planData } = createPlanDto;
 
-    if (!user) {
-      throw new NotFoundException('Usuário não encontrado');
+    // Parse features e limits se forem strings JSON
+    let parsedFeatures: string[] | null = null;
+    let parsedLimits: Record<string, number> | null = null;
+
+    if (features) {
+      try {
+        parsedFeatures = typeof features === 'string' ? JSON.parse(features) : features;
+      } catch (error) {
+        throw new BadRequestException('Formato inválido para features');
+      }
+    }
+
+    if (limits) {
+      try {
+        parsedLimits = typeof limits === 'string' ? JSON.parse(limits) : limits;
+      } catch (error) {
+        throw new BadRequestException('Formato inválido para limits');
+      }
     }
 
     // Criar o plano
     const plan = await prisma.plan.create({
       data: {
-        ...createPlanDto,
+        ...planData,
         billingPeriod: createPlanDto.billingPeriod || 'MONTHLY',
         active: createPlanDto.active ?? true,
         isTrial: createPlanDto.isTrial ?? false,
         isFeatured: createPlanDto.isFeatured ?? false,
         displayOrder: createPlanDto.displayOrder ?? 0,
         trialDays: createPlanDto.trialDays ?? 7,
+        features: parsedFeatures ? JSON.stringify(parsedFeatures) : null,
+        limits: parsedLimits ? JSON.stringify(parsedLimits) : null,
       },
       include: {
         _count: {
@@ -41,30 +61,61 @@ export class PlansService {
       },
     });
 
-    return plan;
-  }
+    // Se houver features no array, associá-las ao plano
+    if (parsedFeatures && Array.isArray(parsedFeatures)) {
+      for (const featureKey of parsedFeatures) {
+        const feature = await prisma.feature.findUnique({
+          where: { key: featureKey },
+        });
 
-  async findAll(userId?: string) {
-    // Se userId fornecido, verificar permissões
-    if (userId) {
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-      });
-
-      // Admin pode ver todos, inclusive inativos
-      
+        if (feature) {
+          await prisma.planFeature.create({
+            data: {
+              planId: plan.id,
+              featureId: feature.id,
+            },
+          });
+        }
+      }
     }
 
-    // Usuários comuns só veem planos ativos
+    // Se houver limits no objeto, criar PlanLimit entries
+    if (limits && typeof limits === 'object') {
+      for (const [resource, maxValue] of Object.entries(limits)) {
+        await prisma.planLimit.create({
+          data: {
+            planId: plan.id,
+            resource,
+            maxValue: Number(maxValue),
+          },
+        });
+      }
+    }
+
+    return this.findOne(plan.id);
+  }
+
+  async findAll() {
     return prisma.plan.findMany({
       where: { active: true },
-      orderBy: [{ displayOrder: 'asc' }, { createdAt: 'desc' }],
+      orderBy: [
+        { displayOrder: 'asc' },
+        { name: 'asc' }
+      ],
       include: {
         _count: {
           select: {
             subscriptions: true,
+            planFeatures: true,
+            planLimits: true,
           },
         },
+        planFeatures: {
+          include: {
+            feature: true,
+          },
+        },
+        planLimits: true,
       },
     });
   }
@@ -78,6 +129,12 @@ export class PlansService {
             subscriptions: true,
           },
         },
+        planFeatures: {
+          include: {
+            feature: true,
+          },
+        },
+        planLimits: true,
       },
     });
 
@@ -88,44 +145,104 @@ export class PlansService {
     return plan;
   }
 
-  async update(id: string, updatePlanDto: UpdatePlanDto, userId: string) {
-    // Apenas admin pode atualizar planos
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-    });
+  async update(id: string, updatePlanDto: UpdatePlanDto) {
+    const plan = await this.findOne(id);
 
-    if (!user) {
-      throw new NotFoundException('Usuário não encontrado');
+    // Extrair features e limits do DTO se existirem
+    const { features, limits, ...planData } = updatePlanDto;
+
+    // Parse features e limits se forem strings JSON
+    let parsedFeatures: string[] | null = null;
+    let parsedLimits: Record<string, number> | null = null;
+
+    if (features) {
+      try {
+        parsedFeatures = typeof features === 'string' ? JSON.parse(features) : features;
+      } catch (error) {
+        throw new BadRequestException('Formato inválido para features');
+      }
     }
 
-    // Verificar se o plano existe
-    await this.findOne(id);
+    if (limits) {
+      try {
+        parsedLimits = typeof limits === 'string' ? JSON.parse(limits) : limits;
+      } catch (error) {
+        throw new BadRequestException('Formato inválido para limits');
+      }
+    }
 
-    return prisma.plan.update({
+    // Atualizar o plano
+    const updatedPlan = await prisma.plan.update({
       where: { id },
-      data: updatePlanDto,
+      data: {
+        ...planData,
+        features: parsedFeatures ? JSON.stringify(parsedFeatures) : undefined,
+        limits: parsedLimits ? JSON.stringify(parsedLimits) : undefined,
+      },
       include: {
         _count: {
           select: {
             subscriptions: true,
+            planFeatures: true,
+            planLimits: true,
           },
         },
+        planFeatures: {
+          include: {
+            feature: true,
+          },
+        },
+        planLimits: true,
       },
     });
-  }
 
-  async remove(id: string, userId: string) {
-    // Apenas admin pode deletar planos
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-    });
+    // Se houver features no array, atualizar associações
+    if (parsedFeatures && Array.isArray(parsedFeatures)) {
+      // Remover associações existentes
+      await prisma.planFeature.deleteMany({
+        where: { planId: id },
+      });
 
-    if (!user) {
-      throw new NotFoundException('Usuário não encontrado');
+      // Adicionar novas associações
+      for (const featureKey of parsedFeatures) {
+        const feature = await prisma.feature.findUnique({
+          where: { key: featureKey },
+        });
+
+        if (feature) {
+          await prisma.planFeature.create({
+            data: {
+              planId: id,
+              featureId: feature.id,
+            },
+          });
+        }
+      }
     }
 
-   
+    // Se houver limits no objeto, atualizar PlanLimit entries
+    if (parsedLimits && typeof parsedLimits === 'object') {
+      // Remover limites existentes
+      await prisma.planLimit.deleteMany({
+        where: { planId: id },
+      });
 
+      // Adicionar novos limites
+      for (const [resource, maxValue] of Object.entries(parsedLimits)) {
+        await prisma.planLimit.create({
+          data: {
+            planId: id,
+            resource,
+            maxValue: Number(maxValue),
+          },
+        });
+      }
+    }
+
+    return this.findOne(id);
+  }
+
+  async remove(id: string) {
     // Verificar se o plano existe
     await this.findOne(id);
 
@@ -206,70 +323,264 @@ export class PlansService {
     return next;
   }
 
-  async choosePlanForCompany(dto: ChoosePlanDto, userId: string) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
+  async choosePlanForCompany(dto: ChoosePlanDto) {
+    const { planId, billingPeriod } = dto;
+
+    // Verificar se o plano existe
+    const plan = await prisma.plan.findUnique({
+      where: { id: planId },
+    });
+
+    if (!plan) {
+      throw new NotFoundException('Plano não encontrado');
+    }
+
+    // Buscar ou criar uma empresa padrão para testes
+    let company = await prisma.company.findFirst();
+    
+    if (!company) {
+      // Criar empresa padrão se não existir
+      company = await prisma.company.create({
+        data: {
+          name: 'Empresa Padrão',
+          companyName: 'Empresa Padrão LTDA',
+          document: '00000000000000',
+          email: 'empresa@padrao.com',
+          phone: '00000000000',
+          active: true,
+        },
+      });
+    }
+
+    // Criar nova assinatura
+    const now = new Date();
+    const endDate = this.calculateNextBillingDate(now, billingPeriod);
+    const nextBillingDate = this.calculateNextBillingDate(endDate, billingPeriod);
+
+    const subscription = await prisma.subscription.create({
+      data: {
+        planId: plan.id,
+        companyId: company.id,
+        status: 'ACTIVE',
+        billingPeriod,
+        startDate: now,
+        endDate,
+        nextBillingDate,
+        notes: 'Assinatura criada manualmente',
+      },
       include: {
-        company: {
-          include: {
-            subscription: true,
+        plan: true,
+        company: true,
+      },
+    });
+
+    return subscription;
+  }
+
+  // Métodos para gestão de features do plano
+  async addFeature(planId: string, featureId: string) {
+    // Verificar se plano existe
+    await this.findOne(planId);
+
+    // Verificar se feature existe
+    const feature = await prisma.feature.findUnique({
+      where: { id: featureId },
+    });
+
+    if (!feature) {
+      throw new NotFoundException('Feature não encontrada');
+    }
+
+    // Verificar se a associação já existe
+    const existingAssociation = await prisma.planFeature.findUnique({
+      where: {
+        planId_featureId: {
+          planId,
+          featureId,
+        },
+      },
+    });
+
+    if (existingAssociation) {
+      throw new ConflictException('Feature já está associada a este plano');
+    }
+
+    return prisma.planFeature.create({
+      data: {
+        planId,
+        featureId,
+      },
+      include: {
+        feature: true,
+      },
+    });
+  }
+
+  async removeFeature(planId: string, featureId: string) {
+    // Verificar se plano existe
+    await this.findOne(planId);
+
+    // Verificar se a associação existe
+    const existingAssociation = await prisma.planFeature.findUnique({
+      where: {
+        planId_featureId: {
+          planId,
+          featureId,
+        },
+      },
+    });
+
+    if (!existingAssociation) {
+      throw new NotFoundException('Feature não está associada a este plano');
+    }
+
+    return prisma.planFeature.delete({
+      where: {
+        planId_featureId: {
+          planId,
+          featureId,
+        },
+      },
+    });
+  }
+
+  // Métodos para gestão de limites do plano
+  async updateLimit(planId: string, resource: string, maxValue: number) {
+    // Verificar se plano existe
+    await this.findOne(planId);
+
+    // Verificar se o limite já existe
+    const existingLimit = await prisma.planLimit.findUnique({
+      where: {
+        planId_resource: {
+          planId,
+          resource,
+        },
+      },
+    });
+
+    if (existingLimit) {
+      return prisma.planLimit.update({
+        where: {
+          planId_resource: {
+            planId,
+            resource,
+          },
+        },
+        data: { maxValue },
+      });
+    } else {
+      return prisma.planLimit.create({
+        data: {
+          planId,
+          resource,
+          maxValue,
+        },
+      });
+    }
+  }
+
+  async removeLimit(planId: string, resource: string) {
+    // Verificar se plano existe
+    await this.findOne(planId);
+
+    // Verificar se o limite existe
+    const existingLimit = await prisma.planLimit.findUnique({
+      where: {
+        planId_resource: {
+          planId,
+          resource,
+        },
+      },
+    });
+
+    if (!existingLimit) {
+      throw new NotFoundException('Limite não encontrado para este plano');
+    }
+
+    return prisma.planLimit.delete({
+      where: {
+        planId_resource: {
+          planId,
+          resource,
+        },
+      },
+    });
+  }
+
+  /**
+   * Cria um plano de forma dinâmica baseado nas features selecionadas
+   */
+  async createDynamic(createPlanDto: CreateDynamicPlanDto) {
+    const { features, limits, ...planData } = createPlanDto;
+
+    // Validar se todas as features existem
+    const availableFeatures = await this.featurePermissions.listAllFeaturesWithPermissions();
+    const validFeatureKeys = availableFeatures.map(f => f.key);
+    
+    for (const featureKey of features) {
+      if (!validFeatureKeys.includes(featureKey)) {
+        throw new BadRequestException(`Feature '${featureKey}' não é válida`);
+      }
+    }
+
+    // Criar o plano
+    const plan = await prisma.plan.create({
+      data: {
+        ...planData,
+        billingPeriod: (createPlanDto.billingPeriod as any) || 'MONTHLY',
+        active: createPlanDto.active ?? true,
+        isTrial: createPlanDto.isTrial ?? false,
+        isFeatured: createPlanDto.isFeatured ?? false,
+        displayOrder: createPlanDto.displayOrder ?? 0,
+        trialDays: createPlanDto.trialDays ?? 7,
+        features: JSON.stringify(features), // Armazenar features no campo JSON
+      },
+      include: {
+        _count: {
+          select: {
+            subscriptions: true,
           },
         },
       },
     });
 
-    if (!user?.company) {
-      throw new NotFoundException('Empresa não encontrada');
+    // Associar features ao plano
+    for (const featureKey of features) {
+      const feature = await prisma.feature.findUnique({
+        where: { key: featureKey },
+      });
+
+      if (feature) {
+        await prisma.planFeature.create({
+          data: {
+            planId: plan.id,
+            featureId: feature.id,
+          },
+        });
+      }
     }
 
-    const company = user.company;
-
-    // ❌ Já tem assinatura
-    if (company.subscription) {
-      throw new ConflictException(
-        'Empresa já possui uma assinatura ativa ou em andamento',
-      );
+    // Criar limites se fornecidos
+    if (limits && limits.length > 0) {
+      for (const limit of limits) {
+        await prisma.planLimit.create({
+          data: {
+            planId: plan.id,
+            resource: limit.resource,
+            maxValue: limit.maxValue,
+          },
+        });
+      }
     }
 
-    const plan = await prisma.plan.findUnique({
-      where: { id: dto.planId },
-    });
+    return this.findOne(plan.id);
+  }
 
-    if (!plan || !plan.active) {
-      throw new NotFoundException('Plano inválido ou inativo');
-    }
-
-    const now = new Date();
-
-    let endDate: Date | null = null;
-    let nextBillingDate: Date | null = null;
-
-    // 🆓 Trial
-    if (plan.isTrial) {
-      endDate = new Date();
-      endDate.setDate(endDate.getDate() + (plan.trialDays ?? 7));
-      nextBillingDate = endDate;
-    } else {
-      // Para planos pagos, calcular próxima cobrança e data de término
-      nextBillingDate = this.calculateNextBillingDate(now, dto.billingPeriod);
-      // Para planos pagos, endDate pode ser null (sem término) ou igual ao próximo billing
-      // Vamos deixar null para indicar que é uma assinatura recorrente sem fim
-      endDate = null;
-    }
-
-    const subscription = await prisma.subscription.create({
-      data: {
-        companyId: company.id,
-        planId: plan.id,
-        status: 'ACTIVE',
-        billingPeriod: dto.billingPeriod,
-        startDate: now,
-        endDate,
-        nextBillingDate,
-        notes: 'Assinatura criada durante onboarding',
-      },
-    });
-
-    return subscription;
+  /**
+   * Lista features disponíveis para criação de planos
+   */
+  async listAvailableFeatures() {
+    return this.featurePermissions.listAllFeaturesWithPermissions();
   }
 }

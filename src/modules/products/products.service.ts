@@ -34,6 +34,10 @@ export class ProductsService {
       throw new NotFoundException('Categoria não encontrada');
     }
 
+    if (!user.companyId) {
+      throw new ForbiddenException('A categoria não pertence à sua empresa');
+    }
+
     if (category.branchId !== user.branchId) {
       throw new ForbiddenException('A categoria não pertence à sua filial');
     }
@@ -43,6 +47,7 @@ export class ProductsService {
       data: {
         ...createProductDto,
         branchId: user.branchId, // Sempre usar branchId do usuário logado
+        companyId: user.companyId, // Sempre usar companyId do usuário logado
         active: createProductDto.active ?? true,
         featured: createProductDto.featured ?? false,
         stockControlEnabled: createProductDto.stockControlEnabled ?? false,

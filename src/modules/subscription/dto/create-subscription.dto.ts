@@ -42,6 +42,10 @@ export class CreateSubscriptionDto {
 
   @IsOptional()
   @IsDateString()
+  trialEndsAt?: string;
+
+  @IsOptional()
+  @IsDateString()
   nextBillingDate?: string;
 
   @IsOptional()
@@ -49,8 +53,11 @@ export class CreateSubscriptionDto {
   lastBillingDate?: string;
 
   @IsOptional()
+  cancelAtPeriodEnd?: boolean;
+
+  @IsOptional()
   @IsNumber()
-  lastBillingAmount?: number;
+  paymentRetryCount?: number;
 
   @IsOptional()
   @IsString()

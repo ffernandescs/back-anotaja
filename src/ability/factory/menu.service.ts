@@ -6,7 +6,7 @@
 
 import { Injectable } from '@nestjs/common';
 import { Action, PlanType, Subject } from '../types/ability.types';
-import { PLAN_FEATURES, ADDON_FEATURES } from './plan-rules';
+import { prisma } from '../../../lib/prisma';
 
 export interface MenuItem {
   id: string;
@@ -25,428 +25,131 @@ export interface MenuGroup {
 
 @Injectable()
 export class MenuService {
-  // Definição completa do menu (espelho do frontend)
-  private readonly FULL_MENU: MenuGroup[] = [
-    {
-      title: 'Principal',
-      items: [
-        {
-          id: 'dashboard',
-          label: 'Dashboard',
-          href: '/admin/dashboard',
-          action: Action.READ,
-          subject: Subject.DASHBOARD,
-        },
-      ],
-    },
-    {
-      title: 'Produtos e Catálogo',
-      items: [
-        {
-          id: 'products',
-          label: 'Produtos',
-          href: '/admin/products',
-          action: Action.READ,
-          subject: Subject.PRODUCT,
-        },
-        {
-          id: 'categories',
-          label: 'Categorias',
-          href: '/admin/categories',
-          action: Action.READ,
-          subject: Subject.PRODUCT,
-        },
-        {
-          id: 'complements',
-          label: 'Complementos',
-          children: [
-            {
-              id: 'complements-list',
-              label: 'Lista de Complementos',
-              href: '/admin/complements',
-              action: Action.READ,
-              subject: Subject.PRODUCT,
-            },
-            {
-              id: 'complement-options',
-              label: 'Opções de Complementos',
-              href: '/admin/complement-options',
-              action: Action.READ,
-              subject: Subject.PRODUCT,
-            },
-          ],
-        },
-      ],
-    },
-    {
-      title: 'Pedidos e Operações',
-      items: [
-        {
-          id: 'orders',
-          label: 'Pedidos',
-          children: [
-            {
-              id: 'orders-list',
-              label: 'Lista de Pedidos',
-              href: '/admin/orders',
-              action: Action.READ,
-              subject: Subject.ORDER,
-            },
-            {
-              id: 'kanban',
-              label: 'Kanban',
-              href: '/admin/kanban',
-              action: Action.READ,
-              subject: Subject.KANBAN,
-            },
-            {
-              id: 'kds',
-              label: 'KDS',
-              href: '/admin/kds',
-              action: Action.READ,
-              subject: Subject.KDS,
-            },
-            {
-              id: 'pdv',
-              label: 'PDV',
-              href: '/admin/pdv',
-              action: Action.READ,
-              subject: Subject.PDV,
-            },
-          ],
-        },
-        {
-          id: 'comandas',
-          label: 'Comandas',
-          href: '/admin/comandas',
-          action: Action.READ,
-          subject: Subject.COMMANDS,
-        },
-        {
-          id: 'tables',
-          label: 'Mesas',
-          href: '/admin/tables',
-          action: Action.READ,
-          subject: Subject.TABLE,
-        },
-      ],
-    },
-    {
-      title: 'Financeiro',
-      items: [
-        {
-          id: 'cash-register',
-          label: 'Fluxo de Caixa',
-          href: '/admin/cash-register',
-          action: Action.READ,
-          subject: Subject.CASH_REGISTER,
-        },
-        {
-          id: 'coupons',
-          label: 'Cupons',
-          href: '/admin/coupons',
-          action: Action.READ,
-          subject: Subject.COUPON,
-        },
-      ],
-    },
-    {
-      title: 'Estoque',
-      items: [
-        {
-          id: 'stock',
-          label: 'Estoque',
-          href: '/admin/stock',
-          action: Action.READ,
-          subject: Subject.STOCK,
-        },
-      ],
-    },
-    {
-      title: 'Entregas',
-      items: [
-        {
-          id: 'delivery-persons',
-          label: 'Entregadores',
-          href: '/admin/delivery-persons',
-          action: Action.READ,
-          subject: Subject.DELIVERY_PERSON,
-        },
-        {
-          id: 'deliveries',
-          label: 'Gestão de Entregas',
-          children: [
-            {
-              id: 'delivery-areas',
-              label: 'Áreas de Entrega',
-              href: '/admin/delivery-areas',
-              action: Action.READ,
-              subject: Subject.DELIVERY_AREA,
-            },
-            {
-              id: 'delivery-routes',
-              label: 'Gerenciar Rotas',
-              href: '/admin/delivery-routes',
-              action: Action.READ,
-              subject: Subject.DELIVERY_ROUTE,
-            },
-            {
-              id: 'delivery-assignments',
-              label: 'Rotas de Entregadores',
-              href: '/admin/delivery-assignments',
-              action: Action.READ,
-              subject: Subject.DELIVERY_PERSON,
-            },
-          ],
-        },
-      ],
-    },
-    {
-      title: 'Marketing e Fidelidade',
-      items: [
-        {
-          id: 'points',
-          label: 'Pontuação',
-          href: '/admin/points',
-          action: Action.READ,
-          subject: Subject.POINTS,
-        },
-      ],
-    },
-    {
-      title: 'Administração',
-      items: [
-        {
-          id: 'branches',
-          label: 'Filiais',
-          href: '/admin/branches',
-          action: Action.READ,
-          subject: Subject.BRANCH,
-        },
-        {
-          id: 'users',
-          label: 'Usuários',
-          href: '/admin/users',
-          action: Action.READ,
-          subject: Subject.USER,
-        },
-        {
-          id: 'groups',
-          label: 'Grupos de permissão',
-          href: '/admin/groups',
-          action: Action.READ,
-          subject: Subject.GROUP,
-        },
-        {
-          id: 'payments',
-          label: 'Meu plano',
-          href: '/admin/settings/payments',
-          action: Action.READ,
-          subject: Subject.SUBSCRIPTION,
-        },
-        {
-          id: 'settings',
-          label: 'Configurações',
-          children: [
-            {
-              id: 'profile',
-              label: 'Perfil',
-              href: '/admin/settings/profile',
-              action: Action.READ,
-              subject: Subject.PROFILE,
-            },
-            {
-              id: 'hours',
-              label: 'Horários',
-              href: '/admin/settings/hours',
-              action: Action.READ,
-              subject: Subject.HOURS,
-            },
-            {
-              id: 'payment',
-              label: 'Pagamento',
-              href: '/admin/settings/payment',
-              action: Action.READ,
-              subject: Subject.PAYMENT,
-            },
-            {
-              id: 'announcements',
-              label: 'Avisos',
-              href: '/admin/settings/announcements',
-              action: Action.READ,
-              subject: Subject.BRANCH,
-            },
-          ],
-        },
-      ],
-    },
-  ];
-
   /**
-   * ✅ Gera menu filtrado baseado nas permissões efetivas do usuário
-   * 
-   * @param plan - Tipo do plano (define o teto)
-   * @param addons - Add-ons ativos
-   * @param userPermissions - Permissões efetivas do usuário (grupo + overrides)
-   * 
-   * Se userPermissions for fornecido, filtra por: PLANO ∩ USER_PERMISSIONS
-   * Se não for fornecido (compatibilidade), filtra apenas por: PLANO
+   * ✅ Gera menu dinâmico a partir das features do plano
+   * Busca features ativas do plano e agrupa por menu groups
    */
-  generateMenu(
-    plan: PlanType, 
+  async generateMenuFromFeatures(
+    plan: PlanType,
     addons: string[] = [],
     userPermissions?: Array<{ action: Action; subject: Subject; inverted: boolean }>
-  ): MenuGroup[] {
-    let allowedPermissions: Set<string>;
-    
-    if (userPermissions && userPermissions.length > 0) {
-      // ✅ NOVO: Filtrar por permissões efetivas do usuário (grupo + overrides)
-      allowedPermissions = this.convertUserPermissionsToSet(userPermissions);
-    } else {
-      // ❌ FALLBACK: Filtrar apenas pelo plano (comportamento antigo)
-      allowedPermissions = this.getAllowedPermissions(plan, addons);
-    }
-    
-    return this.FULL_MENU.map((group) => ({
-      title: group.title,
-      items: this.filterMenuItems(group.items, allowedPermissions),
-    })).filter((group) => group.items.length > 0);
-  }
+  ): Promise<MenuGroup[]> {
+    // ✅ Por enquanto, permite todas as permissões (será implementado)
+    const allowedPermissions = new Set<string>(['*']);
 
-  /**
-   * ✅ Converte permissões do usuário (PermissionRule[]) para Set<string>
-   * Usado para filtrar menu baseado nas permissões efetivas (grupo + overrides)
-   */
-  private convertUserPermissionsToSet(
-    userPermissions: Array<{ action: Action; subject: Subject; inverted: boolean }>
-  ): Set<string> {
-    const permissions = new Set<string>();
+    // ✅ Buscar features do plano com grupos associados
+    const planFeatures = await prisma.feature.findMany({
+      where: {
+        active: true,
+        planFeatures: {
+          some: {
+            plan: {
+              type: plan,
+            },
+          },
+        },
+      },
+      include: {
+        featureMenuGroups: {
+          include: {
+            group: true,
+          },
+        },
+      },
+      orderBy: {
+        name: 'asc',
+      },
+    });
 
-    for (const permission of userPermissions) {
-      // Ignorar permissões invertidas (cannot)
-      if (permission.inverted) {
+    // ✅ Agrupar features por menu groups
+    const menuGroupsMap = new Map<string, MenuItem[]>();
+
+    for (const feature of planFeatures) {
+      // Verificar se usuário tem permissão para esta feature
+      const featureKey = feature.key;
+      const hasPermission = allowedPermissions.has('*') || 
+        Array.from(allowedPermissions).some(permission => 
+          permission.includes(featureKey) || featureKey.includes(permission.split(':')[1])
+        );
+
+      if (!hasPermission) {
         continue;
       }
 
-      const { action, subject } = permission;
+      // Criar menu item
+      const menuItem: MenuItem = {
+        id: feature.key,
+        label: feature.name,
+        href: feature.href || undefined,
+        action: Action.READ, // ✅ Permissão padrão para menu
+        subject: this.inferSubjectFromFeatureKey(feature.key),
+      };
 
-      if (subject === Subject.ALL) {
-        // Se tem ALL, permite tudo
-        permissions.add('*');
-      } else {
-        permissions.add(`${action}:${subject}`);
-        
-        // Se tem MANAGE, adiciona todas as actions
-        if (action === Action.MANAGE) {
-          permissions.add(`${Action.CREATE}:${subject}`);
-          permissions.add(`${Action.READ}:${subject}`);
-          permissions.add(`${Action.UPDATE}:${subject}`);
-          permissions.add(`${Action.DELETE}:${subject}`);
-        }
-      }
-    }
-
-    return permissions;
-  }
-
-  /**
-   * Coleta todas as permissões permitidas pelo plano + add-ons
-   * (Mantido para compatibilidade - usado quando userPermissions não é fornecido)
-   */
-  private getAllowedPermissions(plan: PlanType, addons: string[]): Set<string> {
-    const permissions = new Set<string>();
-
-    // Permissões do plano
-    const planFeatures = PLAN_FEATURES[plan] || [];
-    for (const [action, subjects] of planFeatures) {
-      const subjectList = Array.isArray(subjects) ? subjects : [subjects];
-      
-      for (const subject of subjectList) {
-        if (subject === Subject.ALL) {
-          // Se tem MANAGE ALL, permite tudo
-          permissions.add('*');
-        } else {
-          permissions.add(`${action}:${subject}`);
-          
-          // Se tem MANAGE, adiciona todas as actions
-          if (action === Action.MANAGE) {
-            permissions.add(`${Action.CREATE}:${subject}`);
-            permissions.add(`${Action.READ}:${subject}`);
-            permissions.add(`${Action.UPDATE}:${subject}`);
-            permissions.add(`${Action.DELETE}:${subject}`);
+      // Se feature tem grupos, adicionar a cada grupo
+      if (feature.featureMenuGroups.length > 0) {
+        for (const featureMenuGroup of feature.featureMenuGroups) {
+          const group = featureMenuGroup.group;
+          if (group) {
+            if (!menuGroupsMap.has(group.id)) {
+              menuGroupsMap.set(group.id, []);
+            }
+            menuGroupsMap.get(group.id)!.push(menuItem);
           }
         }
-      }
-    }
-
-    // Permissões de add-ons
-    for (const addon of addons) {
-      const addonFeatures = ADDON_FEATURES[addon as any] || [];
-      for (const [action, subject] of addonFeatures) {
-        permissions.add(`${action}:${subject}`);
-        
-        if (action === Action.MANAGE) {
-          permissions.add(`${Action.CREATE}:${subject}`);
-          permissions.add(`${Action.READ}:${subject}`);
-          permissions.add(`${Action.UPDATE}:${subject}`);
-          permissions.add(`${Action.DELETE}:${subject}`);
-        }
-      }
-    }
-
-    return permissions;
-  }
-
-  /**
-   * Filtra itens do menu recursivamente
-   */
-  private filterMenuItems(items: MenuItem[], allowedPermissions: Set<string>): MenuItem[] {
-    const filtered: MenuItem[] = [];
-
-    for (const item of items) {
-      // Se tem children, filtra recursivamente
-      if (item.children && item.children.length > 0) {
-        const filteredChildren = this.filterMenuItems(item.children, allowedPermissions);
-        
-        // Só inclui o pai se tiver pelo menos um filho visível
-        if (filteredChildren.length > 0) {
-          filtered.push({
-            ...item,
-            children: filteredChildren,
-          });
-        }
       } else {
-        // Item folha - verifica permissão
-        if (this.hasPermission(item, allowedPermissions)) {
-          filtered.push(item);
+        // Se não tem grupo, adicionar em "Outros"
+        if (!menuGroupsMap.has('outros')) {
+          menuGroupsMap.set('outros', []);
         }
+        menuGroupsMap.get('outros')!.push(menuItem);
       }
     }
 
-    return filtered;
+    // ✅ Buscar informações dos grupos
+    const groupIds = Array.from(menuGroupsMap.keys()).filter(id => id !== 'outros');
+    const groups = await prisma.menuGroup.findMany({
+      where: {
+        id: { in: groupIds },
+        active: true,
+      },
+      orderBy: {
+        displayOrder: 'asc',
+      },
+    });
+
+    // ✅ Construir menu groups final
+    const menuGroups: MenuGroup[] = [];
+
+    // Adicionar grupos ordenados
+    for (const group of groups) {
+      const items = menuGroupsMap.get(group.id) || [];
+      if (items.length > 0) {
+        menuGroups.push({
+          title: group.title,
+          items,
+        });
+      }
+    }
+
+    // Adicionar "Outros" se tiver itens
+    const outrosItems = menuGroupsMap.get('outros') || [];
+    if (outrosItems.length > 0) {
+      menuGroups.push({
+        title: 'Outros',
+        items: outrosItems,
+      });
+    }
+
+    return menuGroups;
   }
 
   /**
-   * Verifica se o item tem permissão
+   * ✅ Infere subject a partir da feature key
+   * TODO: Futuramente buscar configuração do Master no banco
    */
-  private hasPermission(item: MenuItem, allowedPermissions: Set<string>): boolean {
-    // Se não tem action/subject definido, permite (compatibilidade)
-    if (!item.action || !item.subject) {
-      return true;
-    }
-
-    // ✅ Subject.ALL sempre é exibido para todos (independente do plano)
-    if (item.subject === Subject.ALL) {
-      return true;
-    }
-
-    // Se tem permissão total (*), permite tudo
-    if (allowedPermissions.has('*')) {
-      return true;
-    }
-
-    // Verifica permissão específica
-    const key = `${item.action}:${item.subject}`;
-    return allowedPermissions.has(key);
+  private inferSubjectFromFeatureKey(featureKey: string): Subject {
+    // TODO: Implementar inferência dinâmica baseada no banco
+    // Por enquanto, retorna ALL como fallback
+    return Subject.ALL;
   }
 }

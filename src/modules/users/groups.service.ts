@@ -15,6 +15,9 @@ export class GroupsService {
  async create(createGroupDto: CreateGroupDto, userId: string) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
+    include: {
+      branch: true, // Incluir branch para acessar companyId
+    },
   });
 
   if (!user) {
@@ -23,6 +26,10 @@ export class GroupsService {
 
   if (!user.branchId) {
     throw new ForbiddenException('Usuário não possui filial associada');
+  }
+
+  if (!user.branch?.companyId) {
+    throw new ForbiddenException('Filial não possui empresa associada');
   }
 
   // Verificar duplicidade de nome
@@ -43,6 +50,7 @@ export class GroupsService {
     name: createGroupDto.name,
     description: createGroupDto.description,
     branchId: user.branchId,
+    companyId: user.branch.companyId, // Campo obrigatório adicionado
     permissions: {
       create: createGroupDto.permissions.map((p) => ({
         action: p.action as unknown as PermissionAction,

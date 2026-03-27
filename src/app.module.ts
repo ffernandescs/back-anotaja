@@ -38,6 +38,12 @@ import { StockModule } from './stock/stock.module';
 import { IngredientsModule } from './ingredients/ingredients.module';
 import { IngredientCategoriesModule } from './ingredient-categories/ingredient-categories.module';
 import { AbilitiesGuard, AbilityModule } from './ability';
+import { OwnerModule } from './modules/owner/owner.module';
+import { FeaturesModule } from './modules/features/features.module';
+import { AddonsModule } from './modules/addons/addons.module';
+import { LimitsModule } from './modules/limits/limits.module';
+import { AccessModule } from './access/access.module';
+import { MenuGroupsModule } from './modules/menu-groups/menu-groups.module';
 
 @Module({
   imports: [
@@ -80,7 +86,13 @@ import { AbilitiesGuard, AbilityModule } from './ability';
     StockModule,
     IngredientsModule,
     IngredientCategoriesModule,
-    AbilityModule
+    AbilityModule,
+    OwnerModule,
+    FeaturesModule,
+    AddonsModule,
+    LimitsModule,
+    AccessModule,
+    MenuGroupsModule
   ],
   providers: [
     {

@@ -452,33 +452,12 @@ export class AuthService {
       }
     }
 
-    // ✅ Gerar menu baseado nas permissões efetivas do usuário (grupo + overrides)
+    // Gerar menu filtrado pelas permissões efetivas (já filtradas pelo plano)
     const planType = subscriptionInfo?.plan?.type as PlanType || PlanType.TRIAL;
     const addons = []; // TODO: Buscar add-ons ativos da subscription
     
-    // Converter permissões do Prisma para formato do CASL
-    const groupPermissions = user.group?.permissions?.map(p => ({
-      action: p.action as any,
-      subject: p.subject as any,
-      inverted: p.inverted
-    }));
-    
-    const userPermissions = user.permissions?.map(p => ({
-      action: p.action as any,
-      subject: p.subject as any,
-      inverted: p.inverted
-    }));
-    
-    // Calcular permissões efetivas (grupo + overrides respeitando teto do plano)
-    const effectivePermissions = this.abilityFactory.getEffectivePermissions(
-      groupPermissions,
-      userPermissions,
-      planType,
-      addons
-    );
-    
-    // Gerar menu filtrado pelas permissões efetivas
-    const menu = this.menuService.generateMenu(planType, addons, effectivePermissions);
+    // ✅ USAR MENU DINÂMICO A PARTIR DAS FEATURES
+    const menu = await this.menuService.generateMenuFromFeatures(planType, addons, permissions);
 
     // Salvar branches antes de transformar company
     const companyBranches = user.company?.branches || [];
@@ -506,7 +485,7 @@ export class AuthService {
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
         orders: user.orders || undefined,
-        permission: effectivePermissions, // ✅ Enviar permissões efetivas com conditions/limites
+        permission: permissions, // ✅ Enviar permissões efetivas com conditions/limites
         counts: resourceCounts,
         menu, // ✅ Menu agora vem dentro do user
       },
