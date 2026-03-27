@@ -3,13 +3,16 @@ import {
   Injectable,
   NotFoundException,
   InternalServerErrorException,
+  ConflictException,
 } from '@nestjs/common';
-import { CreateCompanyDto } from './dto/create-company.dto';
-import * as bcrypt from 'bcrypt';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../../lib/prisma';
-import { Prisma, User, Company, Branch, PermissionAction } from '@prisma/client';
+import { CreateCompanyDto } from './dto/create-company.dto';
+import { UpdateCompanyDto } from './dto/update-company.dto';
+import * as bcrypt from 'bcrypt';
 import { GeocodingService } from '../geocoding/geocoding.service';
 import { MailService } from '../mail/mail.service';
+import { SubscriptionHistoryService } from '../subscription/subscription-history.service';
 
 export type VerifyCompanyExistDto = {
   phone?: string;
@@ -21,6 +24,7 @@ export class CompaniesService {
   constructor(
     private readonly geocodingService: GeocodingService,
     private readonly mailService: MailService,
+    private readonly historyService: SubscriptionHistoryService,
   ) {}
 
   async createCompany(dto: CreateCompanyDto) {
@@ -288,21 +292,51 @@ export class CompaniesService {
 
         // 8️⃣ Criar subscription trial automaticamente
         const now = new Date();
+        const trialDays = trialPlan.trialDays ?? 7;
         const trialEndDate = new Date(now);
-        trialEndDate.setDate(now.getDate() + (trialPlan.trialDays ?? 7));
+        trialEndDate.setDate(now.getDate() + trialDays);
 
-        await prisma.subscription.create({
+        const subscription = await prisma.subscription.create({
           data: {
             companyId: company.createdCompany.id,
             planId: trialPlan.id,
             status: 'ACTIVE',
             billingPeriod: trialPlan.billingPeriod,
             startDate: now,
-            endDate: trialEndDate,
-            nextBillingDate: trialEndDate,
-            notes: `Trial de ${trialPlan.trialDays ?? 7} dias - Criado automaticamente no cadastro`,
+            trialEndsAt: trialEndDate, // ✅ ESSENCIAL: Define quando o trial termina
+            nextBillingDate: trialEndDate, // Primeira cobrança após trial
+            notes: `Trial de ${trialDays} dias - Criado automaticamente no cadastro. Trial válido até ${trialEndDate.toLocaleDateString('pt-BR')}`,
           },
         });
+
+        console.log('✅ Subscription trial criada:', {
+          companyId: company.createdCompany.id,
+          planName: trialPlan.name,
+          trialDays,
+          trialEndsAt: trialEndDate.toISOString(),
+          nextBillingDate: trialEndDate.toISOString(),
+        });
+
+        // ✅ Registrar no histórico
+        await this.historyService.createHistoryEntry({
+          subscriptionId: subscription.id,
+          eventType: 'CREATED',
+          newPlanId: trialPlan.id,
+          newStatus: 'ACTIVE',
+          newBillingPeriod: trialPlan.billingPeriod,
+          reason: 'Subscription trial criada automaticamente no cadastro da empresa',
+          metadata: {
+            trialDays,
+            trialEndsAt: trialEndDate.toISOString(),
+            companyName: company.createdCompany.name,
+          },
+        });
+
+        // ✅ Registrar início do trial
+        await this.historyService.logTrialStarted(
+          subscription.id,
+          trialEndDate,
+        );
       }, {
         timeout: 10000,
       });
