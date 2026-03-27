@@ -207,7 +207,31 @@ export class SubscriptionService {
       );
     }
 
-    return subscription;
+    // Formatar dados para o frontend - modificando campos originais
+    const formattedSubscription = {
+      ...subscription,
+      // Adicionar lastBillingAmount para compatibilidade com frontend
+      lastBillingAmount: subscription.plan.price,
+      plan: subscription.plan ? {
+        ...subscription.plan,
+        // Modificar o campo original price para já vir formatado
+        price: formatCurrency(subscription.plan.price),
+        // Modificar o campo original features para já vir formatado
+        features: subscription.plan.features ? 
+          JSON.parse(subscription.plan.features).map((feature: string) => ({
+            key: feature,
+            name: feature.charAt(0).toUpperCase() + feature.slice(1).replace(/_/g, ' ')
+          })) : [],
+        // Modificar o campo original limits para já vir formatado
+        limits: subscription.plan.limits ? 
+          Object.entries(JSON.parse(subscription.plan.limits)).map(([key, value]) => ({
+            key: key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()),
+            value: value
+          })) : []
+      } : subscription.plan
+    };
+
+    return formattedSubscription;
   }
 
   async findByCompany(companyId: string, userId: string) {
@@ -258,7 +282,31 @@ export class SubscriptionService {
       );
     }
 
-    return subscription;
+    // Formatar dados para o frontend - modificando campos originais
+    const formattedSubscription = {
+      ...subscription,
+      // Adicionar lastBillingAmount para compatibilidade com frontend
+      lastBillingAmount: subscription.plan.price,
+      plan: subscription.plan ? {
+        ...subscription.plan,
+        // Modificar o campo original price para já vir formatado
+        price: formatCurrency(subscription.plan.price),
+        // Modificar o campo original features para já vir formatado
+        features: subscription.plan.features ? 
+          JSON.parse(subscription.plan.features).map((feature: string) => ({
+            key: feature,
+            name: feature.charAt(0).toUpperCase() + feature.slice(1).replace(/_/g, ' ')
+          })) : [],
+        // Modificar o campo original limits para já vir formatado
+        limits: subscription.plan.limits ? 
+          Object.entries(JSON.parse(subscription.plan.limits)).map(([key, value]) => ({
+            key: key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()),
+            value: value
+          })) : []
+      } : subscription.plan
+    };
+
+    return formattedSubscription;
   }
 
   async update(
@@ -387,23 +435,40 @@ export class SubscriptionService {
       throw new NotFoundException('Assinatura ou plano não encontrado');
     }
 
+    console.log('🔍 Dados do plano antes da formatação:', {
+      price: subscription.plan.price,
+      features: subscription.plan.features,
+      limits: subscription.plan.limits
+    });
+
     const formattedSubscription = {
       ...subscription,
+      // Adicionar lastBillingAmount para compatibilidade com frontend
+      lastBillingAmount: subscription.plan.price,
       plan: {
         ...subscription.plan,
-        formattedPrice: formatCurrency(subscription.plan.price),
-        formattedFeatures: subscription.plan.features ? 
+        // Modificar o campo original price para já vir formatado
+        price: formatCurrency(subscription.plan.price),
+        // Modificar o campo original features para já vir formatado
+        features: subscription.plan.features ? 
           JSON.parse(subscription.plan.features).map((feature: string) => ({
             key: feature,
             name: feature.charAt(0).toUpperCase() + feature.slice(1).replace(/_/g, ' ')
           })) : [],
-        formattedLimits: subscription.plan.limits ? 
+        // Modificar o campo original limits para já vir formatado
+        limits: subscription.plan.limits ? 
           Object.entries(JSON.parse(subscription.plan.limits)).map(([key, value]) => ({
             key: key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()),
             value: value
           })) : []
       }
     };
+
+    console.log('✅ Dados formatados para frontend:', {
+      price: formattedSubscription.plan.price,
+      features: formattedSubscription.plan.features,
+      limits: formattedSubscription.plan.limits
+    });
 
     // Retorno formatado pro frontend
     return formattedSubscription;
