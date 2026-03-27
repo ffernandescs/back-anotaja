@@ -1,13 +1,6 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from "lib/prisma";
 import bcrypt from 'bcrypt';
 
-const prisma = new PrismaClient({
-  datasources: {
-    db: {
-      url: process.env.DATABASE_URL,
-    },
-  },
-});
 
 async function createOwner() {
   try {
