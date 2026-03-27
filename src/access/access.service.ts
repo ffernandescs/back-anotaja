@@ -116,9 +116,6 @@ export class AccessService {
 
   async canAccessFeature(companyId: string, feature: string): Promise<boolean> {
     // TODO: Implementar quando FeatureLimit estiver disponível
-    console.log('TODO: Implementar canAccessFeature com nova estrutura FeatureLimit');
-    console.log('CompanyId:', companyId, 'Feature:', feature);
-    
     // Por enquanto, retornar true para não quebrar a funcionalidade
     return true;
   }
@@ -141,9 +138,6 @@ export class AccessService {
     remaining: number;
   }> {
     // TODO: Implementar quando FeatureLimit estiver disponível
-    console.log('TODO: Implementar checkLimit com nova estrutura FeatureLimit');
-    console.log('CompanyId:', companyId, 'Resource:', resource, 'Amount:', amount);
-    
     // Retornar valores mock temporariamente
     return {
       allowed: true,
@@ -157,19 +151,11 @@ export class AccessService {
    * Verifica se empresa está dentro dos limites
    */
   async withinLimit(companyId: string, resource: string): Promise<boolean> {
-    // TODO: Implementar quando FeatureLimit estiver disponível
-    console.log('TODO: Implementar withinLimit com nova estrutura FeatureLimit');
-    console.log('CompanyId:', companyId, 'Resource:', resource);
-    
     // Por enquanto, retornar true para não quebrar a funcionalidade
     return true;
   }
 
   async isWithinLimit(companyId: string, resource: string): Promise<boolean> {
-    // TODO: Implementar quando FeatureLimit estiver disponível
-    console.log('TODO: Implementar isWithinLimit com nova estrutura FeatureLimit');
-    console.log('CompanyId:', companyId, 'Resource:', resource);
-    
     // Por enquanto, retornar true para não quebrar a funcionalidade
     return true;
   }
@@ -348,8 +334,6 @@ export class AccessService {
    */
   async getLimitsStatus(companyId: string): Promise<any> {
     // TODO: Implementar quando FeatureLimit estiver disponível
-    console.log('TODO: Implementar getLimitsStatus com nova estrutura FeatureLimit');
-    
     // Retornar status mock temporariamente
     return {
       users: {

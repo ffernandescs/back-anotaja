@@ -50,9 +50,6 @@ export class MenuService {
       }
     }
 
-    console.log('🔍 User permissions:', userPermissions);
-    console.log('🔍 Allowed permissions:', Array.from(allowedPermissions));
-
     // ✅ Buscar TODAS as features ativas do banco (sem filtrar por plano primeiro)
     const allFeatures = await prisma.feature.findMany({
       where: {
@@ -69,13 +66,6 @@ export class MenuService {
         name: 'asc'
       }
     });
-
-    console.log('🔍 All features in DB:', allFeatures.map(f => ({ 
-      key: f.key, 
-      name: f.name, 
-      href: f.href 
-    })));
-    console.log('🔍 All features count:', allFeatures.length);
 
     // Filtrar features baseado nas permissões do usuário
     const allowedMenuItems: MenuItem[] = [];
@@ -99,15 +89,7 @@ export class MenuService {
       // ✅ Ter qualquer permissão (read, manage, create, update, delete) dá acesso ao menu
       const hasPermission = hasReadPermission || hasManagePermission || hasCreatePermission || 
                           hasUpdatePermission || hasDeletePermission || hasAnyPermission;
-      
-      console.log(`🔍 Checking feature "${featureKey}":`);
-      console.log(`  - READ: ${hasReadPermission}`);
-      console.log(`  - MANAGE: ${hasManagePermission}`);
-      console.log(`  - CREATE: ${hasCreatePermission}`);
-      console.log(`  - UPDATE: ${hasUpdatePermission}`);
-      console.log(`  - DELETE: ${hasDeletePermission}`);
-      console.log(`  - ANY: ${hasAnyPermission}`);
-      console.log(`  - Final: ${hasPermission}`);
+     
       
       if (hasPermission) {
         const menuItem: MenuItem = {
@@ -119,16 +101,11 @@ export class MenuService {
         };
         
         allowedMenuItems.push(menuItem);
-        console.log(`✅ Added menu item: ${menuItem.label} (${featureKey})`);
-      } else {
-        console.log(`❌ Skipped menu item: ${feature.name} (${featureKey}) - no permission`);
-      }
+      } 
     }
 
     // Agrupar menu items por categorias
     const menuGroups = this.groupMenuItems(allowedMenuItems);
-    
-    console.log(`📋 Generated ${menuGroups.length} menu groups with ${allowedMenuItems.length} items`);
     
     return menuGroups;
   }
@@ -158,9 +135,6 @@ export class MenuService {
       }
     }
 
-    console.log('🔍 User permissions:', userPermissions);
-    console.log('🔍 Allowed permissions:', Array.from(allowedPermissions));
-
     // Buscar features do banco dinamicamente
     const dbFeatures = await prisma.feature.findMany({
       where: {
@@ -177,8 +151,6 @@ export class MenuService {
         name: 'asc'
       }
     });
-
-    console.log('🔍 Found features in DB:', dbFeatures.map(f => ({ key: f.key, name: f.name, href: f.href })));
 
     // Filtrar features baseado nas permissões do usuário
     const allowedMenuItems: MenuItem[] = [];
@@ -203,16 +175,11 @@ export class MenuService {
         };
         
         allowedMenuItems.push(menuItem);
-        console.log(`✅ Added menu item: ${menuItem.label} (${featureKey})`);
-      } else {
-        console.log(`❌ Skipped menu item: ${feature.name} (${featureKey}) - no permission`);
       }
     }
 
     // Agrupar menu items por categorias
     const menuGroups = this.groupMenuItems(allowedMenuItems);
-    
-    console.log(`📋 Generated ${menuGroups.length} menu groups with ${allowedMenuItems.length} items`);
     
     return menuGroups;
   }

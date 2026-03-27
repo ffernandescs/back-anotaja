@@ -529,10 +529,7 @@ export class SubscriptionService {
       
       if (!isTrialActive) {
         await this.updateCompanyGroupsFeatures(companyId, updatedSubscription.plan);
-        console.log(`Permissões atualizadas para o plano ${plan.name} (sem trial ativo)`);
-      } else {
-        console.log(`Permissões NÃO atualizadas - empresa ainda está em trial até ${updatedSubscription.trialEndsAt?.toLocaleDateString('pt-BR')}`);
-      }
+      } 
     }
 
     await prisma.company.update({
@@ -636,10 +633,8 @@ export class SubscriptionService {
         });
       }
 
-      console.log(`✅ Grupo "${group.name}" atualizado com ${planPermissions.length} permissões do plano "${plan.name}"`);
     }
 
-    console.log(`✅ ${companyGroups.length} grupos da empresa ${companyId} atualizados com sucesso`);
   }
 
   /**

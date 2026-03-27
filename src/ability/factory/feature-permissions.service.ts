@@ -134,7 +134,6 @@ export class FeaturePermissionsService {
     }
 
     // Futuramente: armazenar no campo defaultActions do banco
-    console.log(`Atualizando permissões da feature ${featureKey}:`, actions);
   }
 
   /**

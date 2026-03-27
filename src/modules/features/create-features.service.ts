@@ -4,7 +4,6 @@ import { prisma } from '../../../lib/prisma';
 @Injectable()
 export class CreateFeaturesService {
   async createBasicFeatures() {
-    console.log('🔧 Criando features básicas do sistema...');
 
     const features = [
       {
@@ -147,7 +146,6 @@ export class CreateFeaturesService {
       }
     }
 
-    console.log('✅ Menu groups criados');
 
     // Obter todos os menu groups criados
     const allMenuGroups = await prisma.menuGroup.findMany({
@@ -167,7 +165,6 @@ export class CreateFeaturesService {
             active: true,
           },
         });
-        console.log(`✅ Feature criada: ${feature.name} (${feature.key})`);
 
         // Associar a menu groups apropriados
         let groupTitle = 'Outros';
@@ -197,14 +194,10 @@ export class CreateFeaturesService {
               groupId: menuGroup.id,
             },
           });
-          console.log(`  📂 Associada ao grupo: ${groupTitle}`);
         }
-      } else {
-        console.log(`⏭️  Feature já existe: ${featureData.name} (${featureData.key})`);
       }
     }
 
-    console.log(`✅ ${await prisma.feature.count()} features criadas/atualizadas`);
     
     return { success: true, message: 'Features criadas com sucesso' };
   }

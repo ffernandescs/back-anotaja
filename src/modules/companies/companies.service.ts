@@ -313,14 +313,6 @@ export class CompaniesService {
           },
         });
 
-        console.log('✅ Subscription trial criada:', {
-          companyId: company.createdCompany.id,
-          planName: trialPlan.name,
-          trialDays,
-          trialEndsAt: trialEndDate.toISOString(),
-          nextBillingDate: trialEndDate.toISOString(),
-        });
-
         // Retornar dados para registrar histórico fora da transação
         return { subscription, trialDays, trialEndDate, companyName: company.createdCompany.name };
       }, {

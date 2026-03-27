@@ -195,26 +195,12 @@ export class SubscriptionController {
       });
     }
 
-    console.log('✅ Session validada com sucesso:', {
-      sessionId,
-      companyId: session.metadata.companyId,
-      planId: session.metadata.planId,
-      paymentStatus: session.payment_status,
-      subscriptionId: session.subscription,
-    });
-
     // 2️⃣ Atualiza subscription no banco e registra histórico
     try {
       const subscriptionData = await this.subscriptionService.verifyPayment(
         session,
         req.user.userId,
       );
-
-      console.log('✅ Subscription verificada e atualizada:', {
-        subscriptionId: subscriptionData.id,
-        planName: subscriptionData.plan?.name,
-        status: subscriptionData.status,
-      });
 
       return subscriptionData;
     } catch (err: any) {

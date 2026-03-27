@@ -78,8 +78,6 @@ export class UsersService {
       include: { branch: true, company: true },
     });
 
-    console.log(user, 'user');
-
     if (!user) {
       throw new NotFoundException('Usuário não encontrado');
     }
@@ -119,7 +117,6 @@ export class UsersService {
           }
         });
         
-        console.log(`🔍 Validating user count against limit:`, limitsMap.get('maxUsers'));
 
         if (currentUsersCount >= limits.maxUsers) {
           throw new ForbiddenException(

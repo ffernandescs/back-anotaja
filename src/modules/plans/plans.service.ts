@@ -82,9 +82,7 @@ export class PlansService {
     // Se houver limits no objeto, criar FeatureLimit entries (nova estrutura)
     if (limits && typeof limits === 'object') {
       // TODO: Implementar criação de FeatureLimit quando tabela estiver disponível
-      for (const [resource, maxValue] of Object.entries(limits)) {
-        console.log(`TODO: Criar FeatureLimit para ${resource}: ${maxValue}`);
-      }
+     
     }
 
     return this.findOne(plan.id);
@@ -217,10 +215,7 @@ export class PlansService {
       // TODO: Implementar quando FeatureLimit estiver disponível
       
       // Adicionar novos limites (nova estrutura)
-      for (const [resource, maxValue] of Object.entries(parsedLimits)) {
-        // TODO: Implementar criação de FeatureLimit quando tabela estiver disponível
-        console.log(`TODO: Criar FeatureLimit para ${resource}: ${maxValue}`);
-      }
+     
     }
 
     return this.findOne(id);
@@ -440,21 +435,16 @@ export class PlansService {
     await this.findOne(planId);
 
     // TODO: Implementar quando a tabela FeatureLimit estiver disponível
-    console.log('FeatureLimit ainda não implementado. Usando estrutura temporária.');
-    console.log('PlanId:', planId, 'FeatureKey:', featureKey, 'Data:', limitData);
-    
     return this.findOne(planId);
   }
 
   async removeLimit(planId: string, featureKey: string) {
     // TODO: Implementar quando a tabela FeatureLimit estiver disponível
-    console.log('FeatureLimit ainda não implementado. Usando estrutura temporária.');
     return this.findOne(planId);
   }
 
   async getPlanLimits(planId: string) {
     // TODO: Implementar quando a tabela FeatureLimit estiver disponível
-    console.log('FeatureLimit ainda não implementado. Usando estrutura temporária.');
     return [];
   }
 
@@ -515,7 +505,6 @@ export class PlansService {
     if (limits && limits.length > 0) {
       for (const limit of limits) {
         // TODO: Implementar criação de FeatureLimit quando tabela estiver disponível
-        console.log(`TODO: Criar FeatureLimit para ${limit.resource}: ${limit.maxValue}`);
       }
     }
 

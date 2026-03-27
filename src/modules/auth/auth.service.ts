@@ -427,29 +427,16 @@ export class AuthService {
           }
         });
         
-        console.log('🔍 Features do plano:', planFeatures.map(pf => ({
-          featureKey: pf.feature.key,
-          featureName: pf.feature.name,
-          href: pf.feature.href
-        })));
-        
-        // ✅ NÃO FILTRAR permissões do grupo - usar direto
-        console.log('🔍 Group permissions (RAW):', user.group.permissions);
         effectivePermissions.push(...user.group.permissions);
       }
       
       // Adicionar overrides do usuário (SEM FILTRAR pelo plano)
       if (user.permissions?.length) {
-        console.log('🔍 User permissions (RAW):', user.permissions);
         effectivePermissions.push(...user.permissions);
         userOverrides = user.permissions;
       }
       
       // ✅ Gerar menu baseado nas features do plano e permissões do usuário
-      console.log('🔍 Calling generateMenuFromPlanFeatures with plan:', ctx.tenant.plan);
-      console.log('🔍 Plan subscription:', user.company?.subscription?.plan);
-      console.log('🔍 Plan ID:', user.company?.subscription?.planId);
-      
       menu = await this.menuService.generateMenuFromPlanFeatures(
         ctx.tenant.plan,
         ctx.tenant.addons,
@@ -462,8 +449,6 @@ export class AuthService {
       
       // ✅ USAR MENU DINÂMICO A PARTIR DAS FEATURES com permissões efetivas (grupo + overrides)
       try {
-        console.log('🔍 Passing to MenuService - effectivePermissions:', effectivePermissions);
-        console.log('🔍 Passing to MenuService - planType:', ctx.tenant.plan);
         menu = await this.menuService.generateMenuFromFeatures(ctx.tenant.plan, ctx.tenant.addons, effectivePermissions);
       } catch (error) {
         console.warn('Erro ao gerar menu:', error);

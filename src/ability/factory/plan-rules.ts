@@ -112,10 +112,6 @@ export async function applyPlanRules(
   const limits = await getPlanLimits(plan);
   const addonFeatures = await getAddonFeatures(addons);
 
-  console.log(`🔍 Plan ${plan} features:`, planFeatures);
-  console.log(`🔍 Plan ${plan} limits:`, limits);
-  console.log(`🔍 Addon features:`, addonFeatures);
-
   // Criar mapa de limites para o serviço de permissões (dinâmico do banco)
   const limitsMap = new Map<string, number>();
   
@@ -126,8 +122,6 @@ export async function applyPlanRules(
     }
   });
   
-  console.log(`🔍 Limits map created:`, Object.fromEntries(limitsMap));
-
   // Combinar features do plano + addons
   const allFeatures = [...planFeatures, ...addonFeatures];
 

@@ -74,18 +74,6 @@ export class OnboardingService {
         // Se a data de expiração é hoje, não há dias restantes
         trialDaysRemaining = Math.max(0, diffDays);
         
-        // ✅ Logs para debug de fuso horário
-        console.log('🔍 Debug Trial Days:', {
-          nowLocal: nowUTC.toLocaleString(),
-          todayUTC: todayUTC.toISOString(),
-          trialEndDateLocal: trialEndDate.toLocaleString(),
-          expirationUTC: expirationUTC.toISOString(),
-          diffTime,
-          diffDays,
-          trialDaysRemaining,
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
-        });
-        
         isTrialExpired = todayUTC > expirationUTC;
         daysSinceExpiration = isTrialExpired
           ? Math.abs(Math.floor((todayUTC.getTime() - expirationUTC.getTime()) / (1000 * 60 * 60 * 24)))

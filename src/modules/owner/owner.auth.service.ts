@@ -42,8 +42,6 @@ export class OwnerAuthService {
    * Login do owner com JWT específico
    */
   async login(loginDto: OwnerLoginDto) {
-    console.log('🔐 Owner Login Debug:');
-    console.log('- Email:', loginDto.email);
     
     const masterUser = await this.validateOwner(loginDto.email, loginDto.password);
 
@@ -56,16 +54,9 @@ export class OwnerAuthService {
     };
 
     // JWT com chave diferente (config específica para owner)
-    console.log('- JWT Service configurado para owner module');
     
     // Verificar variáveis de ambiente
-    const secretUsed = process.env.OWNER_JWT_SECRET || 'seu-secret-super-seguro-aquis2';
-    console.log('- OWNER_JWT_SECRET:', process.env.OWNER_JWT_SECRET ? 'DEFINIDO' : 'NÃO DEFINIDO');
-    console.log('- Secret usado:', secretUsed);
-    
     const accessToken = this.jwtService.sign(payload, { secret: process.env.OWNER_JWT_SECRET, expiresIn: '7d' });
-    console.log('- Token gerado:', accessToken.substring(0, 50) + '...');
-    console.log('- Token length:', accessToken.length);
 
     // Para MasterUser, não usamos refresh tokens em banco
     const refreshToken = `owner_${Date.now()}_${Math.random().toString(36).substring(2)}`;

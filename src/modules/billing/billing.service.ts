@@ -70,7 +70,6 @@ export class BillingService {
         }
 
         // Se está cancelada, suspensa ou incompleta, criar nova subscription via checkout
-        console.log(`Subscription ${stripeSubscription.id} está ${stripeSubscription.status}. Criando nova checkout session.`);
       } catch (error) {
         console.error('Erro ao verificar subscription no Stripe:', error);
         // Se falhar, continua para criar checkout session
@@ -101,15 +100,6 @@ export class BillingService {
     const trialEndSeconds = trialEndDate ? Math.floor(new Date(trialEndDate).getTime() / 1000) : null;
     const nowSeconds = Math.floor(Date.now() / 1000);
     const shouldApplyTrial = trialEndSeconds && trialEndSeconds > nowSeconds;
-
-    console.log('🔍 Debug Trial - Stripe Checkout:', {
-      companyId: company.id,
-      trialEndDate,
-      trialEndSeconds,
-      nowSeconds,
-      shouldApplyTrial,
-      remainingDays: trialEndSeconds ? Math.ceil((trialEndSeconds - nowSeconds) / 86400) : null
-    });
 
     const session = await this.stripeService.stripe.checkout.sessions.create({
       mode: 'subscription',
@@ -247,10 +237,7 @@ export class BillingService {
               paidAt: new Date(),
             },
           });
-          console.log(`Invoice criada: ${unitAmount} (fora do trial)`);
-        } else {
-          console.log(`Invoice ignorada: valor=${unitAmount}, trialAtivo=${isTrialActive}`);
-        }
+        } 
       }
 
       // 5. Atualizar permissões dos grupos para o novo plano
@@ -317,8 +304,6 @@ export class BillingService {
       // 5. Atualizar permissões de cada grupo
       for (const branch of company.branches) {
         for (const group of branch.groups) {
-          console.log(`Atualizando permissões do grupo: ${group.name} (${group.id})`);
-
           // Deletar permissões antigas
           await prisma.permission.deleteMany({
             where: { groupId: group.id },
@@ -334,11 +319,9 @@ export class BillingService {
             })),
           });
 
-          console.log(`Permissões atualizadas para o grupo: ${group.name}`);
         }
       }
 
-      console.log(`Permissões de todos os grupos atualizadas para o plano ${plan.type}`);
     } catch (error) {
       console.error(`Erro ao atualizar permissões dos grupos:`, error);
     }
