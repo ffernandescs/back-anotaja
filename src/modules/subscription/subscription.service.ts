@@ -208,15 +208,18 @@ export class SubscriptionService {
     }
 
     // Formatar dados para o frontend - mantendo compatibilidade
+    const now = new Date();
+    const isTrialActive = subscription.trialEndsAt && subscription.trialEndsAt > now;
+    
     const formattedSubscription = {
       ...subscription,
-      // Adicionar lastBillingAmount para compatibilidade com frontend
-      lastBillingAmount: subscription.plan.price,
+      // Durante trial, lastBillingAmount é 0 (nenhuma cobrança ainda)
+      lastBillingAmount: isTrialActive ? 0 : subscription.plan.price,
       plan: subscription.plan ? {
         ...subscription.plan,
         // Manter campos originais como strings JSON para compatibilidade
         // Adicionar campos formatados separados
-        formattedPrice: formatCurrency(subscription.plan.price),
+        formattedPrice: isTrialActive ? 'Grátis' : formatCurrency(subscription.plan.price),
         formattedFeatures: subscription.plan.features ? 
           JSON.parse(subscription.plan.features).map((feature: string) => ({
             key: feature,
@@ -282,15 +285,18 @@ export class SubscriptionService {
     }
 
     // Formatar dados para o frontend - mantendo compatibilidade
+    const now = new Date();
+    const isTrialActive = subscription.trialEndsAt && subscription.trialEndsAt > now;
+    
     const formattedSubscription = {
       ...subscription,
-      // Adicionar lastBillingAmount para compatibilidade com frontend
-      lastBillingAmount: subscription.plan.price,
+      // Durante trial, lastBillingAmount é 0 (nenhuma cobrança ainda)
+      lastBillingAmount: isTrialActive ? 0 : subscription.plan.price,
       plan: subscription.plan ? {
         ...subscription.plan,
         // Manter campos originais como strings JSON para compatibilidade
         // Adicionar campos formatados separados
-        formattedPrice: formatCurrency(subscription.plan.price),
+        formattedPrice: isTrialActive ? 'Grátis' : formatCurrency(subscription.plan.price),
         formattedFeatures: subscription.plan.features ? 
           JSON.parse(subscription.plan.features).map((feature: string) => ({
             key: feature,
@@ -441,13 +447,13 @@ export class SubscriptionService {
 
     const formattedSubscription = {
       ...subscription,
-      // Adicionar lastBillingAmount para compatibilidade com frontend
-      lastBillingAmount: subscription.plan.price,
+      // Durante trial, lastBillingAmount é 0 (nenhuma cobrança ainda)
+      lastBillingAmount: subscription.trialEndsAt && subscription.trialEndsAt > new Date() ? 0 : subscription.plan.price,
       plan: {
         ...subscription.plan,
         // Manter campos originais como strings JSON para compatibilidade
         // Adicionar campos formatados separados
-        formattedPrice: formatCurrency(subscription.plan.price),
+        formattedPrice: subscription.trialEndsAt && subscription.trialEndsAt > new Date() ? 'Grátis' : formatCurrency(subscription.plan.price),
         formattedFeatures: subscription.plan.features ? 
           JSON.parse(subscription.plan.features).map((feature: string) => ({
             key: feature,
@@ -462,6 +468,8 @@ export class SubscriptionService {
     };
 
     console.log('✅ Dados formatados para frontend:', {
+      isTrialActive: subscription.trialEndsAt && subscription.trialEndsAt > new Date(),
+      trialEndsAt: subscription.trialEndsAt,
       lastBillingAmount: formattedSubscription.lastBillingAmount,
       formattedPrice: formattedSubscription.plan.formattedPrice,
       formattedFeatures: formattedSubscription.plan.formattedFeatures,
