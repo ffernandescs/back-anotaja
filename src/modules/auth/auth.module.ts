@@ -4,6 +4,7 @@ import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { MailService } from '../mail/mail.service';
 import { UsersModule } from '../users/users.module';
+import { PaymentMethodsModule } from '../payment-methods/payment-methods.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
@@ -30,6 +31,7 @@ import { MenuService } from '../../ability/factory/menu.service';
       inject: [ConfigService],
     }),
     UsersModule,
+    PaymentMethodsModule,
     AbilityModule,
   ],
   providers: [AuthService, JwtStrategy, MailService, MenuService],

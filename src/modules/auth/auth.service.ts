@@ -19,6 +19,7 @@ import { RegisterDto } from './dto/register.dto';
 import { AbilityLoaderService } from '../../ability/factory/ability-loader.service';
 import { MenuService } from '../../ability/factory/menu.service';
 import { AbilityFactory } from '../../ability/factory/ability.factory';
+import { PaymentMethodsService } from '../payment-methods/payment-methods.service';
 
 const OTP_EXPIRES_IN_MINUTES = Number(process.env.OTP_EXPIRES_IN_MINUTES ?? 10);
 
@@ -31,6 +32,7 @@ export class AuthService {
     private abilityLoaderService: AbilityLoaderService,
     private menuService: MenuService,
     private abilityFactory: AbilityFactory,
+    private paymentMethodsService: PaymentMethodsService,
   ) {}
 
   private async sendResetEmail(email: string, otp: string) {
@@ -459,6 +461,15 @@ export class AuthService {
     // ✅ USAR MENU DINÂMICO A PARTIR DAS FEATURES
     const menu = await this.menuService.generateMenuFromFeatures(planType, addons, permissions);
 
+    // ✅ Buscar métodos de pagamento globais (do master owner)
+    let globalPaymentMethods: any[] = [];
+    try {
+      globalPaymentMethods = await this.paymentMethodsService.findAll();
+    } catch (error) {
+      console.warn('Erro ao buscar métodos de pagamento globais:', error);
+      // Não quebra se falhar, apenas retorna array vazio
+    }
+
     // Salvar branches antes de transformar company
     const companyBranches = user.company?.branches || [];
 
@@ -488,6 +499,7 @@ export class AuthService {
         permission: permissions, // ✅ Enviar permissões efetivas com conditions/limites
         counts: resourceCounts,
         menu, // ✅ Menu agora vem dentro do user
+        globalPaymentMethods, // ✅ Métodos de pagamento globais para onboarding
       },
       bootstrap: {
         pendingOrders,

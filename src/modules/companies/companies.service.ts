@@ -149,6 +149,7 @@ export class CompaniesService {
         message = message.replace(/, $/, ''); // remove última vírgula
         throw new BadRequestException(message);
       }
+
       // 1️⃣ Criar empresa
       const createdCompany = await prisma.company.create({
         data: {
@@ -164,7 +165,7 @@ export class CompaniesService {
       });
 
       // 2️⃣ Criar endereço da empresa
-      await prisma.companyAddress.create({
+      const createdCompanyAddress = await prisma.companyAddress.create({
         data: {
           street,
           number,
@@ -196,6 +197,7 @@ export class CompaniesService {
           isDefault: true,
         },
       });
+
       // 3️⃣ Criar branch com coordenadas
       const createdBranch = await prisma.branch.create({
         data: {
@@ -209,24 +211,33 @@ export class CompaniesService {
         },
       });
 
-      // 4️⃣ Criar endereço da branch (opcional, se quiser outro endereço)
+      return {
+        createdCompany,
+        createdBranch,
+        createdCompanyAddress,
+        createdBranchAddress,
+      };
+    }, {
+      timeout: 10000, // Aumentar timeout para 10 segundos
+    });
 
-      // 5️⃣ Buscar plano trial para criar subscription
-      const trialPlan = await prisma.plan.findFirst({
-        where: {
-          isTrial: true,
-          active: true,
-        },
-      });
+    // ✅ Buscar plano trial FORA da transação
+    const trialPlan = await prisma.plan.findFirst({
+      where: {
+        isTrial: true,
+        active: true,
+      },
+    });
 
-      if (!trialPlan) {
-        throw new BadRequestException(
-          'Plano trial não encontrado. Configure um plano trial no sistema.',
-        );
-      }
+    if (!trialPlan) {
+      throw new BadRequestException(
+        'Plano trial não encontrado. Configure um plano trial no sistema.',
+      );
+    }
 
+    // ✅ Criar grupo e subscription em transações separadas para evitar timeout
+    const adminGroup = await prisma.$transaction(async (prisma) => {
       // 6️⃣ Criar grupo Administrador com permissões do plano trial
-      // Buscar as features do plano trial e gravar as permissões no grupo
       const planFeatures = await prisma.planFeature.findMany({
         where: { planId: trialPlan.id },
         include: {
@@ -236,38 +247,40 @@ export class CompaniesService {
 
       // Gerar permissões baseadas nas features do plano
       const trialPermissions = planFeatures.flatMap(({ feature }) => {
-        // ✅ Usar permissões já configuradas na feature
         const defaultActions = feature.defaultActions ? JSON.parse(feature.defaultActions) : ['read'];
         
-        // ✅ Gerar permissões diretamente do array
         return defaultActions.map((action: string) => ({
-          action: action as any, // ✅ Usa o action diretamente como string
+          action: action as any,
           subject: feature.key as any,
           inverted: false,
         }));
       });
 
-      const adminGroup = await prisma.group.create({
+      return await prisma.group.create({
         data: {
           name: 'Administrador',
-          branchId: createdBranch.id,
-          companyId: createdBranch.companyId,
+          branchId: company.createdBranch.id,
+          companyId: company.createdBranch.companyId,
           description: 'Grupo com acesso total às funcionalidades do plano',
           permissions: {
-            create: trialPermissions, // ✅ Gravar permissões do plano no grupo
+            create: trialPermissions,
           },
         },
       });
+    }, {
+      timeout: 10000,
+    });
 
-      // 8️⃣ Criar usuário admin associado ao grupo
+    // ✅ Criar usuário em transação separada
+    await prisma.$transaction(async (prisma) => {
       await prisma.user.create({
         data: {
           name,
           email,
           phone,
           password: hashedPassword,
-          companyId: createdCompany.id,
-          branchId: createdBranch.id,
+          companyId: company.createdCompany.id,
+          branchId: company.createdBranch.id,
           groupId: adminGroup.id,
         },
       });
@@ -279,7 +292,7 @@ export class CompaniesService {
 
       await prisma.subscription.create({
         data: {
-          companyId: createdCompany.id,
+          companyId: company.createdCompany.id,
           planId: trialPlan.id,
           status: 'ACTIVE',
           billingPeriod: trialPlan.billingPeriod,
@@ -289,19 +302,19 @@ export class CompaniesService {
           notes: `Trial de ${trialPlan.trialDays ?? 7} dias - Criado automaticamente no cadastro`,
         },
       });
-
-      // 7️⃣ Enviar email de boas-vindas (não bloqueia o cadastro se falhar)
-      try {
-        await this.mailService.sendWelcomeEmail(email, name, trialPlan.trialDays ?? 7);
-      } catch (emailError) {
-        console.error('Erro ao enviar email de boas-vindas:', emailError);
-        // Não lança erro para não bloquear o cadastro
-      }
-
-      return createdCompany;
+    }, {
+      timeout: 10000,
     });
 
-    return company;
+    // 7️⃣ Enviar email de boas-vindas (não bloqueia o cadastro se falhar)
+    try {
+      await this.mailService.sendWelcomeEmail(email, name, trialPlan.trialDays ?? 7);
+    } catch (emailError) {
+      console.error('Erro ao enviar email de boas-vindas:', emailError);
+      // Não lança erro para não bloquear o cadastro
+    }
+
+    return company.createdCompany;
   }
 
   async verifyCompanyExist(dto: VerifyCompanyExistDto): Promise<void> {

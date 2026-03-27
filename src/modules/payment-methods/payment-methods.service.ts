@@ -22,7 +22,7 @@ export class PaymentMethodsService {
           type: (dto.type as PaymentMethodType) || PaymentMethodType.CASH,
           icon: dto.icon || 'CreditCard',
           isActive: dto.isActive ?? true,
-        } as any,
+        },
       });
     }
 
@@ -36,7 +36,7 @@ export class PaymentMethodsService {
         type: (dto.type as PaymentMethodType) || PaymentMethodType.CASH,
         icon: dto.icon || 'CreditCard',
         isActive: dto.isActive ?? true,
-      } as any,
+      },
     });
   }
 
@@ -73,7 +73,7 @@ export class PaymentMethodsService {
 
     return prisma.paymentMethod.update({ 
       where: { id }, 
-      data: updateData as any 
+      data: updateData 
     });
   }
 

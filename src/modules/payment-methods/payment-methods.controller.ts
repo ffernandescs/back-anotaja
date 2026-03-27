@@ -10,10 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { PaymentMethodsService } from './payment-methods.service';
-import {
-  BranchAssignPaymentDto,
-  CreatePaymentMethodDto,
-} from './dto/create-payment-method.dto';
+import { CreatePaymentMethodDto, BranchAssignPaymentDto } from './dto/create-payment-method.dto';
 import { UpdatePaymentMethodDto } from './dto/update-payment-method.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -47,14 +44,6 @@ export class PaymentMethodsController {
   }
 
   @Public()
-  @Get('owner')
-  @UseGuards(JwtOwnerAuthGuard)
-  @Roles('master')
-  async findAllOwner() {
-    return this.service.findAll();
-  }
-
-  @Public()
   @Get('owner/:id')
   @UseGuards(JwtOwnerAuthGuard)
   @Roles('master')
@@ -78,10 +67,8 @@ export class PaymentMethodsController {
     return this.service.remove(id, 'owner');
   }
 
-  // ✅ Listar todos os métodos
-  @Public()
   @Get()
-  @UseGuards(JwtOwnerAuthGuard)
+  @UseGuards(JwtAuthGuard)
   @Roles('master')
   async findAll() {
     return this.service.findAll();
