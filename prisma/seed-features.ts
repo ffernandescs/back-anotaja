@@ -4,20 +4,129 @@ async function seedFeatures() {
   console.log('🔧 Criando features básicas do sistema...');
 
   const features = [
+    // Dashboard
     {
       key: 'dashboard',
       name: 'Dashboard',
       description: 'Painel principal com métricas e indicadores',
       href: '/admin/dashboard',
-      defaultActions: JSON.stringify(['read']),
+      defaultActions: JSON.stringify(['read', 'manage']),
     },
+    
+    // Produtos e Catálogo
     {
       key: 'product',
       name: 'Produtos',
       description: 'Gerenciamento de produtos e catálogo',
       href: '/admin/products',
-      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete']),
+      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete', 'manage']),
     },
+    {
+      key: 'category',
+      name: 'Categorias',
+      description: 'Gerenciamento de categorias de produtos',
+      href: '/admin/categories',
+      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete', 'manage']),
+    },
+    {
+      key: 'complement',
+      name: 'Complementos',
+      description: 'Gerenciamento de complementos e adicionais',
+      href: '/admin/complements',
+      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete', 'manage']),
+    },
+    
+    // Vendas e Pedidos
+    {
+      key: 'order',
+      name: 'Pedidos',
+      description: 'Gerenciamento de pedidos',
+      href: '/admin/orders',
+      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete', 'manage']),
+    },
+    {
+      key: 'customer',
+      name: 'Clientes',
+      description: 'Gerenciamento de clientes',
+      href: '/admin/customers',
+      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete', 'manage']),
+    },
+    {
+      key: 'pdv',
+      name: 'PDV',
+      description: 'Ponto de Venda',
+      href: '/admin/pdv',
+      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete', 'manage']),
+    },
+    {
+      key: 'kds',
+      name: 'KDS',
+      description: 'Kitchen Display System',
+      href: '/admin/kds',
+      defaultActions: JSON.stringify(['read', 'manage']),
+    },
+    
+    // Operações
+    {
+      key: 'stock',
+      name: 'Estoque',
+      description: 'Controle de estoque',
+      href: '/admin/stock',
+      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete', 'manage']),
+    },
+    {
+      key: 'delivery',
+      name: 'Entregas',
+      description: 'Gerenciamento de entregadores e rotas',
+      href: '/admin/delivery',
+      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete', 'manage']),
+    },
+    {
+      key: 'delivery_person',
+      name: 'Entregadores',
+      description: 'Cadastro de entregadores',
+      href: '/admin/delivery-person',
+      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete', 'manage']),
+    },
+    {
+      key: 'delivery_area',
+      name: 'Áreas de Entrega',
+      description: 'Definição de áreas de entrega',
+      href: '/admin/delivery-areas',
+      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete', 'manage']),
+    },
+    {
+      key: 'delivery_route',
+      name: 'Rotas de Entrega',
+      description: 'Otimização de rotas de entrega',
+      href: '/admin/delivery-routes',
+      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete', 'manage']),
+    },
+    
+    // Financeiro
+    {
+      key: 'payment_method',
+      name: 'Métodos de Pagamento',
+      description: 'Configuração de métodos de pagamento',
+      href: '/admin/payment-methods',
+      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete', 'manage']),
+    },
+    {
+      key: 'cash_register',
+      name: 'Caixa',
+      description: 'Gerenciamento de caixa',
+      href: '/admin/cash-register',
+      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete', 'manage']),
+    },
+    {
+      key: 'coupons',
+      name: 'Cupons',
+      description: 'Gerenciamento de cupons de desconto',
+      href: '/admin/coupons',
+      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete', 'manage']),
+    },
+    
+    // Usuários e Permissões
     {
       key: 'user',
       name: 'Usuários',
@@ -30,69 +139,45 @@ async function seedFeatures() {
       name: 'Grupos',
       description: 'Gerenciamento de grupos e permissões',
       href: '/admin/groups',
-      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete']),
+      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete', 'manage']),
+    },
+    {
+      key: 'branch',
+      name: 'Filiais',
+      description: 'Gerenciamento de filiais',
+      href: '/admin/branches',
+      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete', 'manage']),
+    },
+    
+    // Configurações
+    {
+      key: 'company',
+      name: 'Empresa',
+      description: 'Configurações da empresa',
+      href: '/admin/company',
+      defaultActions: JSON.stringify(['read', 'update', 'manage']),
     },
     {
       key: 'subscription',
       name: 'Assinatura',
       description: 'Gerenciamento de assinatura e plano',
       href: '/admin/settings/payments',
-      defaultActions: JSON.stringify(['read', 'update']),
+      defaultActions: JSON.stringify(['read', 'update', 'manage']),
     },
     {
-      key: 'order',
-      name: 'Pedidos',
-      description: 'Gerenciamento de pedidos',
-      href: '/admin/orders',
-      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete']),
+      key: 'settings',
+      name: 'Configurações',
+      description: 'Configurações gerais do sistema',
+      href: '/admin/settings',
+      defaultActions: JSON.stringify(['read', 'update', 'manage']),
     },
-    {
-      key: 'customer',
-      name: 'Clientes',
-      description: 'Gerenciamento de clientes',
-      href: '/admin/customers',
-      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete']),
-    },
-    {
-      key: 'category',
-      name: 'Categorias',
-      description: 'Gerenciamento de categorias de produtos',
-      href: '/admin/categories',
-      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete']),
-    },
+    
+    // Relatórios
     {
       key: 'reports',
       name: 'Relatórios',
       description: 'Relatórios e análises',
       href: '/admin/reports',
-      defaultActions: JSON.stringify(['read']),
-    },
-    {
-      key: 'delivery',
-      name: 'Entregas',
-      description: 'Gerenciamento de entregadores e rotas',
-      href: '/admin/delivery',
-      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete']),
-    },
-    {
-      key: 'stock',
-      name: 'Estoque',
-      description: 'Controle de estoque',
-      href: '/admin/stock',
-      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete']),
-    },
-    {
-      key: 'coupons',
-      name: 'Cupons',
-      description: 'Gerenciamento de cupons de desconto',
-      href: '/admin/coupons',
-      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete']),
-    },
-    {
-      key: 'api',
-      name: 'API',
-      description: 'Acesso à API',
-      href: '/admin/api',
       defaultActions: JSON.stringify(['read', 'manage']),
     },
     {
@@ -100,7 +185,16 @@ async function seedFeatures() {
       name: 'Análises',
       description: 'Análises avançadas',
       href: '/admin/analytics',
-      defaultActions: JSON.stringify(['read']),
+      defaultActions: JSON.stringify(['read', 'manage']),
+    },
+    
+    // Features Enterprise
+    {
+      key: 'api',
+      name: 'API',
+      description: 'Acesso à API',
+      href: '/admin/api',
+      defaultActions: JSON.stringify(['read', 'manage']),
     },
     {
       key: 'support',
@@ -114,6 +208,50 @@ async function seedFeatures() {
       name: 'Customizações',
       description: 'Customizações avançadas',
       href: '/admin/custom',
+      defaultActions: JSON.stringify(['read', 'update', 'manage']),
+    },
+    
+    // Features Adicionais
+    {
+      key: 'table',
+      name: 'Mesas',
+      description: 'Gerenciamento de mesas',
+      href: '/admin/tables',
+      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete', 'manage']),
+    },
+    {
+      key: 'commands',
+      name: 'Comandas',
+      description: 'Gerenciamento de comandas',
+      href: '/admin/commands',
+      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete', 'manage']),
+    },
+    {
+      key: 'hours',
+      name: 'Horários',
+      description: 'Configuração de horários de funcionamento',
+      href: '/admin/hours',
+      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete', 'manage']),
+    },
+    {
+      key: 'announcement',
+      name: 'Anúncios',
+      description: 'Gerenciamento de anúncios',
+      href: '/admin/announcements',
+      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete', 'manage']),
+    },
+    {
+      key: 'points',
+      name: 'Pontos',
+      description: 'Sistema de pontos/fidelidade',
+      href: '/admin/points',
+      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete', 'manage']),
+    },
+    {
+      key: 'profile',
+      name: 'Perfil',
+      description: 'Perfil do usuário',
+      href: '/admin/profile',
       defaultActions: JSON.stringify(['read', 'update']),
     },
   ];
@@ -124,8 +262,10 @@ async function seedFeatures() {
     { title: 'Produtos e Catálogo', displayOrder: 2 },
     { title: 'Vendas', displayOrder: 3 },
     { title: 'Operações', displayOrder: 4 },
-    { title: 'Configurações', displayOrder: 5 },
-    { title: 'Relatórios', displayOrder: 6 },
+    { title: 'Financeiro', displayOrder: 5 },
+    { title: 'Configurações', displayOrder: 6 },
+    { title: 'Relatórios', displayOrder: 7 },
+    { title: 'Enterprise', displayOrder: 8 },
   ];
 
   for (const groupData of menuGroups) {
@@ -171,18 +311,20 @@ async function seedFeatures() {
       
       if (['dashboard'].includes(featureData.key)) {
         groupTitle = 'Principal';
-      } else if (['product', 'category'].includes(featureData.key)) {
+      } else if (['product', 'category', 'complement'].includes(featureData.key)) {
         groupTitle = 'Produtos e Catálogo';
-      } else if (['order', 'customer', 'delivery'].includes(featureData.key)) {
+      } else if (['order', 'customer', 'pdv', 'kds', 'table', 'commands'].includes(featureData.key)) {
         groupTitle = 'Vendas';
-      } else if (['user', 'group'].includes(featureData.key)) {
-        groupTitle = 'Configurações';
-      } else if (['stock'].includes(featureData.key)) {
+      } else if (['stock', 'delivery', 'delivery_person', 'delivery_area', 'delivery_route'].includes(featureData.key)) {
         groupTitle = 'Operações';
+      } else if (['payment_method', 'cash_register', 'coupons'].includes(featureData.key)) {
+        groupTitle = 'Financeiro';
+      } else if (['user', 'group', 'branch', 'company', 'subscription', 'settings', 'hours', 'profile', 'announcement'].includes(featureData.key)) {
+        groupTitle = 'Configurações';
       } else if (['reports', 'analytics'].includes(featureData.key)) {
         groupTitle = 'Relatórios';
-      } else if (['subscription', 'coupons', 'api', 'support', 'custom'].includes(featureData.key)) {
-        groupTitle = 'Configurações';
+      } else if (['api', 'support', 'custom', 'points'].includes(featureData.key)) {
+        groupTitle = 'Enterprise';
       }
 
       const menuGroup = allMenuGroups.find(g => g.title === groupTitle);

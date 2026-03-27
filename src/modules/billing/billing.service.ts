@@ -111,7 +111,7 @@ export class BillingService {
             currency: 'brl',
             product_data: {
               name: plan.name,
-              description: plan.description ?? '',
+              ...(plan.description && { description: plan.description }),
             },
             unit_amount: calculateStripeAmount(plan.price, plan.discount),
             recurring: {
