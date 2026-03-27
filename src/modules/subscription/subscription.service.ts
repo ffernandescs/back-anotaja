@@ -207,23 +207,22 @@ export class SubscriptionService {
       );
     }
 
-    // Formatar dados para o frontend - modificando campos originais
+    // Formatar dados para o frontend - mantendo compatibilidade
     const formattedSubscription = {
       ...subscription,
       // Adicionar lastBillingAmount para compatibilidade com frontend
       lastBillingAmount: subscription.plan.price,
       plan: subscription.plan ? {
         ...subscription.plan,
-        // Modificar o campo original price para já vir formatado
-        price: formatCurrency(subscription.plan.price),
-        // Modificar o campo original features para já vir formatado
-        features: subscription.plan.features ? 
+        // Manter campos originais como strings JSON para compatibilidade
+        // Adicionar campos formatados separados
+        formattedPrice: formatCurrency(subscription.plan.price),
+        formattedFeatures: subscription.plan.features ? 
           JSON.parse(subscription.plan.features).map((feature: string) => ({
             key: feature,
             name: feature.charAt(0).toUpperCase() + feature.slice(1).replace(/_/g, ' ')
           })) : [],
-        // Modificar o campo original limits para já vir formatado
-        limits: subscription.plan.limits ? 
+        formattedLimits: subscription.plan.limits ? 
           Object.entries(JSON.parse(subscription.plan.limits)).map(([key, value]) => ({
             key: key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()),
             value: value
@@ -282,23 +281,22 @@ export class SubscriptionService {
       );
     }
 
-    // Formatar dados para o frontend - modificando campos originais
+    // Formatar dados para o frontend - mantendo compatibilidade
     const formattedSubscription = {
       ...subscription,
       // Adicionar lastBillingAmount para compatibilidade com frontend
       lastBillingAmount: subscription.plan.price,
       plan: subscription.plan ? {
         ...subscription.plan,
-        // Modificar o campo original price para já vir formatado
-        price: formatCurrency(subscription.plan.price),
-        // Modificar o campo original features para já vir formatado
-        features: subscription.plan.features ? 
+        // Manter campos originais como strings JSON para compatibilidade
+        // Adicionar campos formatados separados
+        formattedPrice: formatCurrency(subscription.plan.price),
+        formattedFeatures: subscription.plan.features ? 
           JSON.parse(subscription.plan.features).map((feature: string) => ({
             key: feature,
             name: feature.charAt(0).toUpperCase() + feature.slice(1).replace(/_/g, ' ')
           })) : [],
-        // Modificar o campo original limits para já vir formatado
-        limits: subscription.plan.limits ? 
+        formattedLimits: subscription.plan.limits ? 
           Object.entries(JSON.parse(subscription.plan.limits)).map(([key, value]) => ({
             key: key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()),
             value: value
@@ -447,16 +445,15 @@ export class SubscriptionService {
       lastBillingAmount: subscription.plan.price,
       plan: {
         ...subscription.plan,
-        // Modificar o campo original price para já vir formatado
-        price: formatCurrency(subscription.plan.price),
-        // Modificar o campo original features para já vir formatado
-        features: subscription.plan.features ? 
+        // Manter campos originais como strings JSON para compatibilidade
+        // Adicionar campos formatados separados
+        formattedPrice: formatCurrency(subscription.plan.price),
+        formattedFeatures: subscription.plan.features ? 
           JSON.parse(subscription.plan.features).map((feature: string) => ({
             key: feature,
             name: feature.charAt(0).toUpperCase() + feature.slice(1).replace(/_/g, ' ')
           })) : [],
-        // Modificar o campo original limits para já vir formatado
-        limits: subscription.plan.limits ? 
+        formattedLimits: subscription.plan.limits ? 
           Object.entries(JSON.parse(subscription.plan.limits)).map(([key, value]) => ({
             key: key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()),
             value: value
@@ -465,9 +462,10 @@ export class SubscriptionService {
     };
 
     console.log('✅ Dados formatados para frontend:', {
-      price: formattedSubscription.plan.price,
-      features: formattedSubscription.plan.features,
-      limits: formattedSubscription.plan.limits
+      lastBillingAmount: formattedSubscription.lastBillingAmount,
+      formattedPrice: formattedSubscription.plan.formattedPrice,
+      formattedFeatures: formattedSubscription.plan.formattedFeatures,
+      formattedLimits: formattedSubscription.plan.formattedLimits
     });
 
     // Retorno formatado pro frontend
