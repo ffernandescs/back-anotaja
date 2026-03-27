@@ -13,6 +13,7 @@ export class OnboardingStatusResponseDto {
     status: string;
     startDate?: Date | null;
     endDate?: Date | null;
+    trialEndsAt?: Date | null;
     nextBillingDate?: Date | null;
     trialDaysRemaining?: number;
     daysSinceExpiration?: number;

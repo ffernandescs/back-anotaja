@@ -104,6 +104,7 @@ export class OnboardingService {
               status: billingStatus,
               startDate: subscription.startDate,
               endDate: subscription.endDate,
+              trialEndsAt: subscription.trialEndsAt, // ✅ Campo essencial para cálculo correto no frontend
               nextBillingDate: subscription.nextBillingDate,
               trialDaysRemaining,
               daysSinceExpiration,
@@ -141,6 +142,7 @@ export class OnboardingService {
             status: billingStatus,
             startDate: subscription.startDate,
             endDate: subscription.endDate,
+            trialEndsAt: subscription.trialEndsAt, // ✅ Campo essencial para cálculo correto no frontend
             nextBillingDate: subscription.nextBillingDate,
             trialDaysRemaining,
             daysSinceExpiration,
