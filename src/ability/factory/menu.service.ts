@@ -34,8 +34,27 @@ export class MenuService {
     addons: string[] = [],
     userPermissions?: Array<{ action: Action; subject: Subject; inverted: boolean }>
   ): Promise<MenuGroup[]> {
-    // ✅ Por enquanto, permite todas as permissões (será implementado)
-    const allowedPermissions = new Set<string>(['*']);
+    // ✅ Construir allowed permissions a partir das permissões do usuário
+    const allowedPermissions = new Set<string>();
+    
+    if (userPermissions?.length) {
+      for (const permission of userPermissions) {
+        // Se tem permissão manage para um subject, permite todas as actions
+        if (permission.action === Action.MANAGE && !permission.inverted) {
+          allowedPermissions.add(`${Action.CREATE}:${permission.subject}`);
+          allowedPermissions.add(`${Action.READ}:${permission.subject}`);
+          allowedPermissions.add(`${Action.UPDATE}:${permission.subject}`);
+          allowedPermissions.add(`${Action.DELETE}:${permission.subject}`);
+        } else if (!permission.inverted) {
+          // Adiciona permissão específica
+          allowedPermissions.add(`${permission.action}:${permission.subject}`);
+        }
+      }
+    }
+    
+    // Debug: mostrar permissões permitidas
+    console.log('🔍 Allowed permissions for menu:', Array.from(allowedPermissions));
+    console.log('🔍 User permissions:', userPermissions);
 
     // ✅ Buscar features do plano com grupos associados
     const planFeatures = await prisma.feature.findMany({
@@ -61,20 +80,40 @@ export class MenuService {
       },
     });
 
+    // Debug: mostrar features encontradas
+    console.log('🔍 Plan features found:', planFeatures.map(f => ({ key: f.key, name: f.name, active: f.active })));
+
     // ✅ Agrupar features por menu groups
     const menuGroupsMap = new Map<string, MenuItem[]>();
 
     for (const feature of planFeatures) {
       // Verificar se usuário tem permissão para esta feature
       const featureKey = feature.key;
-      const hasPermission = allowedPermissions.has('*') || 
-        Array.from(allowedPermissions).some(permission => 
-          permission.includes(featureKey) || featureKey.includes(permission.split(':')[1])
-        );
+      const requiredPermission = `${Action.READ}:${featureKey}`;
+      
+      // ✅ Verificar se tem permissão READ para esta feature
+      const hasReadPermission = allowedPermissions.has(requiredPermission);
+      const hasManagePermission = allowedPermissions.has(`${Action.MANAGE}:${featureKey}`);
+      const hasAnyPermission = Array.from(allowedPermissions).some(permission => 
+        permission.endsWith(`:${featureKey}`)
+      );
+      
+      const hasPermission = hasReadPermission || hasManagePermission || hasAnyPermission;
+
+      console.log(`🔍 Checking feature "${featureKey}":`);
+      console.log(`  - Required: "${requiredPermission}"`);
+      console.log(`  - Has READ: ${hasReadPermission}`);
+      console.log(`  - Has MANAGE: ${hasManagePermission}`);
+      console.log(`  - Has ANY: ${hasAnyPermission}`);
+      console.log(`  - Final hasPermission: ${hasPermission}`);
+      console.log(`  - All allowed permissions:`, Array.from(allowedPermissions));
 
       if (!hasPermission) {
+        console.log(`❌ Skipping feature "${featureKey}" - no permission`);
         continue;
       }
+
+      console.log(`✅ Adding feature "${featureKey}" to menu`);
 
       // Criar menu item
       const menuItem: MenuItem = {
@@ -145,11 +184,20 @@ export class MenuService {
 
   /**
    * ✅ Infere subject a partir da feature key
-   * TODO: Futuramente buscar configuração do Master no banco
+   * A key da feature já é o subject correto
    */
   private inferSubjectFromFeatureKey(featureKey: string): Subject {
-    // TODO: Implementar inferência dinâmica baseada no banco
-    // Por enquanto, retorna ALL como fallback
+    // ✅ A key da feature já é o subject, só converter para o tipo Subject
+    console.log(`🔍 Using feature key as subject: "${featureKey}"`);
+    
+    // Converter string para o tipo Subject (validar se existe no enum)
+    if (Object.values(Subject).includes(featureKey as Subject)) {
+      console.log(`✅ Valid subject: ${featureKey}`);
+      return featureKey as Subject;
+    }
+    
+    // Fallback para ALL se não for um subject válido
+    console.warn(`⚠️ Invalid subject "${featureKey}", using ALL as fallback`);
     return Subject.ALL;
   }
 }

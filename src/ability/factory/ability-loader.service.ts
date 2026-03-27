@@ -19,6 +19,9 @@ import {
   Subject,
 } from '../types/ability.types';
 
+// Importar funções dinâmicas do plan-rules
+import { getPlanFeatures, getAddonFeatures, getPlanLimits } from './plan-rules';
+
 @Injectable()
 export class AbilityLoaderService {
   constructor(
@@ -136,10 +139,9 @@ export class AbilityLoaderService {
     // ✅ Usar o sistema de features dinâmicas
     const allFeatures = await this.featurePermissionsService.listAllFeaturesWithPermissions();
     
-    // ✅ Obter features do plano usando o sistema dinâmico
-    const { PLAN_FEATURES, ADDON_FEATURES } = await import('./plan-rules');
-    const planFeatureKeys = PLAN_FEATURES[plan] || [];
-    const addonFeatureKeys = addons.flatMap(addon => ADDON_FEATURES[addon] || []);
+    // ✅ Obter features do plano usando o sistema dinâmico do banco
+    const planFeatureKeys = await getPlanFeatures(plan);
+    const addonFeatureKeys = await getAddonFeatures(addons);
     
     // Combinar features do plano + addons
     const allowedFeatureKeys = [...planFeatureKeys, ...addonFeatureKeys];

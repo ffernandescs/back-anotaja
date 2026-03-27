@@ -8,7 +8,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { securityConfig } from '../../../src/config/security.config';
-import { PLAN_LIMITS } from '../../ability/factory/plan-rules';
+import { getPlanLimits } from '../../ability/factory/plan-rules';
 import { PlanType } from '../../ability/types/ability.types';
 import { prisma } from '../../../lib/prisma';
 import { MailService } from '../mail/mail.service';
@@ -365,6 +365,7 @@ export class AuthService {
 
     // Carregar permissões do usuário (grupo + overrides)
     let permissions: any[] = [];
+    let menu: any[] = [];
     let subscriptionInfo = user.company?.subscription;
     let resourceCounts = {
       users: 0,
@@ -404,30 +405,48 @@ export class AuthService {
       
       // 3. Coletar permissões efetivas (grupo + overrides) filtradas pelo plano
       const effectivePermissions: any[] = [];
+      let userOverrides: any[] = [];
       
       // Adicionar permissões do grupo (filtradas pelo plano)
       if (user.group?.permissions?.length) {
+        console.log('🔍 Group permissions before filtering:', user.group.permissions);
         const filteredGroupPermissions = await this.abilityLoaderService.filterPermissionsByPlan(
           user.group.permissions,
           ctx.tenant.plan,
           ctx.tenant.addons
         );
+        console.log('🔍 Group permissions after filtering:', filteredGroupPermissions);
         
         effectivePermissions.push(...filteredGroupPermissions);
       }
       
       // Adicionar overrides do usuário (filtrados pelo plano)
       if (user.permissions?.length) {
-        const filteredUserOverrides = await this.abilityLoaderService.filterPermissionsByPlan(
+        userOverrides = await this.abilityLoaderService.filterPermissionsByPlan(
           user.permissions,
           ctx.tenant.plan,
           ctx.tenant.addons
         );
         
-        effectivePermissions.push(...filteredUserOverrides);
+        effectivePermissions.push(...userOverrides);
       }
       
-      permissions = effectivePermissions;
+      // ✅ permissions no response = apenas overrides do usuário
+      permissions = userOverrides;
+
+      // Gerar menu filtrado pelas permissões efetivas (já filtradas pelo plano)
+      const planType = subscriptionInfo?.plan?.type as PlanType || PlanType.TRIAL;
+      const addons = []; // TODO: Buscar add-ons ativos da subscription
+      
+      // ✅ USAR MENU DINÂMICO A PARTIR DAS FEATURES com permissões efetivas (grupo + overrides)
+      try {
+        console.log('🔍 Passing to MenuService - effectivePermissions:', effectivePermissions);
+        console.log('🔍 Passing to MenuService - planType:', planType);
+        menu = await this.menuService.generateMenuFromFeatures(planType, addons, effectivePermissions);
+      } catch (error) {
+        console.warn('Erro ao gerar menu:', error);
+        menu = [];
+      }
 
       // Calcular trialDaysRemaining para o bootstrap/Header
       if (subscriptionInfo && subscriptionInfo.plan.isTrial) {
@@ -452,14 +471,10 @@ export class AuthService {
           (subscriptionInfo as any).trialDaysRemaining = Math.max(0, diffDays);
         }
       }
+    } else {
+      // Usuário sem company = menu vazio
+      menu = [];
     }
-
-    // Gerar menu filtrado pelas permissões efetivas (já filtradas pelo plano)
-    const planType = subscriptionInfo?.plan?.type as PlanType || PlanType.TRIAL;
-    const addons = []; // TODO: Buscar add-ons ativos da subscription
-    
-    // ✅ USAR MENU DINÂMICO A PARTIR DAS FEATURES
-    const menu = await this.menuService.generateMenuFromFeatures(planType, addons, permissions);
 
     // ✅ Buscar métodos de pagamento globais (do master owner)
     let globalPaymentMethods: any[] = [];
@@ -488,7 +503,7 @@ export class AuthService {
           subscription: subscriptionInfo ? {
             ...subscriptionInfo,
             trialDaysRemaining: (subscriptionInfo as any).trialDaysRemaining,
-            limits: PLAN_LIMITS[subscriptionInfo.plan.type as PlanType]
+            limits: await getPlanLimits(subscriptionInfo.plan.type as PlanType)
           } : null,
           branches: companyBranches,
         } : undefined,

@@ -61,13 +61,21 @@ export class PlansController {
     return this.plansService.createDynamic(createPlanDto);
   }
 
-  @Public()
-  @Get()
-  @UseGuards(JwtOwnerAuthGuard)
+    @Get()
   @Roles('master')
   findAll(@Req() req?: Request) {
     return this.plansService.findAll();
   }
+
+  @Public()
+  @Get('Owner')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  findAlOwner(@Req() req?: Request) {
+    return this.plansService.findAll();
+  }
+
+
 
   @Public()
   @Get('active')

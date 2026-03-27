@@ -254,9 +254,9 @@ export class StripeWebhookController {
         return;
       }
 
-      // 2. Importar as features do plano
-      const { PLAN_FEATURES } = require('../../ability/factory/plan-rules');
-      const planFeatures = PLAN_FEATURES[plan.type] || [];
+      // 2. Buscar features do plano dinamicamente
+      const { getPlanFeatures } = require('../../ability/factory/plan-rules');
+      const planFeatures = await getPlanFeatures(plan.type);
 
       // 3. Converter features para formato de permissões
       const newPermissions = planFeatures.map(([action, subject]: [any, any]) => ({

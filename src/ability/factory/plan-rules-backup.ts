@@ -51,40 +51,62 @@ export async function getAddonFeatures(addons: AddonType[]): Promise<string[]> {
 }
 
 /**
- * Busca limites do plano diretamente do banco (100% dinâmico)
+ * Busca limites do plano diretamente do banco
  */
-export async function getPlanLimits(planType: PlanType): Promise<PlanLimits> {
+async function getPlanLimits(planType: PlanType): Promise<PlanLimits> {
   const plan = await prisma.plan.findFirst({
     where: { type: planType, active: true }
   });
 
-  if (!plan) {
-    console.warn(`⚠️ Plano ${planType} não encontrado no banco`);
-    throw new Error(`Plano ${planType} não encontrado`);
-  }
-
-  if (!plan.limits) {
-    console.warn(`⚠️ Plano ${planType} não possui limites configurados no banco`);
-    throw new Error(`Plano ${planType} não possui limites configurados`);
+  if (!plan || !plan.limits) {
+    // Fallback para limites padrão
+    return getDefaultLimits(planType);
   }
 
   try {
-    const limits = JSON.parse(plan.limits);
-    
-    // Validar estrutura mínima dos limites
-    const requiredFields = ['maxUsers', 'maxProducts', 'maxOrdersPerMonth', 'maxBranches', 'maxDeliveryPeople'];
-    const missingFields = requiredFields.filter(field => !(field in limits));
-    
-    if (missingFields.length > 0) {
-      console.warn(`⚠️ Plano ${planType} está com campos de limites faltando: ${missingFields.join(', ')}`);
-      throw new Error(`Plano ${planType} está com configuração incompleta`);
-    }
-    
-    return limits;
+    return JSON.parse(plan.limits);
   } catch (error) {
-    console.error(`❌ Erro ao parsear limites do plano ${planType}:`, error);
-    throw new Error(`Erro na configuração de limites do plano ${planType}`);
+    console.warn(`⚠️ Erro ao parsear limites do plano ${planType}:`, error);
+    return getDefaultLimits(planType);
   }
+}
+
+/**
+ * Limites padrão como fallback
+ */
+function getDefaultLimits(planType: PlanType): PlanLimits {
+  const defaultLimits: Record<PlanType, PlanLimits> = {
+    [PlanType.TRIAL]: {
+      maxUsers: 2,
+      maxProducts: 1,
+      maxOrdersPerMonth: 1000,
+      maxBranches: 5,
+      maxDeliveryPeople: 10,
+    },
+    [PlanType.BASIC]: {
+      maxUsers: 2,
+      maxProducts: 200,
+      maxOrdersPerMonth: 200,
+      maxBranches: 1,
+      maxDeliveryPeople: 0,
+    },
+    [PlanType.PREMIUM]: {
+      maxUsers: 5,
+      maxProducts: 1000,
+      maxOrdersPerMonth: 1000,
+      maxBranches: 2,
+      maxDeliveryPeople: 2,
+    },
+    [PlanType.ENTERPRISE]: {
+      maxUsers: 999,
+      maxProducts: 9999,
+      maxOrdersPerMonth: 9999,
+      maxBranches: 999,
+      maxDeliveryPeople: 999,
+    },
+  };
+
+  return defaultLimits[planType];
 }
 
 export async function applyPlanRules(
@@ -103,17 +125,14 @@ export async function applyPlanRules(
   console.log(`🔍 Plan ${plan} limits:`, limits);
   console.log(`🔍 Addon features:`, addonFeatures);
 
-  // Criar mapa de limites para o serviço de permissões (dinâmico do banco)
-  const limitsMap = new Map<string, number>();
-  
-  // ✅ Mapear todos os campos do JSON de limites para o mapa
-  Object.entries(limits).forEach(([key, value]) => {
-    if (typeof value === 'number') {
-      limitsMap.set(key, value);
-    }
-  });
-  
-  console.log(`🔍 Limits map created:`, Object.fromEntries(limitsMap));
+  // Criar mapa de limites para o serviço de permissões
+  const limitsMap = new Map<string, number>([
+    ['users', limits.maxUsers],
+    ['products', limits.maxProducts],
+    ['branches', limits.maxBranches],
+    ['deliveryPersons', limits.maxDeliveryPeople],
+    ['ordersPerMonth', limits.maxOrdersPerMonth],
+  ]);
 
   // Combinar features do plano + addons
   const allFeatures = [...planFeatures, ...addonFeatures];

@@ -24,7 +24,7 @@ import {
   PlanType,
   Subject,
 } from '../types/ability.types';
-import { applyPlanRules, PLAN_FEATURES, ADDON_FEATURES } from './plan-rules';
+import { applyPlanRules, getPlanFeatures, getAddonFeatures } from './plan-rules';
 import { FeaturePermissionsService } from './feature-permissions.service';
 import { prisma } from '../../../lib/prisma';
 
@@ -35,7 +35,7 @@ export class AbilityFactory {
    * Recebe o contexto já carregado do banco (user + tenant)
    * e retorna a ability final com as 3 camadas aplicadas.
    */
-  createForUser(ctx: AbilityContext): AppAbility {
+  async createForUser(ctx: AbilityContext): Promise<AppAbility> {
     const { can, cannot, build } = new AbilityBuilder<AppAbility>(
       createMongoAbility,
     );
@@ -69,7 +69,7 @@ export class AbilityFactory {
     // ── CAMADA 1: Plano do tenant ─────────────────────────────
     // Define o teto máximo de features disponíveis para o tenant
     // Esta é a base sobre a qual todas as outras camadas serão construídas
-    applyPlanRules(
+    await applyPlanRules(
       can as (action: Action | Action[], subject: Subject | Subject[]) => void,
       ctx.tenant.plan,
       ctx.tenant.addons,
@@ -80,7 +80,7 @@ export class AbilityFactory {
     // Os grupos herdam as permissões permitidas pelo plano
     if (ctx.user.group?.permissions?.length) {
       // Filtrar permissões do grupo para incluir apenas as permitidas pelo plano
-      const filteredGroupPermissions = this.filterPermissionsByPlan(
+      const filteredGroupPermissions = await this.filterPermissionsByPlan(
         ctx.user.group.permissions,
         ctx.tenant.plan,
         ctx.tenant.addons
@@ -100,7 +100,7 @@ export class AbilityFactory {
     if (ctx.user.permissions?.length) {
       // Overrides podem adicionar ou remover permissões do grupo
       // Mas ainda devem respeitar o teto do plano
-      const filteredUserOverrides = this.filterPermissionsByPlan(
+      const filteredUserOverrides = await this.filterPermissionsByPlan(
         ctx.user.permissions,
         ctx.tenant.plan,
         ctx.tenant.addons
@@ -122,17 +122,17 @@ export class AbilityFactory {
    * 
    * Usado pelo MenuService para filtrar o menu baseado nas permissões reais do usuário
    */
-  getEffectivePermissions(
+  async getEffectivePermissions(
     groupPermissions: PermissionRule[] | undefined,
     userOverrides: PermissionRule[] | undefined,
     plan: PlanType,
     addons: AddonType[]
-  ): PermissionRule[] {
+  ): Promise<PermissionRule[]> {
     const effectivePermissions: PermissionRule[] = [];
     
     // 1. Adicionar permissões do grupo (filtradas pelo plano)
     if (groupPermissions?.length) {
-      const filteredGroupPermissions = this.filterPermissionsByPlan(
+      const filteredGroupPermissions = await this.filterPermissionsByPlan(
         groupPermissions,
         plan,
         addons
@@ -142,7 +142,7 @@ export class AbilityFactory {
     
     // 2. Aplicar overrides do usuário (filtrados pelo plano)
     if (userOverrides?.length) {
-      const filteredUserOverrides = this.filterPermissionsByPlan(
+      const filteredUserOverrides = await this.filterPermissionsByPlan(
         userOverrides,
         plan,
         addons
@@ -217,7 +217,7 @@ export class AbilityFactory {
     if (diff <= (gracePeriodDays + suspensionDays)) {
       return { status: 'SUSPENDED', daysSinceExpiration: diff };
     }
-
+    
     return { status: 'BLOCKED', daysSinceExpiration: diff };
   }
 
@@ -235,13 +235,47 @@ export class AbilityFactory {
     }
   }
 
-  private filterPermissionsByPlan(
+  private async getPlanPermissions(plan: PlanType, addons: AddonType[]): Promise<PermissionRule[]> {
+    const permissions: PermissionRule[] = [];
+    
+    // ✅ Obter features do plano dinamicamente do banco
+    const planFeatures = await getPlanFeatures(plan);
+    
+    // Gerar permissões das features do plano (buscando do BD)
+    for (const featureKey of planFeatures) {
+      const actions = this.getFeaturePermissionsFromCache(featureKey);
+      const subject = this.mapFeatureToSubject(featureKey);
+      
+      if (subject && actions.length > 0) {
+        for (const action of actions) {
+          permissions.push({ action, subject, inverted: false });
+        }
+      }
+    }
+    
+    // ✅ Adicionar permissões dos add-ons dinamicamente
+    const addonFeatures = await getAddonFeatures(addons);
+    for (const featureKey of addonFeatures) {
+      const actions = this.getFeaturePermissionsFromCache(featureKey);
+      const subject = this.mapFeatureToSubject(featureKey);
+      
+      if (subject && actions.length > 0) {
+        for (const action of actions) {
+          permissions.push({ action, subject, inverted: false });
+        }
+      }
+    }
+    
+    return permissions;
+  }
+
+  private async filterPermissionsByPlan(
     permissions: PermissionRule[],
     plan: PlanType,
     addons: AddonType[]
-  ): PermissionRule[] {
-    // Obter as permissões permitidas pelo plano + add-ons
-    const planPermissions = this.getPlanPermissions(plan, addons);
+  ): Promise<PermissionRule[]> {
+    // ✅ Obter as permissões permitidas pelo plano + add-ons de forma assíncrona
+    const planPermissions = await this.getPlanPermissions(plan, addons);
     
     // Filtrar para incluir apenas permissões que estão no plano
     return permissions.filter(permission => {
@@ -257,46 +291,6 @@ export class AbilityFactory {
     });
   }
 
-  private getPlanPermissions(plan: PlanType, addons: AddonType[]): PermissionRule[] {
-    const permissions: PermissionRule[] = [];
-    
-    // Obter features do plano
-    const planFeatures = PLAN_FEATURES[plan] || [];
-    
-    // Gerar permissões das features do plano (buscando do BD)
-    for (const featureKey of planFeatures) {
-      const actions = this.getFeaturePermissionsFromCache(featureKey);
-      const subject = this.mapFeatureToSubject(featureKey);
-      
-      if (subject && actions.length > 0) {
-        for (const action of actions) {
-          permissions.push({ action, subject, inverted: false });
-        }
-      }
-    }
-    
-    // Adicionar permissões dos add-ons
-    for (const addon of addons) {
-      const addonFeatures = ADDON_FEATURES[addon] || [];
-      for (const featureKey of addonFeatures) {
-        const actions = this.getFeaturePermissionsFromCache(featureKey);
-        const subject = this.mapFeatureToSubject(featureKey);
-        
-        if (subject && actions.length > 0) {
-          for (const action of actions) {
-            permissions.push({ action, subject, inverted: false });
-          }
-        }
-      }
-    }
-    
-    return permissions;
-  }
-
-  /**
-   * Cache simples para permissões de features (evita buscar no BD toda hora)
-   * Futuramente: implementar cache real com Redis ou similar
-   */
   private featurePermissionsCache: Map<string, Action[]> = new Map();
 
   private getFeaturePermissionsFromCache(featureKey: string): Action[] {

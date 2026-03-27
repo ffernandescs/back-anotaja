@@ -9,7 +9,6 @@ import { prisma } from '../../../lib/prisma';
 import { Prisma, User, Company, Branch, PermissionAction } from '@prisma/client';
 import { GeocodingService } from '../geocoding/geocoding.service';
 import { MailService } from '../mail/mail.service';
-import { PLAN_FEATURES } from '../../ability/factory/plan-rules';
 
 export type VerifyCompanyExistDto = {
   phone?: string;
