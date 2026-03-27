@@ -20,6 +20,7 @@ async function migrateRoles() {
       create: {
         name: 'Administrador',
         branchId: branch.id,
+        companyId: branch.companyId,
       },
     });
 
@@ -35,6 +36,7 @@ async function migrateRoles() {
       create: {
         name: 'Operador',
         branchId: branch.id,
+        companyId: branch.companyId,
         isDefault: true,
       },
     });

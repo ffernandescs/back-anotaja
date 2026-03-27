@@ -153,6 +153,16 @@ async function createCategoriesProductsAndComplements(
 ) {
   console.log(`🔄 Criando categorias para o segmento: ${segment}`);
 
+  // Buscar branch para obter companyId
+  const branch = await prisma.branch.findUnique({
+    where: { id: branchId },
+    select: { companyId: true }
+  });
+
+  if (!branch) {
+    throw new Error(`Branch não encontrado: ${branchId}`);
+  }
+
   const categories = getCategoriesForSegment(segment);
   const createdCategories: any[] = [];
 
@@ -194,6 +204,7 @@ async function createCategoriesProductsAndComplements(
           active: true,
           categoryId: category.id,
           branchId: branchId,
+          companyId: branch.companyId,
           preparationTime:
             segment === BusinessSegment.PERFUMARIA
               ? null
@@ -4230,6 +4241,7 @@ async function main() {
                 .replace(/^-|-$/g, '')}.com.br`,
               phone: deliveryPhone,
               branchId: branch.id,
+              companyId: company.id,
               active: true,
             },
           });
