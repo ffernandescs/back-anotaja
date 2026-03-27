@@ -317,9 +317,28 @@ export class CompaniesService {
           nextBillingDate: trialEndDate.toISOString(),
         });
 
-        // ✅ Registrar no histórico
+        // Retornar dados para registrar histórico fora da transação
+        return { subscription, trialDays, trialEndDate, companyName: company.createdCompany.name };
+      }, {
+        timeout: 10000,
+      });
+
+      // ✅ Registrar no histórico FORA da transação para evitar conflitos
+      try {
+        const { subscription: createdSubscription, trialDays, trialEndDate, companyName } = await prisma.subscription.findUniqueOrThrow({
+          where: { companyId: company.createdCompany.id },
+          select: { id: true }
+        }).then(async (sub) => {
+          return {
+            subscription: sub,
+            trialDays,
+            trialEndDate,
+            companyName: company.createdCompany.name
+          };
+        });
+
         await this.historyService.createHistoryEntry({
-          subscriptionId: subscription.id,
+          subscriptionId: createdSubscription.id,
           eventType: 'CREATED',
           newPlanId: trialPlan.id,
           newStatus: 'ACTIVE',
@@ -328,18 +347,18 @@ export class CompaniesService {
           metadata: {
             trialDays,
             trialEndsAt: trialEndDate.toISOString(),
-            companyName: company.createdCompany.name,
+            companyName,
           },
         });
 
-        // ✅ Registrar início do trial
         await this.historyService.logTrialStarted(
-          subscription.id,
+          createdSubscription.id,
           trialEndDate,
         );
-      }, {
-        timeout: 10000,
-      });
+      } catch (historyError) {
+        // Não bloquear criação da empresa se falhar o histórico
+        console.error('⚠️ Erro ao registrar histórico (não crítico):', historyError);
+      }
 
       // 7️⃣ Enviar email de boas-vindas (não bloqueia o cadastro se falhar)
       try {
