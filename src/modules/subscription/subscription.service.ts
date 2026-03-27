@@ -438,14 +438,21 @@ export class SubscriptionService {
       },
     });
 
-    // Atualizar subscription com dados do Stripe, mantendo trialEndsAt se existir
+    // ✅ Buscar trial_end do Stripe (fonte da verdade)
+    const stripeSubscription = await this.stripeService.stripe.subscriptions.retrieve(
+      subscriptionId
+    );
+    const trialEndsAt = stripeSubscription.trial_end
+      ? new Date(stripeSubscription.trial_end * 1000)
+      : subscription?.trialEndsAt || null;
+
+    // Atualizar subscription com dados do Stripe
     const updatedSubscription = await prisma.subscription.update({
       where: { companyId },
       data: {
         planId: plan.id, // Atualizar para novo plano
         stripeSubscriptionId: subscriptionId,
-        // Manter trialEndsAt existente ou definir novo se não tiver
-        trialEndsAt: subscription?.trialEndsAt || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        trialEndsAt, // ✅ Usar trial_end do Stripe como fonte da verdade
         nextBillingDate: session.created ? new Date(session.created * 1000) : null,
         status: 'ACTIVE',
       },

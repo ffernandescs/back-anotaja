@@ -72,6 +72,11 @@ export class StripeWebhookController {
       // ✅ Datas corretas da subscription
       const startDate = new Date(subscription.created * 1000); // Data que começou
       
+      // ✅ Capturar trial_end do Stripe (se existir)
+      const trialEndsAt = subscription.trial_end
+        ? new Date(subscription.trial_end * 1000)
+        : null;
+      
       // Se está em trial, a próxima cobrança será após o trial
       // current_period_end já inclui os dias de trial + período do plano
       const nextBillingDate = subscription.current_period_end
@@ -82,7 +87,7 @@ export class StripeWebhookController {
         `nextBillingDate calculada: ${nextBillingDate?.toLocaleString()} (current_period_end=${subscription.current_period_end})`,
       );
       this.logger.log(
-        `Trial status: ${subscription.status}, trial_end: ${subscription.trial_end ? new Date(subscription.trial_end * 1000).toLocaleString() : 'N/A'}`,
+        `Trial status: ${subscription.status}, trial_end: ${trialEndsAt?.toLocaleString() || 'N/A'}`,
       );
 
       const endDate = subscription.cancel_at
@@ -100,11 +105,12 @@ export class StripeWebhookController {
           stripeSubscriptionId: subscriptionId,
           planId, // ← Atualiza para o novo plano
           startDate, // Data que a assinatura foi criada
+          trialEndsAt, // ✅ Sincronizar trial_end do Stripe
           nextBillingDate, // Próxima data de cobrança (trial + período do plano)
           endDate,
-          notes: subscription.trial_end 
-            ? `Plano ativado com trial até ${new Date(subscription.trial_end * 1000).toLocaleDateString()}. Primeira cobrança em ${nextBillingDate?.toLocaleDateString()}`
-            : `Plano ativado. Próxima cobrança em ${nextBillingDate?.toLocaleDateString()}`,
+          notes: trialEndsAt 
+            ? `Plano ativado com trial até ${trialEndsAt.toLocaleDateString('pt-BR')}. Primeira cobrança em ${nextBillingDate?.toLocaleDateString('pt-BR')}`
+            : `Plano ativado. Próxima cobrança em ${nextBillingDate?.toLocaleDateString('pt-BR')}`,
         },
         create: {
           companyId,
@@ -112,11 +118,12 @@ export class StripeWebhookController {
           stripeSubscriptionId: subscriptionId,
           planId,
           startDate,
+          trialEndsAt, // ✅ Sincronizar trial_end do Stripe
           nextBillingDate,
           endDate,
-          notes: subscription.trial_end 
-            ? `Plano ativado com trial até ${new Date(subscription.trial_end * 1000).toLocaleDateString()}. Primeira cobrança em ${nextBillingDate?.toLocaleDateString()}`
-            : `Plano ativado. Próxima cobrança em ${nextBillingDate?.toLocaleDateString()}`,
+          notes: trialEndsAt 
+            ? `Plano ativado com trial até ${trialEndsAt.toLocaleDateString('pt-BR')}. Primeira cobrança em ${nextBillingDate?.toLocaleDateString('pt-BR')}`
+            : `Plano ativado. Próxima cobrança em ${nextBillingDate?.toLocaleDateString('pt-BR')}`,
         },
       });
 
