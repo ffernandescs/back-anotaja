@@ -162,8 +162,14 @@ export class StripeWebhookController {
         `Assinatura criada/atualizada no banco para companyId=${companyId}`,
       );
 
-      // 🔄 Atualizar permissões dos grupos para o novo plano
-      await this.updateGroupPermissionsForNewPlan(companyId, planId);
+      // 🔄 Atualizar permissões APENAS se não estiver em trial
+      // Se estiver em trial, manter as permissões do plano atual até o trial terminar
+      if (!trialEndsAt || trialEndsAt <= new Date()) {
+        await this.updateGroupPermissionsForNewPlan(companyId, planId);
+        this.logger.log(`Permissões atualizadas para o plano ${planId} (sem trial ativo)`);
+      } else {
+        this.logger.log(`Permissões NÃO atualizadas - empresa ainda está em trial até ${trialEndsAt.toLocaleDateString('pt-BR')}`);
+      }
     }
 
     // ✅ Atualizar próxima data de cobrança quando invoice é gerado
@@ -213,6 +219,23 @@ export class StripeWebhookController {
             });
             
             this.logger.log(`Invoice criada: ${invoice.amount_paid} (fora do trial)`);
+
+            // 🔄 Atualizar permissões quando o trial termina ou primeira cobrança real
+            const subscriptionWithPlan = await prisma.subscription.findFirst({
+              where: { stripeSubscriptionId: invoice.subscription },
+              select: { planId: true }
+            });
+
+            if (subscriptionWithPlan?.planId) {
+              await this.updateGroupPermissionsForNewPlan(
+                (await prisma.subscription.findFirst({
+                  where: { stripeSubscriptionId: invoice.subscription },
+                  select: { companyId: true }
+                }))?.companyId || '',
+                subscriptionWithPlan.planId
+              );
+              this.logger.log(`Permissões atualizadas após cobrança real para o plano ${subscriptionWithPlan.planId}`);
+            }
           } else {
             this.logger.log(`Invoice ignorada: valor=${invoice.amount_paid}, trialAtivo=${isTrialActive}`);
           }

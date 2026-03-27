@@ -501,9 +501,17 @@ export class SubscriptionService {
       },
     });
 
-    // Atualizar grupos com as features do novo plano
+    // Atualizar grupos com as features do novo plano APENAS se não estiver em trial
     if (updatedSubscription && updatedSubscription.plan) {
-      await this.updateCompanyGroupsFeatures(companyId, updatedSubscription.plan);
+      const now = new Date();
+      const isTrialActive = updatedSubscription.trialEndsAt && updatedSubscription.trialEndsAt > now;
+      
+      if (!isTrialActive) {
+        await this.updateCompanyGroupsFeatures(companyId, updatedSubscription.plan);
+        console.log(`Permissões atualizadas para o plano ${plan.name} (sem trial ativo)`);
+      } else {
+        console.log(`Permissões NÃO atualizadas - empresa ainda está em trial até ${updatedSubscription.trialEndsAt?.toLocaleDateString('pt-BR')}`);
+      }
     }
 
     await prisma.company.update({
