@@ -3,14 +3,10 @@ import {
   NotFoundException,
   ConflictException,
   ForbiddenException,
-  BadRequestException,
 } from '@nestjs/common';
-import {
-  BillingPeriodDto,
-  CreateSubscriptionDto,
-  SubscriptionStatusDto,
-} from './dto/create-subscription.dto';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../../lib/prisma';
+import { formatCurrency } from '../../utils/formatCurrency';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 import { UpdateSubscriptionInput } from './types';
 import Stripe from 'stripe';
@@ -375,14 +371,92 @@ export class SubscriptionService {
       },
     });
 
-    // Se não existir ou não estiver ativa, faz upsert
+    // Atualizar grupos com as features do novo plano
+    if (subscription && subscription.plan) {
+      await this.updateCompanyGroupsFeatures(companyId, subscription.plan);
+    }
 
     await prisma.company.update({
       where: { id: companyId },
       data: { onboardingStep: 'SCHEDULE' }, // ou o valor exato que você usa no enum/enum-like
     });
-    // Retorno limpo pro frontend
-    return subscription;
+
+    // Formatar dados para o frontend
+    if (!subscription || !subscription.plan) {
+      throw new NotFoundException('Assinatura ou plano não encontrado');
+    }
+
+    const formattedSubscription = {
+      ...subscription,
+      plan: {
+        ...subscription.plan,
+        formattedPrice: formatCurrency(subscription.plan.price),
+        formattedFeatures: subscription.plan.features ? 
+          JSON.parse(subscription.plan.features).map((feature: string) => ({
+            key: feature,
+            name: feature.charAt(0).toUpperCase() + feature.slice(1).replace(/_/g, ' ')
+          })) : [],
+        formattedLimits: subscription.plan.limits ? 
+          Object.entries(JSON.parse(subscription.plan.limits)).map(([key, value]) => ({
+            key: key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()),
+            value: value
+          })) : []
+      }
+    };
+
+    // Retorno formatado pro frontend
+    return formattedSubscription;
+  }
+
+  /**
+   * Atualiza todos os grupos da empresa com as features do plano
+   */
+  private async updateCompanyGroupsFeatures(companyId: string, plan: any) {
+    // 1. Buscar todas as features do plano
+    const planFeatures = await prisma.planFeature.findMany({
+      where: { planId: plan.id },
+      include: {
+        feature: true,
+      },
+    });
+
+    // 2. Gerar permissões baseadas nas features do plano
+    const planPermissions = planFeatures.flatMap(({ feature }) => {
+      const defaultActions = feature.defaultActions ? JSON.parse(feature.defaultActions) : ['read'];
+      
+      return defaultActions.map((action: string) => ({
+        action: action as any,
+        subject: feature.key as any,
+        inverted: false,
+      }));
+    });
+
+    // 3. Buscar todos os grupos da empresa
+    const companyGroups = await prisma.group.findMany({
+      where: { companyId },
+    });
+
+    // 4. Atualizar cada grupo com as novas permissões
+    for (const group of companyGroups) {
+      // Remover permissões antigas
+      await prisma.permission.deleteMany({
+        where: { groupId: group.id },
+      });
+
+      // Adicionar novas permissões do plano
+      if (planPermissions.length > 0) {
+        await prisma.permission.createMany({
+          data: planPermissions.map(permission => ({
+            ...permission,
+            groupId: group.id,
+          })),
+        });
+      }
+
+      console.log(`✅ Grupo "${group.name}" atualizado com ${planPermissions.length} permissões do plano "${plan.name}"`);
+    }
+
+    console.log(`✅ ${companyGroups.length} grupos da empresa ${companyId} atualizados com sucesso`);
   }
 
   /**
