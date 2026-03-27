@@ -293,8 +293,12 @@ export class CompaniesService {
         // 8️⃣ Criar subscription trial automaticamente
         const now = new Date();
         const trialDays = trialPlan.trialDays ?? 7;
+        
+        // ✅ Calcular data de término do trial com horário no final do dia
+        // Isso garante que o usuário tenha os dias COMPLETOS de trial
         const trialEndDate = new Date(now);
         trialEndDate.setDate(now.getDate() + trialDays);
+        trialEndDate.setHours(23, 59, 59, 999); // Final do dia
 
         const subscription = await prisma.subscription.create({
           data: {
