@@ -94,8 +94,15 @@ export class StripeWebhookController {
         ? new Date(subscription.cancel_at * 1000)
         : null;
 
-      const planId =
-        session.metadata?.planId || subscription.items.data[0]?.price.id;
+      // ✅ Extrair planId do metadata (NUNCA usar price.id do Stripe)
+      const planId = session.metadata?.planId;
+      
+      if (!planId) {
+        this.logger.error(`❌ planId não encontrado no metadata da sessão ${session.id}`);
+        throw new Error('planId não encontrado no metadata da sessão do Stripe');
+      }
+
+      this.logger.log(`✅ Processando checkout para planId: ${planId}`);
 
       // Salvar no banco
       const subscriptionRecord = await prisma.subscription.upsert({
@@ -339,9 +346,10 @@ export class StripeWebhookController {
         }
       }
 
-      this.logger.log(`Permissões de todos os grupos atualizadas para o plano ${plan.type}`);
-    } catch (error) {
-      this.logger.error(`Erro ao atualizar permissões dos grupos`);
+      this.logger.log(`✅ Permissões de todos os grupos atualizadas para o plano ${plan.type}`);
+    } catch (error: any) {
+      this.logger.error(`❌ Erro ao atualizar permissões dos grupos: ${error.message}`, error.stack);
+      throw error; // Re-lançar para que o caller possa tratar
     }
   }
 }
