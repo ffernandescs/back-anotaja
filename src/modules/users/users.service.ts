@@ -209,7 +209,11 @@ export class UsersService {
             }
           }
         },
-        group: true,
+        group: {
+          include: {
+            permissions:true
+          }
+        },
         permissions: true
       },
       orderBy: { createdAt: 'asc' }
@@ -249,7 +253,11 @@ export class UsersService {
             }
           }
         },
-        group: true,
+         group: {
+          include: {
+            permissions:true
+          }
+        },
         permissions: true
       }
     });
