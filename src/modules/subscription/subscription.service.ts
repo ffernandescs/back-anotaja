@@ -415,6 +415,20 @@ export class SubscriptionService {
       throw new NotFoundException('Session inválida');
     }
 
+    // Buscar plano pelo metadata da session
+    const planId = session.metadata?.planId as string;
+    if (!planId) {
+      throw new NotFoundException('Plano não encontrado na sessão');
+    }
+
+    const plan = await prisma.plan.findUnique({
+      where: { id: planId },
+    });
+
+    if (!plan) {
+      throw new NotFoundException('Plano não encontrado');
+    }
+
     // Pega subscription atual, incluindo o plan
     const subscription = await prisma.subscription.findUnique({
       where: { companyId },
@@ -424,9 +438,26 @@ export class SubscriptionService {
       },
     });
 
+    // Atualizar subscription com dados do Stripe, mantendo trialEndsAt se existir
+    const updatedSubscription = await prisma.subscription.update({
+      where: { companyId },
+      data: {
+        planId: plan.id, // Atualizar para novo plano
+        stripeSubscriptionId: subscriptionId,
+        // Manter trialEndsAt existente ou definir novo se não tiver
+        trialEndsAt: subscription?.trialEndsAt || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        nextBillingDate: session.created ? new Date(session.created * 1000) : null,
+        status: 'ACTIVE',
+      },
+      include: {
+        plan: true,
+        company: true,
+      },
+    });
+
     // Atualizar grupos com as features do novo plano
-    if (subscription && subscription.plan) {
-      await this.updateCompanyGroupsFeatures(companyId, subscription.plan);
+    if (updatedSubscription && updatedSubscription.plan) {
+      await this.updateCompanyGroupsFeatures(companyId, updatedSubscription.plan);
     }
 
     await prisma.company.update({
@@ -435,32 +466,32 @@ export class SubscriptionService {
     });
 
     // Formatar dados para o frontend
-    if (!subscription || !subscription.plan) {
+    if (!updatedSubscription || !updatedSubscription.plan) {
       throw new NotFoundException('Assinatura ou plano não encontrado');
     }
 
     console.log('🔍 Dados do plano antes da formatação:', {
-      price: subscription.plan.price,
-      features: subscription.plan.features,
-      limits: subscription.plan.limits
+      price: updatedSubscription.plan.price,
+      features: updatedSubscription.plan.features,
+      limits: updatedSubscription.plan.limits
     });
 
     const formattedSubscription = {
-      ...subscription,
+      ...updatedSubscription,
       // Durante trial, lastBillingAmount é 0 (nenhuma cobrança ainda)
-      lastBillingAmount: subscription.trialEndsAt && subscription.trialEndsAt > new Date() ? 0 : subscription.plan.price,
+      lastBillingAmount: updatedSubscription.trialEndsAt && updatedSubscription.trialEndsAt > new Date() ? 0 : updatedSubscription.plan.price,
       plan: {
-        ...subscription.plan,
+        ...updatedSubscription.plan,
         // Manter campos originais como strings JSON para compatibilidade
         // Adicionar campos formatados separados
-        formattedPrice: subscription.trialEndsAt && subscription.trialEndsAt > new Date() ? 'Grátis' : formatCurrency(subscription.plan.price),
-        formattedFeatures: subscription.plan.features ? 
-          JSON.parse(subscription.plan.features).map((feature: string) => ({
+        formattedPrice: updatedSubscription.trialEndsAt && updatedSubscription.trialEndsAt > new Date() ? 'Grátis' : formatCurrency(updatedSubscription.plan.price),
+        formattedFeatures: updatedSubscription.plan.features ? 
+          JSON.parse(updatedSubscription.plan.features).map((feature: string) => ({
             key: feature,
             name: feature.charAt(0).toUpperCase() + feature.slice(1).replace(/_/g, ' ')
           })) : [],
-        formattedLimits: subscription.plan.limits ? 
-          Object.entries(JSON.parse(subscription.plan.limits)).map(([key, value]) => ({
+        formattedLimits: updatedSubscription.plan.limits ? 
+          Object.entries(JSON.parse(updatedSubscription.plan.limits)).map(([key, value]) => ({
             key: key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()),
             value: value
           })) : []
@@ -468,8 +499,8 @@ export class SubscriptionService {
     };
 
     console.log('✅ Dados formatados para frontend:', {
-      isTrialActive: subscription.trialEndsAt && subscription.trialEndsAt > new Date(),
-      trialEndsAt: subscription.trialEndsAt,
+      isTrialActive: updatedSubscription.trialEndsAt && updatedSubscription.trialEndsAt > new Date(),
+      trialEndsAt: updatedSubscription.trialEndsAt,
       lastBillingAmount: formattedSubscription.lastBillingAmount,
       formattedPrice: formattedSubscription.plan.formattedPrice,
       formattedFeatures: formattedSubscription.plan.formattedFeatures,
