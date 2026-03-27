@@ -44,6 +44,14 @@ export class PaymentMethodsController {
   }
 
   @Public()
+  @Get('owner')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  async findAll() {
+    return this.service.findAll();
+  }
+
+  @Public()
   @Get('owner/:id')
   @UseGuards(JwtOwnerAuthGuard)
   @Roles('master')
@@ -67,12 +75,7 @@ export class PaymentMethodsController {
     return this.service.remove(id, 'owner');
   }
 
-  @Get()
-  @UseGuards(JwtAuthGuard)
-  @Roles('master')
-  async findAll() {
-    return this.service.findAll();
-  }
+ 
 
   // ✅ Listar um método
   @Get(':id')

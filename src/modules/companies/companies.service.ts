@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { CreateCompanyDto } from './dto/create-company.dto';
 import * as bcrypt from 'bcrypt';
@@ -117,203 +118,220 @@ export class CompaniesService {
       console.warn('Erro ao buscar coordenadas da empresa:', error);
     }
 
-    const company = await prisma.$transaction(async (prisma) => {
-      // ✅ Verificar duplicidade de document, email, phone e subdomain
-      const existingCompany = await prisma.company.findFirst({
-        where: {
-          OR: [{ document }, { email }, { phone }],
-        },
+    try {
+      const company = await prisma.$transaction(async (prisma) => {
+        // Verificar duplicidade de document, email, phone e subdomain
+        const existingCompany = await prisma.company.findFirst({
+          where: {
+            OR: [{ document }, { email }, { phone }],
+          },
+        });
+
+        if (existingCompany) {
+          let message = 'Empresa já existe com: ';
+          if (existingCompany.document === document) message += 'documento, ';
+          if (existingCompany.email === email) message += 'email, ';
+          if (existingCompany.phone === phone) message += 'telefone, ';
+          message = message.replace(/, $/, ''); // remove última vírgula
+          throw new BadRequestException(message);
+        }
+
+        // Verificar duplicidade de email e phone na tabela User
+        const existingUser = await prisma.user.findFirst({
+          where: {
+            OR: [{ email }, { phone }],
+          },
+        });
+
+        if (existingUser) {
+          let message = 'Usuário já existe com: ';
+          if (existingUser.email === email) message += 'email, ';
+          if (existingUser.phone === phone) message += 'telefone, ';
+          message = message.replace(/, $/, ''); // remove última vírgula
+          throw new BadRequestException(message);
+        }
+
+        // Criar empresa
+        const createdCompany = await prisma.company.create({
+          data: {
+            companyName,
+            name,
+            document,
+            email,
+            phone,
+            active: true,
+            onboardingCompleted: false,
+            onboardingStep: 'SCHEDULE',
+          },
+        });
+
+        // Criar endereço da empresa
+        const createdCompanyAddress = await prisma.companyAddress.create({
+          data: {
+            street,
+            number,
+            complement,
+            neighborhood,
+            city,
+            state,
+            zipCode,
+            isDefault: true,
+            reference,
+            lat,
+            lng,
+            companyId: createdCompany.id,
+          },
+        });
+
+        const createdBranchAddress = await prisma.branchAddress.create({
+          data: {
+            street,
+            number,
+            complement,
+            neighborhood,
+            city,
+            state,
+            zipCode,
+            reference,
+            lat: lat ? Math.round(lat) : null,
+            lng: lng ? Math.round(lng) : null,
+            isDefault: true,
+          },
+        });
+
+        // Criar branch com coordenadas
+        const createdBranch = await prisma.branch.create({
+          data: {
+            branchName: createdCompany.companyName,
+            phone: createdCompany.phone,
+            document,
+            latitude: lat,
+            longitude: lng,
+            companyId: createdCompany.id,
+            addressId: createdBranchAddress.id,
+          },
+        });
+
+        return {
+          createdCompany,
+          createdBranch,
+          createdCompanyAddress,
+          createdBranchAddress,
+        };
+      }, {
+        timeout: 10000, // Aumentar timeout para 10 segundos
       });
 
-      if (existingCompany) {
-        let message = 'Empresa já existe com: ';
-        if (existingCompany.document === document) message += 'documento, ';
-        if (existingCompany.email === email) message += 'email, ';
-        if (existingCompany.phone === phone) message += 'telefone, ';
-        message = message.replace(/, $/, ''); // remove última vírgula
-        throw new BadRequestException(message);
-      }
-
-      // ✅ Verificar duplicidade de email e phone na tabela User
-      const existingUser = await prisma.user.findFirst({
+      // Buscar plano trial FORA da transação
+      const trialPlan = await prisma.plan.findFirst({
         where: {
-          OR: [{ email }, { phone }],
-        },
-      });
-
-      if (existingUser) {
-        let message = 'Usuário já existe com: ';
-        if (existingUser.email === email) message += 'email, ';
-        if (existingUser.phone === phone) message += 'telefone, ';
-        message = message.replace(/, $/, ''); // remove última vírgula
-        throw new BadRequestException(message);
-      }
-
-      // 1️⃣ Criar empresa
-      const createdCompany = await prisma.company.create({
-        data: {
-          companyName,
-          name,
-          document,
-          email,
-          phone,
+          isTrial: true,
           active: true,
-          onboardingCompleted: false,
-          onboardingStep: 'SCHEDULE',
         },
       });
 
-      // 2️⃣ Criar endereço da empresa
-      const createdCompanyAddress = await prisma.companyAddress.create({
-        data: {
-          street,
-          number,
-          complement,
-          neighborhood,
-          city,
-          state,
-          zipCode,
-          isDefault: true,
-          reference,
-          lat,
-          lng,
-          companyId: createdCompany.id,
-        },
+      if (!trialPlan) {
+        throw new BadRequestException(
+          'Plano trial não encontrado. Configure um plano trial no sistema.',
+        );
+      }
+
+      // ✅ Criar grupo e subscription em transações separadas para evitar timeout
+      const adminGroup = await prisma.$transaction(async (prisma) => {
+        // 6️⃣ Criar grupo Administrador com permissões do plano trial
+        const planFeatures = await prisma.planFeature.findMany({
+          where: { planId: trialPlan.id },
+          include: {
+            feature: true,
+          },
+        });
+
+        // Gerar permissões baseadas nas features do plano
+        const trialPermissions = planFeatures.flatMap(({ feature }) => {
+          const defaultActions = feature.defaultActions ? JSON.parse(feature.defaultActions) : ['read'];
+          
+          return defaultActions.map((action: string) => ({
+            action: action as any,
+            subject: feature.key as any,
+            inverted: false,
+          }));
+        });
+
+        return await prisma.group.create({
+          data: {
+            name: 'Administrador',
+            branchId: company.createdBranch.id,
+            companyId: company.createdBranch.companyId,
+            description: 'Grupo com acesso total às funcionalidades do plano',
+            permissions: {
+              create: trialPermissions,
+            },
+          },
+        });
+      }, {
+        timeout: 10000,
       });
 
-      const createdBranchAddress = await prisma.branchAddress.create({
-        data: {
-          street,
-          number,
-          complement,
-          neighborhood,
-          city,
-          state,
-          zipCode,
-          reference,
-          lat: lat ? Math.round(lat) : null,
-          lng: lng ? Math.round(lng) : null,
-          isDefault: true,
-        },
+      // ✅ Criar usuário em transação separada
+      await prisma.$transaction(async (prisma) => {
+        await prisma.user.create({
+          data: {
+            name,
+            email,
+            phone,
+            password: hashedPassword,
+            companyId: company.createdCompany.id,
+            branchId: company.createdBranch.id,
+            groupId: adminGroup.id,
+          },
+        });
+
+        // 8️⃣ Criar subscription trial automaticamente
+        const now = new Date();
+        const trialEndDate = new Date(now);
+        trialEndDate.setDate(now.getDate() + (trialPlan.trialDays ?? 7));
+
+        await prisma.subscription.create({
+          data: {
+            companyId: company.createdCompany.id,
+            planId: trialPlan.id,
+            status: 'ACTIVE',
+            billingPeriod: trialPlan.billingPeriod,
+            startDate: now,
+            endDate: trialEndDate,
+            nextBillingDate: trialEndDate,
+            notes: `Trial de ${trialPlan.trialDays ?? 7} dias - Criado automaticamente no cadastro`,
+          },
+        });
+      }, {
+        timeout: 10000,
       });
 
-      // 3️⃣ Criar branch com coordenadas
-      const createdBranch = await prisma.branch.create({
-        data: {
-          branchName: createdCompany.companyName,
-          phone: createdCompany.phone,
-          document,
-          latitude: lat,
-          longitude: lng,
-          companyId: createdCompany.id,
-          addressId: createdBranchAddress.id,
-        },
-      });
+      // 7️⃣ Enviar email de boas-vindas (não bloqueia o cadastro se falhar)
+      try {
+        await this.mailService.sendWelcomeEmail(email, name, trialPlan.trialDays ?? 7);
+      } catch (emailError) {
+        console.error('Erro ao enviar email de boas-vindas:', emailError);
+        // Não lança erro para não bloquear o cadastro
+      }
 
-      return {
-        createdCompany,
-        createdBranch,
-        createdCompanyAddress,
-        createdBranchAddress,
-      };
-    }, {
-      timeout: 10000, // Aumentar timeout para 10 segundos
-    });
+      return company.createdCompany;
 
-    // ✅ Buscar plano trial FORA da transação
-    const trialPlan = await prisma.plan.findFirst({
-      where: {
-        isTrial: true,
-        active: true,
-      },
-    });
-
-    if (!trialPlan) {
-      throw new BadRequestException(
-        'Plano trial não encontrado. Configure um plano trial no sistema.',
+    } catch (error) {
+      // A transação já fez rollback automaticamente
+      // Apenas logamos o erro para diagnóstico
+      console.error(' Erro ao criar empresa - transação desfeita:', error);
+      
+      // Se for erro de negócio (BadRequest), repassa
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      
+      // Para outros erros, mensagem genérica
+      throw new InternalServerErrorException(
+        'Não foi possível criar a empresa. Por favor, tente novamente.'
       );
     }
-
-    // ✅ Criar grupo e subscription em transações separadas para evitar timeout
-    const adminGroup = await prisma.$transaction(async (prisma) => {
-      // 6️⃣ Criar grupo Administrador com permissões do plano trial
-      const planFeatures = await prisma.planFeature.findMany({
-        where: { planId: trialPlan.id },
-        include: {
-          feature: true,
-        },
-      });
-
-      // Gerar permissões baseadas nas features do plano
-      const trialPermissions = planFeatures.flatMap(({ feature }) => {
-        const defaultActions = feature.defaultActions ? JSON.parse(feature.defaultActions) : ['read'];
-        
-        return defaultActions.map((action: string) => ({
-          action: action as any,
-          subject: feature.key as any,
-          inverted: false,
-        }));
-      });
-
-      return await prisma.group.create({
-        data: {
-          name: 'Administrador',
-          branchId: company.createdBranch.id,
-          companyId: company.createdBranch.companyId,
-          description: 'Grupo com acesso total às funcionalidades do plano',
-          permissions: {
-            create: trialPermissions,
-          },
-        },
-      });
-    }, {
-      timeout: 10000,
-    });
-
-    // ✅ Criar usuário em transação separada
-    await prisma.$transaction(async (prisma) => {
-      await prisma.user.create({
-        data: {
-          name,
-          email,
-          phone,
-          password: hashedPassword,
-          companyId: company.createdCompany.id,
-          branchId: company.createdBranch.id,
-          groupId: adminGroup.id,
-        },
-      });
-
-      // 8️⃣ Criar subscription trial automaticamente
-      const now = new Date();
-      const trialEndDate = new Date(now);
-      trialEndDate.setDate(now.getDate() + (trialPlan.trialDays ?? 7));
-
-      await prisma.subscription.create({
-        data: {
-          companyId: company.createdCompany.id,
-          planId: trialPlan.id,
-          status: 'ACTIVE',
-          billingPeriod: trialPlan.billingPeriod,
-          startDate: now,
-          endDate: trialEndDate,
-          nextBillingDate: trialEndDate,
-          notes: `Trial de ${trialPlan.trialDays ?? 7} dias - Criado automaticamente no cadastro`,
-        },
-      });
-    }, {
-      timeout: 10000,
-    });
-
-    // 7️⃣ Enviar email de boas-vindas (não bloqueia o cadastro se falhar)
-    try {
-      await this.mailService.sendWelcomeEmail(email, name, trialPlan.trialDays ?? 7);
-    } catch (emailError) {
-      console.error('Erro ao enviar email de boas-vindas:', emailError);
-      // Não lança erro para não bloquear o cadastro
-    }
-
-    return company.createdCompany;
   }
 
   async verifyCompanyExist(dto: VerifyCompanyExistDto): Promise<void> {
