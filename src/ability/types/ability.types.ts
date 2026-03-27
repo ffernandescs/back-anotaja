@@ -91,9 +91,7 @@ export interface FeatureLimit {
 }
 
 // Limites quantitativos por plano (agora genérico e dinâmico)
-export interface PlanLimits {
-  [featureKey: string]: FeatureLimit;
-}
+export type PlanLimits = Record<string, number>; // Simplificado para usar números diretamente
 
 export const createAppAbility = (
   rules: RawRuleOf<AppAbility>[] = []

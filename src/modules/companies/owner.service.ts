@@ -248,15 +248,13 @@ export class OwnerService {
           active: true,
           isTrial: true,
           isFeatured: false,
-          // Criar limits básicos para trial
-          planLimits: {
-            create: [
-              { resource: 'users', maxValue: 2 },
-              { resource: 'products', maxValue: 10 },
-              { resource: 'orders_per_month', maxValue: 50 },
-              { resource: 'branches', maxValue: 1 },
-            ],
-          },
+          // Criar limits básicos para trial como JSON
+          limits: JSON.stringify({
+            users: 2,
+            products: 10,
+            orders_per_month: 50,
+            branches: 1,
+          }),
           // Criar features básicas para trial
           planFeatures: {
             create: [

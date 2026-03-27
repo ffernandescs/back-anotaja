@@ -26,8 +26,7 @@ export class DynamicPlanRulesService {
           include: {
             feature: true
           }
-        },
-        planLimits: true
+        }
       }
     });
 
@@ -60,10 +59,18 @@ export class DynamicPlanRulesService {
       }
     }) : [];
 
-    // Criar mapa de limites para fácil acesso
-    const limitsMap = new Map(
-      plan.planLimits.map(limit => [limit.resource, limit.maxValue])
-    );
+    // Criar mapa de limites para fácil acesso a partir do campo JSON
+    let limitsMap = new Map<string, number>();
+    if (plan.limits) {
+      try {
+        const limits = JSON.parse(plan.limits);
+        limitsMap = new Map(
+          Object.entries(limits).map(([key, value]) => [key, value as number])
+        );
+      } catch (error) {
+        console.warn('Erro ao parsear limits do plano:', error);
+      }
+    }
 
     // Processar features do plano
     for (const planFeature of plan.planFeatures) {

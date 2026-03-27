@@ -88,16 +88,7 @@ export async function getPlanLimits(planType: PlanType): Promise<PlanLimits> {
     // Montar objeto de limites genérico
     const limits: PlanLimits = {};
     featureLimits.forEach(limit => {
-      limits[limit.featureKey] = {
-        featureKey: limit.featureKey,
-        name: limit.name,
-        description: limit.description || '',
-        maxValue: limit.maxValue,
-        unit: limit.unit || '',
-        isActive: limit.isActive,
-        createdAt: limit.createdAt,
-        updatedAt: limit.updatedAt
-      };
+      limits[limit.featureKey] = limit.maxValue; // Apenas o valor numérico
     });
 
     return limits;
