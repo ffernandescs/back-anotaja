@@ -50,7 +50,10 @@ export class OnboardingService {
     let daysSinceExpiration = 0;
 
     if (subscription) {
-      if (subscription.endDate) {
+      // ✅ Priorizar trialEndsAt do Stripe (fonte da verdade)
+      if (subscription.trialEndsAt) {
+        trialEndDate = new Date(subscription.trialEndsAt);
+      } else if (subscription.endDate) {
         trialEndDate = new Date(subscription.endDate);
       } else if (subscription.startDate) {
         const trialDays = parseInt(process.env.TRIAL_DAYS ?? '7', 10);
@@ -62,8 +65,12 @@ export class OnboardingService {
         const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         const startOfExpiration = new Date(trialEndDate.getFullYear(), trialEndDate.getMonth(), trialEndDate.getDate());
 
+        // ✅ Correção: Calcular dias restantes corretamente (não incluir o dia atual)
         const diffTime = startOfExpiration.getTime() - startOfToday.getTime();
-        trialDaysRemaining = Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); // Usar Math.ceil em vez de Math.floor
+        
+        // Se a data de expiração é hoje, não há dias restantes
+        trialDaysRemaining = Math.max(0, diffDays - 1);
         
         isTrialExpired = startOfToday > startOfExpiration;
         daysSinceExpiration = isTrialExpired

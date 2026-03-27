@@ -18,6 +18,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import Stripe from 'stripe';
 import { StripeService } from '../billing/stripe.service';
+import { prisma } from '../../../lib/prisma';
 
 interface RequestWithUser extends Request {
   user: {
@@ -50,6 +51,20 @@ export class SubscriptionController {
   @Get()
   findAll(@Req() req: RequestWithUser) {
     return this.subscriptionService.findAll(req.user.userId);
+  }
+
+  @Get('current')
+  async getCurrent(@Req() req: RequestWithUser) {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.userId },
+      include: { company: true },
+    });
+
+    if (!user || !user.companyId) {
+      return { subscription: null };
+    }
+
+    return this.subscriptionService.findByCompany(user.companyId, req.user.userId);
   }
   
   @Get('invoices')

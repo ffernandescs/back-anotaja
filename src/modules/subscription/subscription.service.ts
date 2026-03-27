@@ -312,10 +312,26 @@ export class SubscriptionService {
     const now = new Date();
     const isTrialActive = subscription.trialEndsAt && subscription.trialEndsAt > now;
     
+    // ✅ Calcular trialDaysRemaining corretamente
+    let trialDaysRemaining: number | null = null;
+    if (subscription.trialEndsAt) {
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const startOfExpiration = new Date(subscription.trialEndsAt.getFullYear(), subscription.trialEndsAt.getMonth(), subscription.trialEndsAt.getDate());
+      
+      const diffTime = startOfExpiration.getTime() - startOfToday.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      // Se a data de expiração é hoje, não há dias restantes
+      trialDaysRemaining = Math.max(0, diffDays - 1);
+    }
+    
     const formattedSubscription = {
       ...subscription,
       // Durante trial, lastBillingAmount é 0 (nenhuma cobrança ainda)
       lastBillingAmount: isTrialActive ? 0 : subscription.plan.price,
+      trialDaysRemaining, // ✅ Adicionar campo calculado
+      isActive: subscription.status === 'ACTIVE',
+      isTrial: isTrialActive,
       plan: subscription.plan ? {
         ...subscription.plan,
         // Manter campos originais como strings JSON para compatibilidade

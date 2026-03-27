@@ -475,7 +475,10 @@ export class AuthService {
         const now = new Date();
         
         let trialEndDate: Date | undefined;
-        if (subscriptionInfo.endDate) {
+        // ✅ Priorizar trialEndsAt do Stripe
+        if (subscriptionInfo.trialEndsAt) {
+          trialEndDate = new Date(subscriptionInfo.trialEndsAt);
+        } else if (subscriptionInfo.endDate) {
           trialEndDate = new Date(subscriptionInfo.endDate);
         } else if (subscriptionInfo.startDate) {
           const trialDays = subscriptionInfo.plan.trialDays ?? 7;
@@ -488,9 +491,12 @@ export class AuthService {
           const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
           const startOfExpiration = new Date(trialEndDate.getFullYear(), trialEndDate.getMonth(), trialEndDate.getDate());
           
+          // ✅ Correção: Calcular dias restantes corretamente
           const diffTime = startOfExpiration.getTime() - startOfToday.getTime();
-          const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-          (subscriptionInfo as any).trialDaysRemaining = Math.max(0, diffDays);
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+          
+          // Se a data de expiração é hoje, não há dias restantes
+          (subscriptionInfo as any).trialDaysRemaining = Math.max(0, diffDays - 1);
         }
       }
     } else {
