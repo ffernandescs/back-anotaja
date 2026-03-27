@@ -96,10 +96,20 @@ export class BillingService {
     }
 
     /** 2️⃣ Criar Checkout Session respeitando trial existente */
-    const trialEndDate = company.subscription?.nextBillingDate || company.subscription?.endDate;
+    // Usar trialEndsAt em vez de nextBillingDate/endDate para cálculo correto
+    const trialEndDate = company.subscription?.trialEndsAt;
     const trialEndSeconds = trialEndDate ? Math.floor(new Date(trialEndDate).getTime() / 1000) : null;
     const nowSeconds = Math.floor(Date.now() / 1000);
     const shouldApplyTrial = trialEndSeconds && trialEndSeconds > nowSeconds;
+
+    console.log('🔍 Debug Trial - Stripe Checkout:', {
+      companyId: company.id,
+      trialEndDate,
+      trialEndSeconds,
+      nowSeconds,
+      shouldApplyTrial,
+      remainingDays: trialEndSeconds ? Math.ceil((trialEndSeconds - nowSeconds) / 86400) : null
+    });
 
     const session = await this.stripeService.stripe.checkout.sessions.create({
       mode: 'subscription',
