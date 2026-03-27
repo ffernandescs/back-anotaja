@@ -324,7 +324,7 @@ export class SubscriptionService {
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
       
       // Se a data de expiração é hoje, não há dias restantes
-      trialDaysRemaining = Math.max(0, diffDays - 1);
+      trialDaysRemaining = Math.max(0, diffDays);
     }
     
     const formattedSubscription = {
@@ -502,6 +502,11 @@ export class SubscriptionService {
     const trialEndsAt = stripeSubscription.trial_end
       ? new Date(new Date(stripeSubscription.trial_end * 1000).toUTCString())
       : subscription?.trialEndsAt || null;
+    
+    // ✅ Usar current_period_end do Stripe para próxima cobrança (não session.created)
+    const nextBillingDate = (stripeSubscription as any).current_period_end
+      ? new Date(new Date((stripeSubscription as any).current_period_end * 1000).toUTCString())
+      : null;
 
     // Atualizar subscription com dados do Stripe
     const updatedSubscription = await prisma.subscription.update({
@@ -510,7 +515,7 @@ export class SubscriptionService {
         planId: plan.id, // Atualizar para novo plano
         stripeSubscriptionId: subscriptionId,
         trialEndsAt, // ✅ Usar trial_end do Stripe como fonte da verdade
-        nextBillingDate: session.created ? new Date(session.created * 1000) : null,
+        nextBillingDate, // ✅ Usar current_period_end do Stripe
         status: 'ACTIVE',
       },
       include: {

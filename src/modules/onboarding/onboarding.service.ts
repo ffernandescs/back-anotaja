@@ -72,7 +72,7 @@ export class OnboardingService {
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
         
         // Se a data de expiração é hoje, não há dias restantes
-        trialDaysRemaining = Math.max(0, diffDays - 1);
+        trialDaysRemaining = Math.max(0, diffDays);
         
         // ✅ Logs para debug de fuso horário
         console.log('🔍 Debug Trial Days:', {

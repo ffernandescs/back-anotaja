@@ -497,7 +497,7 @@ export class AuthService {
           const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
           
           // Se a data de expiração é hoje, não há dias restantes
-          (subscriptionInfo as any).trialDaysRemaining = Math.max(0, diffDays - 1);
+          (subscriptionInfo as any).trialDaysRemaining = Math.max(0, diffDays);
         }
       }
     } else {
