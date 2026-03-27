@@ -219,21 +219,38 @@ export class BillingService {
         },
       });
 
-      // 5. Criar registro de invoice se houver valor
-      if (updatedSubscription.items.data[0]?.price?.unit_amount) {
-        await prisma.invoice.create({
-          data: {
-            subscriptionId: (await prisma.subscription.findUnique({
-              where: { companyId },
-              select: { id: true }
-            }))!.id,
-            amount: updatedSubscription.items.data[0]?.price?.unit_amount || 0,
-            status: 'PAID',
-            billingPeriodStart: new Date(),
-            billingPeriodEnd: new Date(),
-            paidAt: new Date(),
-          },
+      // 5. Criar registro de invoice apenas se não estiver em trial e houver valor
+      const unitAmount = updatedSubscription.items.data[0]?.price?.unit_amount;
+      
+      if (unitAmount && unitAmount > 0) {
+        // Verificar se está em trial
+        const subscriptionWithTrial = await prisma.subscription.findUnique({
+          where: { companyId },
+          select: { trialEndsAt: true }
         });
+        
+        const now = new Date();
+        const isTrialActive = subscriptionWithTrial?.trialEndsAt && subscriptionWithTrial.trialEndsAt > now;
+        
+        // Criar invoice apenas se não estiver em trial
+        if (!isTrialActive) {
+          await prisma.invoice.create({
+            data: {
+              subscriptionId: (await prisma.subscription.findUnique({
+                where: { companyId },
+                select: { id: true }
+              }))!.id,
+              amount: unitAmount,
+              status: 'PAID',
+              billingPeriodStart: new Date(),
+              billingPeriodEnd: new Date(),
+              paidAt: new Date(),
+            },
+          });
+          console.log(`Invoice criada: ${unitAmount} (fora do trial)`);
+        } else {
+          console.log(`Invoice ignorada: valor=${unitAmount}, trialAtivo=${isTrialActive}`);
+        }
       }
 
       // 5. Atualizar permissões dos grupos para o novo plano

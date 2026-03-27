@@ -120,8 +120,16 @@ export class StripeWebhookController {
         },
       });
 
-      // Criar registro de invoice se houver valor
-      if (unitAmount && unitAmount > 0) {
+      // Criar registro de invoice apenas se não estiver em trial e houver valor
+      const subscriptionWithTrial = await prisma.subscription.findUnique({
+        where: { companyId },
+        select: { trialEndsAt: true }
+      });
+      
+      const now = new Date();
+      const isTrialActive = subscriptionWithTrial?.trialEndsAt && subscriptionWithTrial.trialEndsAt > now;
+      
+      if (!isTrialActive && unitAmount && unitAmount > 0) {
         await prisma.invoice.create({
           data: {
             subscriptionId: subscriptionRecord.id,
@@ -132,6 +140,9 @@ export class StripeWebhookController {
             paidAt: new Date(),
           },
         });
+        this.logger.log(`Invoice criada: ${unitAmount} (fora do trial)`);
+      } else {
+        this.logger.log(`Invoice ignorada: valor=${unitAmount}, trialAtivo=${isTrialActive}`);
       }
       this.logger.log(
         `Assinatura criada/atualizada no banco para companyId=${companyId}`,
@@ -163,23 +174,34 @@ export class StripeWebhookController {
           },
         });
 
-        // Criar registro de invoice
+        // Criar registro de invoice apenas se não estiver em trial
         const subscriptionRecord = await prisma.subscription.findFirst({
           where: { stripeSubscriptionId: invoice.subscription },
-          select: { id: true }
+          select: { id: true, trialEndsAt: true }
         });
 
         if (subscriptionRecord) {
-          await prisma.invoice.create({
-            data: {
-              subscriptionId: subscriptionRecord.id,
-              amount: invoice.amount_paid || 0,
-              status: 'PAID',
-              billingPeriodStart: new Date(),
-              billingPeriodEnd: new Date(),
-              paidAt: new Date(),
-            },
-          });
+          // Verificar se ainda está em trial
+          const now = new Date();
+          const isTrialActive = subscriptionRecord.trialEndsAt && subscriptionRecord.trialEndsAt > now;
+          
+          // Criar invoice apenas se não estiver mais em trial
+          if (!isTrialActive && (invoice.amount_paid || 0) > 0) {
+            await prisma.invoice.create({
+              data: {
+                subscriptionId: subscriptionRecord.id,
+                amount: invoice.amount_paid || 0,
+                status: 'PAID',
+                billingPeriodStart: new Date(),
+                billingPeriodEnd: new Date(),
+                paidAt: new Date(),
+              },
+            });
+            
+            this.logger.log(`Invoice criada: ${invoice.amount_paid} (fora do trial)`);
+          } else {
+            this.logger.log(`Invoice ignorada: valor=${invoice.amount_paid}, trialAtivo=${isTrialActive}`);
+          }
         }
         this.logger.log(
           `Próxima data de cobrança atualizada para subscriptionId=${invoice.subscription}`,
