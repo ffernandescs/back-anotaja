@@ -18,6 +18,8 @@ import { UpdatePaymentMethodDto } from './dto/update-payment-method.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { JwtOwnerAuthGuard } from 'src/common/guards/jwt-owner.guard';
+import { Public } from 'src/common/decorators/public.decorator';
 
 interface RequestWithUser extends Request {
   user: { userId: string; role?: string };
@@ -31,39 +33,81 @@ export class PaymentMethodsController {
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('master')
-  create(@Body() dto: CreatePaymentMethodDto, @Req() req: RequestWithUser) {
+  async create(@Body() dto: CreatePaymentMethodDto, @Req() req: RequestWithUser) {
     return this.service.create(dto, req.user.userId);
   }
 
-  // ✅ Listar todos ativos
-  @Get()
-  findAll() {
+  // ✅ Owner cria método (novos endpoints)
+  @Public()
+  @Post('owner')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  async createOwner(@Body() dto: CreatePaymentMethodDto) {
+    return this.service.create(dto, 'owner');
+  }
+
+  @Public()
+  @Get('owner')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  async findAllOwner() {
     return this.service.findAll();
   }
 
-  // ✅ Buscar um
-  @Get(':id')
-  findOne(@Param('id') id: string) {
+  @Public()
+  @Get('owner/:id')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  async findOneOwner(@Param('id') id: string) {
     return this.service.findOne(id);
   }
 
-  // ✅ Atualizar
+  @Public()
+  @Patch('owner/:id')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  async updateOwner(@Param('id') id: string, @Body() dto: UpdatePaymentMethodDto) {
+    return this.service.update(id, dto);
+  }
+
+  @Public()
+  @Delete('owner/:id')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  async removeOwner(@Param('id') id: string) {
+    return this.service.remove(id, 'owner');
+  }
+
+  // ✅ Listar todos os métodos
+  @Public()
+  @Get()
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  async findAll() {
+    return this.service.findAll();
+  }
+
+  // ✅ Listar um método
+  @Get(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('master')
+  async findOne(@Param('id') id: string) {
+    return this.service.findOne(id);
+  }
+
+  // ✅ Atualizar método
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('master')
-  update(
-    @Param('id') id: string,
-    @Body() dto: UpdatePaymentMethodDto,
-    @Req() req: RequestWithUser,
-  ) {
+  async update(@Param('id') id: string, @Body() dto: UpdatePaymentMethodDto, @Req() req: RequestWithUser) {
     return this.service.update(id, dto, req.user.userId);
   }
 
-  // ✅ Remover
+  // ✅ Remover método
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('master')
-  remove(@Param('id') id: string, @Req() req: RequestWithUser) {
+  async remove(@Param('id') id: string, @Req() req: RequestWithUser) {
     return this.service.remove(id, req.user.userId);
   }
 

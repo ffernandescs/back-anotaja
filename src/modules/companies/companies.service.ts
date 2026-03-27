@@ -6,7 +6,7 @@ import {
 import { CreateCompanyDto } from './dto/create-company.dto';
 import * as bcrypt from 'bcrypt';
 import { prisma } from '../../../lib/prisma';
-import { Prisma, User, Company, Branch, PermissionAction, PermissionSubject } from '@prisma/client';
+import { Prisma, User, Company, Branch, PermissionAction } from '@prisma/client';
 import { GeocodingService } from '../geocoding/geocoding.service';
 import { MailService } from '../mail/mail.service';
 import { PLAN_FEATURES } from '../../ability/factory/plan-rules';

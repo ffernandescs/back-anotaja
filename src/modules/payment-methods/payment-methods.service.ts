@@ -9,19 +9,34 @@ import {
   CreatePaymentMethodDto,
 } from './dto/create-payment-method.dto';
 import { UpdatePaymentMethodDto } from './dto/update-payment-method.dto';
+import { PaymentMethodType } from '@prisma/client';
 
 @Injectable()
 export class PaymentMethodsService {
-  // 🔹 Master cria método de pagamento
   async create(dto: CreatePaymentMethodDto, userId: string) {
+    // Se userId for 'owner', cria método sem validação de usuário
+    if (userId === 'owner') {
+      return prisma.paymentMethod.create({
+        data: {
+          name: dto.name,
+          type: (dto.type as PaymentMethodType) || PaymentMethodType.CASH,
+          icon: dto.icon || 'CreditCard',
+          isActive: dto.isActive ?? true,
+        } as any,
+      });
+    }
+
+    // Validação normal para master
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('Usuário não encontrado');
- 
+
     return prisma.paymentMethod.create({
       data: {
         name: dto.name,
+        type: (dto.type as PaymentMethodType) || PaymentMethodType.CASH,
+        icon: dto.icon || 'CreditCard',
         isActive: dto.isActive ?? true,
-      },
+      } as any,
     });
   }
 
@@ -35,16 +50,44 @@ export class PaymentMethodsService {
     return pm;
   }
 
-  async update(id: string, dto: UpdatePaymentMethodDto, userId: string) {
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new NotFoundException('Usuário não encontrado');
+  async update(id: string, dto: UpdatePaymentMethodDto, userId?: string) {
+    if (userId) {
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+      if (!user) throw new NotFoundException('Usuário não encontrado');
+    }
     
     await this.findOne(id);
 
-    return prisma.paymentMethod.update({ where: { id }, data: dto });
+    const updateData: any = {
+      name: dto.name,
+      isActive: dto.isActive,
+    };
+
+    if (dto.type) {
+      updateData.type = dto.type as PaymentMethodType;
+    }
+
+    if (dto.icon) {
+      updateData.icon = dto.icon;
+    }
+
+    return prisma.paymentMethod.update({ 
+      where: { id }, 
+      data: updateData as any 
+    });
   }
 
   async remove(id: string, userId: string) {
+    // Se userId for 'owner', remove sem validação de usuário
+    if (userId === 'owner') {
+      await this.findOne(id);
+      return prisma.paymentMethod.update({
+        where: { id },
+        data: { isActive: false },
+      });
+    }
+
+    // Validação normal para master
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('Usuário não encontrado');
 

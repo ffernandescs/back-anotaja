@@ -8,7 +8,7 @@ import { CreateGroupDto } from './dto/create-group.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
 import { prisma } from '../../../lib/prisma';
 import { Action, Subject } from '../../ability/types/ability.types';
-import { PermissionAction, PermissionSubject, Prisma } from '@prisma/client';
+import { PermissionAction, Prisma } from '@prisma/client';
 
 @Injectable()
 export class GroupsService {
@@ -54,7 +54,7 @@ export class GroupsService {
     permissions: {
       create: createGroupDto.permissions.map((p) => ({
         action: p.action as unknown as PermissionAction,
-        subject: p.subject as unknown as PermissionSubject,
+        subject: p.subject as string,
         inverted: p.inverted ?? false,
       })),
     },

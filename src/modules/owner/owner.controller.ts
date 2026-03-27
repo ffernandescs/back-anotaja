@@ -8,11 +8,15 @@ import {
   ValidationPipe,
   Get,
   Query,
+  UseGuards,
+  Param,
 } from '@nestjs/common';
 import { OwnerService } from './owner.service';
 import { OwnerAuthService } from './owner.auth.service';
 import { CreateOwnerDto, VerifyOwnerExistsDto, OwnerLoginDto } from './dto/create-owner.dto';
 import { Public } from '../../common/decorators/public.decorator';
+import { JwtOwnerAuthGuard } from 'src/common/guards/jwt-owner.guard';
+import { Roles } from 'src/common/decorators/roles.decorator';
 
 @Controller('owner')
 @UsePipes(new ValidationPipe({ transform: true }))
@@ -83,6 +87,24 @@ export class OwnerController {
       value,
       conflicts: Object.keys(result.data),
     };
+  }
+
+  @Public()
+  @Get('companies')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  @HttpCode(HttpStatus.OK)
+  async getAllCompanies() {
+    return this.ownerService.findAllCompanies();
+  }
+
+  @Public()
+  @Get('companies/:id')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  @HttpCode(HttpStatus.OK)
+  async getCompanyById(@Param('id') id: string) {
+    return this.ownerService.findCompanyById(id);
   }
 
   @Get('plans/trial')

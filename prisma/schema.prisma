@@ -17,38 +17,6 @@ enum PermissionAction {
   manage
 }
 
-enum PermissionSubject {
-  order
-  product
-  category
-  customer
-  dashboard          // Dashboard principal
-  profile            // Configurações de perfil
-  hours              // Configurações de horário
-  payment            // Configurações de pagamento
-  kanban             // Kanban de pedidos
-  pdv                // Ponto de venda
-  kds                // Kitchen Display System
-  commands           // Comandas
-  report             // Relatórios
-  coupon             // Cupons de desconto
-  delivery_routes    // Rotas de entrega (mantido para compatibilidade)
-  delivery_route     // Rota de entrega (novo padrão)
-  stock              // Estoque
-  delivery_area      // Áreas de entrega
-  delivery_person    // Entregadores
-  cash_register      // Fluxo de caixa
-  table              // Mesas
-  payment_method     // Métodos de pagamento
-  points             // Programa de pontos
-  announcement       // Avisos
-  group              // Grupos de permissão
-  user               // Usuários
-  subscription       // Assinatura
-  branch             // Filiais
-  all                // Todas as permissões
-}
-
 enum AddonType {
   FISCAL_NOTE        // emissão de nota fiscal
   ADVANCED_REPORTS   // relatórios avançados + exportação
@@ -57,7 +25,6 @@ enum AddonType {
   WHATSAPP_NOTIFY    // notificações via WhatsApp
   ROUTE_OPTIMIZER    // otimização de rota de entrega
 }
-
 
 model MasterUser {
   id        String    @id @default(cuid())
@@ -276,20 +243,17 @@ model SubscriptionAddon {
 
 // Permissão granular — pertence a um grupo OU a um usuário (override)
 model Permission {
-  id        String             @id @default(cuid())
-  action    PermissionAction
-  subject   PermissionSubject
-  // inverted = true significa "cannot" (remove permissão)
-  inverted  Boolean            @default(false)
+  id                                                                   String    @id @default(cuid())
+  action    String   // "create", "read", "update", "delete", "manage"
+  subject   String   // Nome da feature (dinâmico)
+  inverted                                                             Boolean   @default(false)
+  groupId                                                              String?
+  userId                                                               String?
 
-  // Pertence a um grupo (permissão base) OU a um usuário (override)
-  groupId   String?
-  userId    String?
+  createdAt                                                            DateTime  @default(now())
 
-  createdAt DateTime           @default(now())
-
-  group     Group?            @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  user      User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group                                                                Group?   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user                                                                 User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // Garante que não existam permissões duplicadas no mesmo grupo/usuário
   @@unique([groupId, action, subject])
@@ -1409,6 +1373,7 @@ model PaymentMethod {
   id             String                 @id @default(cuid())
   name           String
   type           PaymentMethodType      @default(CASH)
+  icon           String                 @default("CreditCard")
   isActive       Boolean                @default(true)
   branchPayments BranchPaymentMethod[]
   createdAt      DateTime               @default(now())
