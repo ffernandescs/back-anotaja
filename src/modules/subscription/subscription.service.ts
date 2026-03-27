@@ -7,6 +7,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../../lib/prisma';
 import { formatCurrency } from '../../utils/formatCurrency';
+import { formatFeatures } from '../../constants/features';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 import { CreateSubscriptionDto, SubscriptionStatusDto, BillingPeriodDto } from './dto/create-subscription.dto';
 import { UpdateSubscriptionInput } from './types';
@@ -340,10 +341,7 @@ export class SubscriptionService {
         // Adicionar campos formatados separados
         formattedPrice: isTrialActive ? 'Grátis' : formatCurrency(subscription.plan.price),
         formattedFeatures: subscription.plan.features ? 
-          JSON.parse(subscription.plan.features).map((feature: string) => ({
-            key: feature,
-            name: feature.charAt(0).toUpperCase() + feature.slice(1).replace(/_/g, ' ')
-          })) : [],
+          formatFeatures(JSON.parse(subscription.plan.features)) : [],
         formattedLimits: subscription.plan.limits ? 
           Object.entries(JSON.parse(subscription.plan.limits)).map(([key, value]) => ({
             key: key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()),
@@ -571,12 +569,6 @@ export class SubscriptionService {
       throw new NotFoundException('Assinatura ou plano não encontrado');
     }
 
-    console.log('🔍 Dados do plano antes da formatação:', {
-      price: updatedSubscription.plan.price,
-      features: updatedSubscription.plan.features,
-      limits: updatedSubscription.plan.limits
-    });
-
     const formattedSubscription = {
       ...updatedSubscription,
       // Durante trial, lastBillingAmount é 0 (nenhuma cobrança ainda)
@@ -587,10 +579,7 @@ export class SubscriptionService {
         // Adicionar campos formatados separados
         formattedPrice: updatedSubscription.trialEndsAt && updatedSubscription.trialEndsAt > new Date() ? 'Grátis' : formatCurrency(updatedSubscription.plan.price),
         formattedFeatures: updatedSubscription.plan.features ? 
-          JSON.parse(updatedSubscription.plan.features).map((feature: string) => ({
-            key: feature,
-            name: feature.charAt(0).toUpperCase() + feature.slice(1).replace(/_/g, ' ')
-          })) : [],
+          formatFeatures(JSON.parse(updatedSubscription.plan.features)) : [],
         formattedLimits: updatedSubscription.plan.limits ? 
           Object.entries(JSON.parse(updatedSubscription.plan.limits)).map(([key, value]) => ({
             key: key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()),
@@ -598,16 +587,6 @@ export class SubscriptionService {
           })) : []
       }
     };
-
-    console.log('✅ Dados formatados para frontend:', {
-      isTrialActive: updatedSubscription.trialEndsAt && updatedSubscription.trialEndsAt > new Date(),
-      trialEndsAt: updatedSubscription.trialEndsAt,
-      lastBillingAmount: formattedSubscription.lastBillingAmount,
-      formattedPrice: formattedSubscription.plan.formattedPrice,
-      formattedFeatures: formattedSubscription.plan.formattedFeatures,
-      formattedLimits: formattedSubscription.plan.formattedLimits
-    });
-
     // Retorno formatado pro frontend
     return formattedSubscription;
   }
