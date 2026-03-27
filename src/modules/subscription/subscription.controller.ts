@@ -106,30 +106,110 @@ export class SubscriptionController {
     return this.subscriptionService.remove(id, req.user.userId);
   }
 
+  @Get(':id/history')
+  async getHistory(@Param('id') id: string, @Req() req: RequestWithUser) {
+    return this.subscriptionService.getSubscriptionHistory(id, req.user.userId);
+  }
+
+  @Get('company/:companyId/history')
+  async getCompanyHistory(
+    @Param('companyId') companyId: string,
+    @Req() req: RequestWithUser,
+  ) {
+    return this.subscriptionService.getCompanySubscriptionHistory(companyId, req.user.userId);
+  }
+
   @Post('verify-payment')
   async verifyPayment(
     @Body('sessionId') sessionId: string,
     @Req() req: RequestWithUser,
   ) {
-    if (!sessionId) throw new NotFoundException('SessionId não fornecido');
-
-    // 1️⃣ Recupera session no Stripe
-    let session;
-    try {
-      session =
-        await this.stripeService.stripe.checkout.sessions.retrieve(sessionId);
-    } catch (err) {
-      console.error(err);
-      throw new NotFoundException('Session inválida');
+    // ✅ Validação de entrada
+    if (!sessionId) {
+      throw new NotFoundException({
+        message: 'SessionId não fornecido',
+        error: 'MISSING_SESSION_ID',
+      });
     }
 
-    // 2️⃣ Atualiza subscription no banco
-    const subscriptionData = await this.subscriptionService.verifyPayment(
-      session,
-      req.user.userId,
-    );
+    // ✅ Validar formato do sessionId
+    if (!sessionId.startsWith('cs_')) {
+      throw new NotFoundException({
+        message: 'Formato de SessionId inválido',
+        error: 'INVALID_SESSION_FORMAT',
+      });
+    }
 
-    return subscriptionData;
+    // 1️⃣ Recupera session no Stripe com expand para dados completos
+    let session;
+    try {
+      session = await this.stripeService.stripe.checkout.sessions.retrieve(
+        sessionId,
+        {
+          expand: ['subscription', 'customer'],
+        },
+      );
+    } catch (err: any) {
+      console.error('❌ Erro ao recuperar session do Stripe:', {
+        sessionId,
+        error: err.message,
+        code: err.code,
+      });
+      
+      throw new NotFoundException({
+        message: 'Session não encontrada ou expirada',
+        error: 'STRIPE_SESSION_NOT_FOUND',
+        details: err.message,
+      });
+    }
+
+    // ✅ Validar status da session
+    if (session.payment_status !== 'paid' && session.payment_status !== 'no_payment_required') {
+      throw new NotFoundException({
+        message: 'Pagamento não confirmado',
+        error: 'PAYMENT_NOT_CONFIRMED',
+        paymentStatus: session.payment_status,
+      });
+    }
+
+    // ✅ Validar metadata
+    if (!session.metadata?.companyId) {
+      throw new NotFoundException({
+        message: 'Dados da empresa não encontrados na sessão',
+        error: 'MISSING_COMPANY_METADATA',
+      });
+    }
+
+    console.log('✅ Session validada com sucesso:', {
+      sessionId,
+      companyId: session.metadata.companyId,
+      planId: session.metadata.planId,
+      paymentStatus: session.payment_status,
+      subscriptionId: session.subscription,
+    });
+
+    // 2️⃣ Atualiza subscription no banco e registra histórico
+    try {
+      const subscriptionData = await this.subscriptionService.verifyPayment(
+        session,
+        req.user.userId,
+      );
+
+      console.log('✅ Subscription verificada e atualizada:', {
+        subscriptionId: subscriptionData.id,
+        planName: subscriptionData.plan?.name,
+        status: subscriptionData.status,
+      });
+
+      return subscriptionData;
+    } catch (err: any) {
+      console.error('❌ Erro ao verificar pagamento:', {
+        sessionId,
+        userId: req.user.userId,
+        error: err.message,
+      });
+      throw err;
+    }
   }
 
 }

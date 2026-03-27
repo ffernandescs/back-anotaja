@@ -217,6 +217,8 @@ model Plan {
   featureLimits                                                                        FeatureLimit[]
   planFeatures                                                                         PlanFeature[]
   subscriptions                                                                        Subscription[]
+  historyAsPreviousPlan                                                                SubscriptionHistory[] @relation("PreviousPlan")
+  historyAsNewPlan                                                                     SubscriptionHistory[] @relation("NewPlan")
 }
 
 // Opcionais/add-ons disponíveis no sistema
@@ -292,8 +294,51 @@ model Subscription {
 
   addons                                                                         SubscriptionAddon[]
   invoices  Invoice[]           // ← novo: histórico de cobrança
+  history   SubscriptionHistory[] // ← histórico de mudanças
   company                                                                        Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
   plan                                                                           Plan                @relation(fields: [planId], references: [id])
+}
+
+model SubscriptionHistory {
+  id                String                    @id @default(cuid())
+  subscriptionId    String
+  eventType         SubscriptionEventType
+  previousPlanId    String?
+  newPlanId         String?
+  previousStatus    SubscriptionStatus?
+  newStatus         SubscriptionStatus?
+  previousBillingPeriod BillingPeriod?
+  newBillingPeriod  BillingPeriod?
+  amount            Int?                      // valor em centavos (se aplicável)
+  stripeEventId     String?                   // ID do evento do Stripe
+  userId            String?                   // usuário que fez a mudança (se manual)
+  reason            String?                   // motivo da mudança
+  metadata          String?                   // JSON com dados adicionais
+  createdAt         DateTime                  @default(now())
+
+  subscription      Subscription              @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  previousPlan      Plan?                     @relation("PreviousPlan", fields: [previousPlanId], references: [id])
+  newPlan           Plan?                     @relation("NewPlan", fields: [newPlanId], references: [id])
+
+  @@index([subscriptionId])
+  @@index([createdAt])
+}
+
+enum SubscriptionEventType {
+  CREATED           // Assinatura criada
+  PLAN_UPGRADED     // Upgrade de plano
+  PLAN_DOWNGRADED   // Downgrade de plano
+  PLAN_CHANGED      // Mudança de plano (sem upgrade/downgrade)
+  BILLING_PERIOD_CHANGED // Mudança de período de cobrança
+  TRIAL_STARTED     // Trial iniciado
+  TRIAL_ENDED       // Trial finalizado
+  ACTIVATED         // Assinatura ativada
+  SUSPENDED         // Assinatura suspensa
+  CANCELLED         // Assinatura cancelada
+  RENEWED           // Assinatura renovada
+  PAYMENT_FAILED    // Falha no pagamento
+  PAYMENT_SUCCEEDED // Pagamento bem-sucedido
+  REACTIVATED       // Assinatura reativada
 }
 
 model Invoice {

@@ -13,10 +13,14 @@ import { UpdateSubscriptionInput } from './types';
 import Stripe from 'stripe';
 import { StripeService } from '../billing/stripe.service';
 import { InvoiceResponseDto } from './dto/invoice-response.dto';
+import { SubscriptionHistoryService } from './subscription-history.service';
 
 @Injectable()
 export class SubscriptionService {
-  constructor(private readonly stripeService: StripeService) {}
+  constructor(
+    private readonly stripeService: StripeService,
+    private readonly historyService: SubscriptionHistoryService,
+  ) {}
 
   async create(createSubscriptionDto: CreateSubscriptionDto, userId: string) {
     // Verificar se o usuário tem permissão (deve ser admin ou owner da empresa)
@@ -122,6 +126,26 @@ export class SubscriptionService {
         },
       },
     });
+
+    // ✅ Registrar criação no histórico
+    await this.historyService.createHistoryEntry({
+      subscriptionId: subscription.id,
+      eventType: 'CREATED',
+      newPlanId: subscription.planId,
+      newStatus: subscription.status as any,
+      newBillingPeriod: subscription.billingPeriod as any,
+      userId,
+      reason: 'Assinatura criada',
+    });
+
+    // ✅ Se tiver trial, registrar início
+    if (subscription.trialEndsAt) {
+      await this.historyService.logTrialStarted(
+        subscription.id,
+        subscription.trialEndsAt,
+        userId,
+      );
+    }
 
     return subscription;
   }
@@ -376,10 +400,10 @@ export class SubscriptionService {
 
   async remove(id: string, userId: string) {
     // Verificar se a assinatura existe e se o usuário tem permissão
-    await this.findOne(id, userId);
+    const subscription = await this.findOne(id, userId);
 
     // Não deletar, apenas cancelar
-    return prisma.subscription.update({
+    const updated = await prisma.subscription.update({
       where: { id },
       data: { status: SubscriptionStatusDto.CANCELLED },
       include: {
@@ -397,6 +421,17 @@ export class SubscriptionService {
         },
       },
     });
+
+    // ✅ Registrar cancelamento no histórico
+    await this.historyService.logStatusChange(
+      id,
+      subscription.status as any,
+      'CANCELLED',
+      userId,
+      'Assinatura cancelada pelo usuário',
+    );
+
+    return updated;
   }
 
   async verifyPayment(session: Stripe.Checkout.Session, userId: string) {
@@ -471,6 +506,30 @@ export class SubscriptionService {
       where: { id: companyId },
       data: { onboardingStep: 'SCHEDULE' }, // ou o valor exato que você usa no enum/enum-like
     });
+
+    // ✅ Registrar no histórico
+    if (subscription?.planId !== plan.id) {
+      // Mudança de plano
+      await this.historyService.logPlanChange(
+        updatedSubscription.id,
+        subscription?.planId || plan.id,
+        plan.id,
+        userId,
+        'Plano atualizado via checkout',
+      );
+    }
+
+    // ✅ Registrar ativação
+    if (subscription?.status !== 'ACTIVE') {
+      await this.historyService.logStatusChange(
+        updatedSubscription.id,
+        subscription?.status as any || 'PENDING',
+        'ACTIVE',
+        userId,
+        'Assinatura ativada via checkout',
+        stripeSubscription.id,
+      );
+    }
 
     // Formatar dados para o frontend
     if (!updatedSubscription || !updatedSubscription.plan) {
@@ -761,5 +820,37 @@ export class SubscriptionService {
     `;
     
     return html;
+  }
+
+  /**
+   * Buscar histórico de uma assinatura
+   */
+  async getSubscriptionHistory(id: string, userId: string) {
+    // Verificar permissão
+    await this.findOne(id, userId);
+
+    return this.historyService.getSubscriptionHistory(id);
+  }
+
+  /**
+   * Buscar histórico de assinatura de uma empresa
+   */
+  async getCompanySubscriptionHistory(companyId: string, userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    // Verificar permissão
+    if (user.groupId !== 'admin' && user.companyId !== companyId) {
+      throw new ForbiddenException(
+        'Você não tem permissão para acessar este histórico',
+      );
+    }
+
+    return this.historyService.getCompanyHistory(companyId);
   }
 }
