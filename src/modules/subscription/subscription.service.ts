@@ -315,10 +315,12 @@ export class SubscriptionService {
     // ✅ Calcular trialDaysRemaining corretamente
     let trialDaysRemaining: number | null = null;
     if (subscription.trialEndsAt) {
-      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const startOfExpiration = new Date(subscription.trialEndsAt.getFullYear(), subscription.trialEndsAt.getMonth(), subscription.trialEndsAt.getDate());
+      // ✅ Usar UTC para evitar problemas de fuso horário
+      const nowUTC = new Date();
+      const todayUTC = new Date(Date.UTC(nowUTC.getFullYear(), nowUTC.getMonth(), nowUTC.getDate()));
+      const expirationUTC = new Date(Date.UTC(subscription.trialEndsAt.getFullYear(), subscription.trialEndsAt.getMonth(), subscription.trialEndsAt.getDate()));
       
-      const diffTime = startOfExpiration.getTime() - startOfToday.getTime();
+      const diffTime = expirationUTC.getTime() - todayUTC.getTime();
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
       
       // Se a data de expiração é hoje, não há dias restantes
@@ -498,7 +500,7 @@ export class SubscriptionService {
       subscriptionId
     );
     const trialEndsAt = stripeSubscription.trial_end
-      ? new Date(stripeSubscription.trial_end * 1000)
+      ? new Date(new Date(stripeSubscription.trial_end * 1000).toUTCString())
       : subscription?.trialEndsAt || null;
 
     // Atualizar subscription com dados do Stripe

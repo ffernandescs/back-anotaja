@@ -62,19 +62,33 @@ export class OnboardingService {
       }
 
       if (trialEndDate) {
-        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const startOfExpiration = new Date(trialEndDate.getFullYear(), trialEndDate.getMonth(), trialEndDate.getDate());
+        // ✅ Usar UTC para evitar problemas de fuso horário
+        const nowUTC = new Date();
+        const todayUTC = new Date(Date.UTC(nowUTC.getFullYear(), nowUTC.getMonth(), nowUTC.getDate()));
+        const expirationUTC = new Date(Date.UTC(trialEndDate.getFullYear(), trialEndDate.getMonth(), trialEndDate.getDate()));
 
-        // ✅ Correção: Calcular dias restantes corretamente (não incluir o dia atual)
-        const diffTime = startOfExpiration.getTime() - startOfToday.getTime();
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); // Usar Math.ceil em vez de Math.floor
+        // ✅ Correção: Calcular dias restantes corretamente em UTC
+        const diffTime = expirationUTC.getTime() - todayUTC.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
         
         // Se a data de expiração é hoje, não há dias restantes
         trialDaysRemaining = Math.max(0, diffDays - 1);
         
-        isTrialExpired = startOfToday > startOfExpiration;
+        // ✅ Logs para debug de fuso horário
+        console.log('🔍 Debug Trial Days:', {
+          nowLocal: nowUTC.toLocaleString(),
+          todayUTC: todayUTC.toISOString(),
+          trialEndDateLocal: trialEndDate.toLocaleString(),
+          expirationUTC: expirationUTC.toISOString(),
+          diffTime,
+          diffDays,
+          trialDaysRemaining,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        });
+        
+        isTrialExpired = todayUTC > expirationUTC;
         daysSinceExpiration = isTrialExpired
-          ? Math.abs(Math.floor((startOfToday.getTime() - startOfExpiration.getTime()) / (1000 * 60 * 60 * 24)))
+          ? Math.abs(Math.floor((todayUTC.getTime() - expirationUTC.getTime()) / (1000 * 60 * 60 * 24)))
           : 0;
       }
     }

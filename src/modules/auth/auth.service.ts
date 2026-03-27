@@ -487,12 +487,13 @@ export class AuthService {
         }
 
         if (trialEndDate) {
-          // Normaliza para comparação de dias inteiros
-          const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-          const startOfExpiration = new Date(trialEndDate.getFullYear(), trialEndDate.getMonth(), trialEndDate.getDate());
+          // ✅ Usar UTC para evitar problemas de fuso horário
+          const nowUTC = new Date();
+          const todayUTC = new Date(Date.UTC(nowUTC.getFullYear(), nowUTC.getMonth(), nowUTC.getDate()));
+          const expirationUTC = new Date(Date.UTC(trialEndDate.getFullYear(), trialEndDate.getMonth(), trialEndDate.getDate()));
           
-          // ✅ Correção: Calcular dias restantes corretamente
-          const diffTime = startOfExpiration.getTime() - startOfToday.getTime();
+          // ✅ Correção: Calcular dias restantes corretamente em UTC
+          const diffTime = expirationUTC.getTime() - todayUTC.getTime();
           const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
           
           // Se a data de expiração é hoje, não há dias restantes

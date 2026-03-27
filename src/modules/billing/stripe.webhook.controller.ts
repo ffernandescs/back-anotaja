@@ -72,15 +72,15 @@ export class StripeWebhookController {
       // ✅ Datas corretas da subscription
       const startDate = new Date(subscription.created * 1000); // Data que começou
       
-      // ✅ Capturar trial_end do Stripe (se existir)
+      // ✅ Capturar trial_end do Stripe (se existir) - usar UTC para evitar fuso horário
       const trialEndsAt = subscription.trial_end
-        ? new Date(subscription.trial_end * 1000)
+        ? new Date(new Date(subscription.trial_end * 1000).toUTCString())
         : null;
       
       // Se está em trial, a próxima cobrança será após o trial
       // current_period_end já inclui os dias de trial + período do plano
       const nextBillingDate = subscription.current_period_end
-        ? new Date(subscription.current_period_end * 1000)
+        ? new Date(new Date(subscription.current_period_end * 1000).toUTCString())
         : null;
       
       this.logger.log(
