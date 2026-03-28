@@ -56,10 +56,38 @@ export class FeaturesService {
         { createdAt: 'desc' }
       ],
       include: {
+        parent: {
+          select: {
+            id: true,
+            name: true,
+            key: true,
+          },
+        },
+        children: {
+          where: { active: true },
+          orderBy: [
+            { displayOrder: 'asc' },
+            { createdAt: 'desc' }
+          ],
+          select: {
+            id: true,
+            name: true,
+            key: true,
+            description: true,
+            active: true,
+            displayOrder: true,
+            icon: true,
+            href: true,
+            defaultActions: true,
+          },
+        },
         _count: {
           select: {
             planFeatures: true,
             addonFeatures: true,
+            children: {
+              where: { active: true }
+            }
           },
         },
         featureMenuGroups: {
@@ -81,6 +109,110 @@ export class FeaturesService {
     });
   }
 
+  async findHierarchy() {
+    // Buscar todas as features com seus relacionamentos
+    const allFeatures = await prisma.feature.findMany({
+      where: { active: true },
+      include: {
+        parent: {
+          select: {
+            id: true,
+            name: true,
+            key: true,
+          },
+        },
+        children: {
+          where: { active: true },
+          orderBy: [
+            { displayOrder: 'asc' },
+            { createdAt: 'desc' }
+          ],
+          select: {
+            id: true,
+            name: true,
+            key: true,
+            description: true,
+            active: true,
+            displayOrder: true,
+            icon: true,
+            href: true,
+            defaultActions: true,
+          },
+        },
+        featureMenuGroups: {
+          include: {
+            group: {
+              select: {
+                id: true,
+                title: true,
+                displayOrder: true,
+              },
+            },
+          },
+          orderBy: {
+            group: {
+              displayOrder: 'asc'
+            }
+          }
+        },
+      },
+      orderBy: [
+        { displayOrder: 'asc' },
+        { createdAt: 'desc' }
+      ],
+    });
+
+    // Organizar em estrutura hierárquica
+    const featuresMap = new Map();
+    const rootFeatures: any[] = [];
+
+    // Criar mapa de features
+    allFeatures.forEach(feature => {
+      featuresMap.set(feature.id, {
+        ...feature,
+        children: []
+      });
+    });
+
+    // Montar hierarquia
+    allFeatures.forEach(feature => {
+      const featureNode = featuresMap.get(feature.id);
+      
+      if (feature.parentId) {
+        // É subfeature - adicionar aos filhos do parent
+        const parent = featuresMap.get(feature.parentId);
+        if (parent) {
+          parent.children.push(featureNode);
+        }
+      } else {
+        // É feature root - adicionar à lista principal
+        rootFeatures.push(featureNode);
+      }
+    });
+
+    // Agrupar por menu groups
+    const menuGroupsMap = new Map();
+    
+    rootFeatures.forEach(feature => {
+      feature.featureMenuGroups.forEach(fmg => {
+        const group = fmg.group;
+        if (!menuGroupsMap.has(group.id)) {
+          menuGroupsMap.set(group.id, {
+            id: group.id,
+            title: group.title,
+            displayOrder: group.displayOrder,
+            features: []
+          });
+        }
+        menuGroupsMap.get(group.id).features.push(feature);
+      });
+    });
+
+    // Converter mapa para array ordenado
+    return Array.from(menuGroupsMap.values())
+      .sort((a, b) => a.displayOrder - b.displayOrder);
+  }
+
   async findAllIncludingInactive() {
     return prisma.feature.findMany({
       orderBy: [
@@ -88,10 +220,35 @@ export class FeaturesService {
         { createdAt: 'desc' }
       ],
       include: {
+        parent: {
+          select: {
+            id: true,
+            name: true,
+            key: true,
+          },
+        },
+        children: {
+          orderBy: [
+            { displayOrder: 'asc' },
+            { createdAt: 'desc' }
+          ],
+          select: {
+            id: true,
+            name: true,
+            key: true,
+            description: true,
+            active: true,
+            displayOrder: true,
+            icon: true,
+            href: true,
+            defaultActions: true,
+          },
+        },
         _count: {
           select: {
             planFeatures: true,
             addonFeatures: true,
+            children: true
           },
         },
         featureMenuGroups: {

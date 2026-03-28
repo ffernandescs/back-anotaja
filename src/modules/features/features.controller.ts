@@ -84,6 +84,14 @@ export class FeaturesController {
     return this.featuresService.findAll();
   }
 
+  @Get('hierarchy')
+  @Public()
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  findHierarchy() {
+    return this.featuresService.findHierarchy();
+  }
+
   @Get('permissions')
   @Public()
   @UseGuards(JwtOwnerAuthGuard)
