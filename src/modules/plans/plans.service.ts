@@ -580,4 +580,22 @@ export class PlansService {
   async listAvailableFeatures() {
     return this.featurePermissions.listAllFeaturesWithPermissions();
   }
+
+  /**
+   * Ativa/Desativa um plano
+   */
+  async toggleActive(id: string) {
+    const plan = await prisma.plan.findUnique({
+      where: { id },
+    });
+
+    if (!plan) {
+      throw new NotFoundException('Plano não encontrado');
+    }
+
+    return prisma.plan.update({
+      where: { id },
+      data: { active: !plan.active },
+    });
+  }
 }

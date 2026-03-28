@@ -179,6 +179,18 @@ export class PlansController {
     return this.plansService.removeFeature(planId, featureId);
   }
 
+  @Public()
+  @Patch(':id/toggle')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  toggleActive(
+    @Param('id') id: string,
+    @Req() req?: Request,
+    @Headers('authorization') authorization?: string,
+  ) {
+    return this.plansService.toggleActive(id);
+  }
+
   // Endpoints para gestão de limites do plano
   @Public()
   @Patch(':id/limits/:resource')
