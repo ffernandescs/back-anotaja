@@ -4251,12 +4251,12 @@ async function main() {
         const openingAmount =  Math.random() * 200;
 
         console.log('🔄 Criando caixa para a filial matriz...');
-        const cashRegister = await prisma.cashRegister.create({
+        const cashRegister = await prisma.cashSession.create({
           data: {
             branchId: branch.id,
             openedBy: adminUser.id, // Admin abre o caixa da filial matriz
             openingAmount: openingAmount,
-            status: 'OPENING',
+            status: 'CLOSING',
             notes: `Caixa aberto automaticamente pelo seed para ${branch.branchName}`,
           },
         });
@@ -4267,7 +4267,7 @@ async function main() {
         );
         await prisma.cashMovement.create({
           data: {
-            cashRegisterId: cashRegister.id,
+            cashSessionId: cashRegister.id,
             type: 'OPENING',
             amount: openingAmount,
             description: `Abertura de caixa - ${branch.branchName}`,
@@ -4350,7 +4350,7 @@ async function main() {
     `   - ${await prisma.coupon.count()} cupons criados (individual por filial)`,
   );
   console.log(
-    `   - ${await prisma.cashRegister.count()} caixas criados (individual por filial)`,
+    `   - ${await prisma.cashSession.count()} caixas criados (individual por filial)`,
   );
 
   // Criar usuário master
