@@ -137,15 +137,19 @@ async function seed() {
     
     // Cardápio - agora são features dentro do grupo Cardápio
     ['menu_management', 'Gestão', 'Cardápio'],
+    ['complements_management', 'Complementos', 'Cardápio'],
+    ['complement_options_management', 'Opções de Complemento', 'Cardápio'],
     
     // Delivery - agora são features dentro do grupo Delivery
     ['delivery_orders_group', 'Pedidos', 'Delivery'],
+    ['delivery_management', 'Gestão de Delivery', 'Delivery'],
     
     // Operação - agora são features dentro do grupo Operação
     ['operations', 'Operação', 'Operação'],
     
     // Financeiro - agora são features dentro do grupo Financeiro
     ['financial_cash', 'Caixa', 'Financeiro'],
+    ['financial_management', 'Gestão Financeira', 'Financeiro'],
     
     // Relatórios - agora são features dentro do grupo Relatórios
     ['reports', 'Relatórios', 'Relatórios'],
@@ -155,6 +159,7 @@ async function seed() {
     
     // Administração - agora são features dentro do grupo Administração
     ['admin_access', 'Acesso', 'Administração'],
+    ['settings_management', 'Configurações', 'Administração'],
   ];
 
   const featureMap = new Map<string, string>();
@@ -189,33 +194,57 @@ async function seed() {
 
   // ======================================================
   // SUBFEATURES (NÍVEL 3 - agora são subfeatures das features)
-  // ======================================================
-  const subFeatures: [string, string, string | null, string | null][] = [
+  // Formato: [key, name, parentKey, href, displayOrder]
+  const subFeatures: [string, string, string | null, string | null, number][] = [
     // 🧾 VENDAS - Subfeatures das features de vendas
-    ['orders', 'Pedidos', 'sales_attendance', '/admin/sales/orders'],
-    ['kanban', 'Kanban', 'sales_attendance', '/admin/sales/kanban'],
-    ['pdv', 'PDV', 'sales_attendance', '/admin/sales/pdv'],
+    ['orders', 'Pedidos', 'sales_attendance', '/admin/sales/orders', 1],
+    ['kanban', 'Kanban', 'sales_attendance', '/admin/sales/kanban', 2],
+    ['pdv', 'PDV', 'sales_attendance', '/admin/sales/pdv', 3],
 
-    ['commands', 'Comandas', 'sales_hall', '/admin/sales/commands'],
-    ['tables', 'Mesas', 'sales_hall', '/admin/sales/tables'],
+    ['commands', 'Comandas', 'sales_hall', '/admin/sales/commands', 1],
+    ['tables', 'Mesas', 'sales_hall', '/admin/sales/tables', 2],
 
-    ['kds', 'KDS', 'sales_kitchen', '/admin/sales/kds'],
+    ['kds', 'KDS', 'sales_kitchen', '/admin/sales/kds', 1],
 
     // 🍔 CARDÁPIO - Subfeatures das features de cardápio
-    ['products', 'Produtos', 'menu_management', '/admin/menu/products'],
-    ['categories', 'Categorias', 'menu_management', '/admin/menu/categories'],
+    ['products', 'Produtos', 'menu_management', '/admin/menu/products', 1],
+    ['categories', 'Categorias', 'menu_management', '/admin/menu/categories', 2],
+    ['ingredients', 'Ingredientes', 'menu_management', '/admin/menu/ingredients', 3],
+
+    // 🍔 COMPLEMENTOS - Subfeatures das features de complementos
+    ['complements', 'Complementos', 'complements_management', '/admin/menu/complements', 1],
+    ['complement_groups', 'Grupos de Complementos', 'complements_management', '/admin/menu/complement-groups', 2],
+
+    // 🍔 OPÇÕES DE COMPLEMENTO - Subfeatures das features de opções de complemento
+    ['complement_options', 'Opções de Complemento', 'complement_options_management', '/admin/menu/complement-options', 1],
 
     // 🚚 DELIVERY - Subfeatures das features de delivery
-    ['delivery_orders', 'Pedidos Delivery', 'delivery_orders_group', '/admin/delivery/orders'],
+    ['delivery_orders', 'Pedidos Delivery', 'delivery_orders_group', '/admin/delivery/orders', 1],
+    ['delivery_areas', 'Áreas de Entrega', 'delivery_orders_group', '/admin/delivery/areas', 2],
+    ['delivery_persons', 'Entregadores', 'delivery_orders_group', '/admin/delivery/persons', 3],
+    ['delivery_routes', 'Rotas de Entrega', 'delivery_orders_group', '/admin/delivery/routes', 4],
+    ['delivery_assignments', 'Atribuições', 'delivery_orders_group', '/admin/delivery/assignments', 5],
 
     // 💰 FINANCEIRO - Subfeatures das features de financeiro
-    ['cash', 'Caixa', 'financial_cash', '/admin/financial/cash'],
+    ['cash', 'Caixa', 'financial_cash', '/admin/financial/cash', 1],
+    ['payment_methods', 'Métodos de Pagamento', 'financial_management', '/admin/financial/methods', 2],
+    ['coupons', 'Cupons', 'financial_management', '/admin/financial/coupons', 3],
+    ['stock', 'Estoque', 'financial_management', '/admin/financial/stock', 4],
 
     // ⚙️ ADMINISTRAÇÃO - Subfeatures das features de admin
-    ['users', 'Usuários', 'admin_access', '/admin/users'],
+    ['users', 'Usuários', 'admin_access', '/admin/users', 1],
+    ['branches', 'Filiais', 'admin_access', '/admin/administration/branches', 2],
+    ['groups', 'Grupos', 'admin_access', '/admin/administration/groups', 3],
+
+    // ⚙️ CONFIGURAÇÕES - Subfeatures das features de configurações
+    ['settings_profile', 'Perfil da Empresa', 'settings_management', '/admin/administration/settings/profile', 1],
+    ['settings_hours', 'Horários', 'settings_management', '/admin/administration/settings/hours', 2],
+    ['settings_payment', 'Forma de Pagamento', 'settings_management', '/admin/administration/settings/payment', 3],
+    ['settings_announcements', 'Avisos', 'settings_management', '/admin/administration/settings/announcements', 4],
+    ['settings_subscription', 'Assinatura', 'settings_management', '/admin/administration/settings/payments', 5],
   ];
 
-  for (const [key, name, parentKey, href] of subFeatures) {
+  for (const [key, name, parentKey, href, displayOrder] of subFeatures) {
     // Garante que key e name nunca são null
     if (!key || !name) {
       console.error(`❌ Key ou name inválidos: ${key}, ${name}`);
@@ -229,12 +258,14 @@ async function seed() {
         update: {
           name,
           href: href || undefined,
+          displayOrder: displayOrder || 0,
           active: true,
         },
         create: {
           key,
           name,
           href: href || undefined,
+          displayOrder: displayOrder || 0,
           active: true,
         },
       });
@@ -257,6 +288,7 @@ async function seed() {
         name,
         href: href || undefined,
         parentId,
+        displayOrder: displayOrder || 0,
         active: true,
       },
       create: {
@@ -264,6 +296,7 @@ async function seed() {
         name,
         href: href || undefined,
         parentId,
+        displayOrder: displayOrder || 0,
         active: true,
       },
     });

@@ -88,7 +88,21 @@ const plans = [
     discount: 0,
     billingPeriod: BillingPeriod.MONTHLY,
     limits: { branches: 1, users: 3, products: 50, ordersPerMonth: 100 },
-    features: ['delivery', 'stock', 'reports'],
+    features: [
+      'orders',           // Pedidos
+      'kanban',           // Kanban
+      'products',         // Produtos
+      'categories',       // Categorias
+      'complements',      // Complementos
+      'complement_options', // Complementos opções
+      'delivery_orders',  // Pedidos Delivery
+      'delivery_areas',   // Áreas de Entregas
+      'payment_methods',  // Formas de Pagamento
+      'users',            // Usuários
+      'branches',         // Filiais
+      'groups',           // Grupos
+      'settings'          // Configurações
+    ],
     trialDays: 7,
     active: true,
     isTrial: true,

@@ -30,23 +30,31 @@ export class MenuGroupsService {
   }
 
   async findAll() {
-    return prisma.menuGroup.findMany({
+    // Primeiro buscar os grupos
+    const menuGroups = await prisma.menuGroup.findMany({
       where: { active: true },
       orderBy: [
         { displayOrder: 'asc' },
         { title: 'asc' }
       ],
-      include: {
-        featureMenuGroups: {
+    });
+
+    // Para cada grupo, buscar apenas as features principais (sem parentId)
+    const menuGroupsWithFeatures = await Promise.all(
+      menuGroups.map(async (group) => {
+        const featureMenuGroups = await prisma.featureMenuGroup.findMany({
+          where: { groupId: group.id },
           include: {
             feature: {
-             include: {
-              children: {
-                orderBy: {
-                  displayOrder: 'asc'
+              include: {
+                // Incluir children (subfeatures) ordenados
+                children: {
+                  where: { active: true },
+                  orderBy: {
+                    displayOrder: 'asc'
+                  }
                 }
               }
-             }
             },
           },
           orderBy: {
@@ -54,28 +62,48 @@ export class MenuGroupsService {
               displayOrder: 'asc'
             }
           }
-        },
-      },
-    });
+        });
+
+        // Filtrar apenas features principais (sem parentId)
+        const filteredFeatureMenuGroups = featureMenuGroups.filter(
+          fmg => fmg.feature.parentId === null
+        );
+
+        return {
+          ...group,
+          featureMenuGroups: filteredFeatureMenuGroups
+        };
+      })
+    );
+
+    return menuGroupsWithFeatures;
   }
 
   async findAllIncludingInactive() {
-    return prisma.menuGroup.findMany({
+    // Primeiro buscar os grupos
+    const menuGroups = await prisma.menuGroup.findMany({
       orderBy: [
         { displayOrder: 'asc' },
         { title: 'asc' }
       ],
-      include: {
-        featureMenuGroups: {
+    });
+
+    // Para cada grupo, buscar apenas as features principais (sem parentId)
+    const menuGroupsWithFeatures = await Promise.all(
+      menuGroups.map(async (group) => {
+        const featureMenuGroups = await prisma.featureMenuGroup.findMany({
+          where: { groupId: group.id },
           include: {
             feature: {
-             include: {
-              children: {
-                orderBy: {
-                  displayOrder: 'asc'
+              include: {
+                // Incluir children (subfeatures) ordenados
+                children: {
+                  where: { active: true },
+                  orderBy: {
+                    displayOrder: 'asc'
+                  }
                 }
               }
-             }
             },
           },
           orderBy: {
@@ -83,9 +111,21 @@ export class MenuGroupsService {
               displayOrder: 'asc'
             }
           }
-        },
-      },
-    });
+        });
+
+        // Filtrar apenas features principais (sem parentId)
+        const filteredFeatureMenuGroups = featureMenuGroups.filter(
+          fmg => fmg.feature.parentId === null
+        );
+
+        return {
+          ...group,
+          featureMenuGroups: filteredFeatureMenuGroups
+        };
+      })
+    );
+
+    return menuGroupsWithFeatures;
   }
 
   async findOne(id: string) {
