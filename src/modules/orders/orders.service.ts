@@ -847,51 +847,50 @@ export class OrdersService {
     }
 
     // Verificar se existe caixa aberto
-    let openCashRegister = await prisma.cashRegister.findFirst({
+    let openCashSession = await prisma.cashSession.findFirst({
       where: {
         branchId: user.branchId,
         openedBy: userId,
-        status: CashMovementType.OPENING,
+        status: 'OPEN',
       },
     });
 
     // Se não houver caixa aberto, abrir automaticamente com saldo anterior
-    if (!openCashRegister) {
-      // Buscar último caixa fechado
-      const lastClosedCashRegister = await prisma.cashRegister.findFirst({
+    if (!openCashSession) {
+      // Buscar último caixa fechado da filial
+      const lastClosedCashSession = await prisma.cashSession.findFirst({
         where: {
           branchId: user.branchId,
-          openedBy: userId,
-          status: CashMovementType.CLOSING,
+          status: 'CLOSED',
         },
-        orderBy: { closingDate: 'desc' },
+        orderBy: { closedAt: 'desc' },
       });
 
-      const previousBalance = lastClosedCashRegister?.closingAmount ?? 0;
+      const previousBalance = lastClosedCashSession?.closingAmount ?? 0;
 
       // Criar novo caixa com saldo anterior
-      openCashRegister = await prisma.cashRegister.create({
+      openCashSession = await prisma.cashSession.create({
         data: {
           branchId: user.branchId,
           openedBy: userId,
-          status: CashMovementType.OPENING,
+          status: 'OPEN',
           openingAmount: previousBalance,
-          expectedAmount: previousBalance,
-          notes: 'Abertura automática ao processar pagamento',
         },
       });
 
-      // Registrar movimento de abertura
-      await prisma.cashMovement.create({
-        data: {
-          cashRegisterId: openCashRegister.id,
-          type: CashMovementType.OPENING,
-          amount: 0,
-          userId: userId,
-          paymentMethod: 'CASH',
-          description: 'Abertura automática - saldo anterior mantido',
-        },
-      });
+      // Registrar movimento de abertura se houver saldo anterior
+      if (previousBalance > 0) {
+        await prisma.cashMovement.create({
+          data: {
+            cashSessionId: openCashSession.id,
+            type: CashMovementType.DEPOSIT,
+            amount: previousBalance,
+            userId: userId,
+            paymentMethod: PaymentMethodType.CASH,
+            description: 'Abertura automática com saldo anterior',
+          },
+        });
+      }
     }
 
     // SUBSTITUIR pagamentos existentes: deletar todos os pagamentos anteriores
@@ -933,17 +932,34 @@ export class OrdersService {
 
     // Registrar movimentações de caixa para cada pagamento
     for (const payment of payments) {
-      await prisma.cashMovement.create({
-        data: {
-          cashRegisterId: openCashRegister.id,
-          type: CashMovementType.SALE,
-          amount: payment.amount,
-          userId: userId,
-          orderId: orderId,
-          paymentMethod: payment.type as any, // Tipo de pagamento do pedido
-          description: `Pagamento pedido #${order.orderNumber || orderId.slice(0, 8)} - ${payment.type}`,
-        },
-      });
+      // REGRA CRÍTICA: Só cria movimento SALE se for pagamento em DINHEIRO
+      const paymentMethod = (() => {
+        const value = String(payment.type || '').toLowerCase();
+        if (['pix'].includes(value)) return PaymentMethodType.PIX;
+        if (['dinheiro', 'cash'].includes(value)) return PaymentMethodType.CASH;
+        if (['credito', 'crédito', 'credit', 'credit_card', 'cartão de crédito', 'cartao de credito'].includes(value))
+          return PaymentMethodType.CREDIT;
+        if (['debito', 'débito', 'debit', 'debit_card', 'cartão de débito', 'cartao de debito'].includes(value))
+          return PaymentMethodType.DEBIT;
+        if (['online'].includes(value)) return PaymentMethodType.ONLINE;
+        return PaymentMethodType.CASH;
+      })();
+      
+      if (paymentMethod === PaymentMethodType.CASH) {
+        await prisma.cashMovement.create({
+          data: {
+            cashSessionId: openCashSession.id,
+            type: CashMovementType.SALE,
+            amount: payment.amount,
+            userId: userId,
+            orderId: orderId,
+            paymentMethod: paymentMethod,
+            description: `Pagamento pedido #${order.orderNumber || orderId.slice(0, 8)} - ${payment.type}`,
+          },
+        });
+      }
+      // Para pagamentos não-dinheiro (cartão, pix, etc.), NÃO cria movimento de caixa
+      // pois não afetam o caixa físico
     }
 
     // Emitir evento WebSocket
@@ -975,45 +991,43 @@ export class OrdersService {
     }
 
     // Verificar se existe caixa aberto para este usuário
-    let openCashRegister = await prisma.cashRegister.findFirst({
+    let openCashSession = await prisma.cashSession.findFirst({
       where: {
         branchId: user.branchId,
         openedBy: userId,
-        status: CashMovementType.OPENING,
+        status: 'OPEN',
       },
     });
 
     // Se não houver caixa aberto, abrir automaticamente com saldo anterior
-    if (!openCashRegister) {
-      const lastClosedCashRegister = await prisma.cashRegister.findFirst({
+    if (!openCashSession) {
+      const lastClosedCashSession = await prisma.cashSession.findFirst({
         where: {
           branchId: user.branchId,
-          openedBy: userId,
-          status: CashMovementType.CLOSING,
+          status: 'CLOSED',
         },
-        orderBy: { closingDate: 'desc' },
+        orderBy: { closedAt: 'desc' },
       });
 
-      const previousBalance = lastClosedCashRegister?.closingAmount ?? 0;
+      const previousBalance = lastClosedCashSession?.closingAmount ?? 0;
 
-      openCashRegister = await prisma.cashRegister.create({
+      openCashSession = await prisma.cashSession.create({
         data: {
           branchId: user.branchId,
           openedBy: userId,
-          status: CashMovementType.OPENING,
+          status: 'OPEN',
           openingAmount: previousBalance,
-          expectedAmount: previousBalance,
           notes: 'Abertura automática ao marcar pedido como pago',
         },
       });
 
       await prisma.cashMovement.create({
         data: {
-          cashRegisterId: openCashRegister.id,
-          type: CashMovementType.OPENING,
-          amount: 0,
+          cashSessionId: openCashSession.id,
+          type: CashMovementType.DEPOSIT,
+          amount: previousBalance,
           userId: userId,
-          paymentMethod: 'CASH',
+          paymentMethod: PaymentMethodType.CASH,
           description: 'Abertura automática - saldo anterior mantido',
         },
       });
@@ -1096,17 +1110,24 @@ export class OrdersService {
     };
 
     for (const payment of paymentsForMovement) {
-      await prisma.cashMovement.create({
-        data: {
-          cashRegisterId: openCashRegister!.id,
-          type: CashMovementType.SALE,
-          amount: payment.amount,
-          userId: userId,
-          orderId: orderId,
-          paymentMethod: normalizePaymentMethod(payment.method),
-          description: `Pedido marcado como pago #${order.orderNumber || orderId.slice(0, 8)} - ${payment.method}`,
-        },
-      });
+      // REGRA CRÍTICA: Só cria movimento SALE se for pagamento em DINHEIRO
+      const paymentMethod = normalizePaymentMethod(payment.method);
+      
+      if (paymentMethod === PaymentMethodType.CASH) {
+        await prisma.cashMovement.create({
+          data: {
+            cashSessionId: openCashSession!.id,
+            type: CashMovementType.SALE,
+            amount: payment.amount,
+            userId: userId,
+            orderId: orderId,
+            paymentMethod: paymentMethod,
+            description: `Pedido marcado como pago #${order.orderNumber || orderId.slice(0, 8)} - ${payment.method}`,
+          },
+        });
+      }
+      // Para pagamentos não-dinheiro (cartão, pix, etc.), NÃO cria movimento de caixa
+      // pois não afetam o caixa físico
     }
 
     // Emitir evento WebSocket

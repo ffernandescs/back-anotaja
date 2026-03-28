@@ -93,24 +93,24 @@ enum BillingPeriod {
 }
 
 model Feature {
-  id                                                                         String              @id @default(cuid())
-  key                                                                        String              @unique // "pdv", "kds", "fiscal_note", "multi_branch"
-  name                                                                       String
-  description                                                                String?
+  id                                                                                                                                                                 String              @id @default(cuid())
+  key                                                                                                                                                                String              @unique // "pdv", "kds", "fiscal_note", "multi_branch"
+  name                                                                                                                                                               String
+  description                                                                                                                                                        String?
   icon                                                                       String?             // Ícone Lucide para exibição no menu (ex: "ShoppingCart", "Users")
-  active                                                                     Boolean             @default(true)
+  active                                                                                                                                                             Boolean             @default(true)
   defaultActions String?         // Permissões padrão como JSON
   href           String?         // Rota da feature (ex: "/admin/dashboard")
   displayOrder                                                               Int?                // Ordem de exibição
   parentId                                                                   String?             // ID da feature pai (null para features principais)
-  parent                                                                     Feature?            @relation("FeatureHierarchy", fields: [parentId], references: [id])
-  children                                                                   Feature[]           @relation("FeatureHierarchy")
-  createdAt                                                                  DateTime            @default(now())
+  parent                                                                                                                                                             Feature?           @relation("FeatureHierarchy", fields: [parentId], references: [id])
+  children                                                                                                                                                           Feature[]          @relation("FeatureHierarchy")
+  createdAt                                                                                                                                                          DateTime            @default(now())
 
-  planFeatures                                                               PlanFeature[]
-  addonFeatures                                                              AddonFeature[]
-  featureMenuGroups                                                          FeatureMenuGroup[]
-  featureLimits                                                              FeatureLimit[]
+  planFeatures                                                                                                                                                       PlanFeature[]
+  addonFeatures                                                                                                                                                      AddonFeature[]
+  featureMenuGroups                                                                                                                                                  FeatureMenuGroup[]
+  featureLimits                                                                                                                                                      FeatureLimit[]
 }
 
 model MenuGroup {
@@ -138,21 +138,21 @@ model FeatureMenuGroup {
 }
 
 model FeatureLimit {
-  id              String   @id @default(cuid())
+  id                                                                                   String    @id @default(cuid())
   featureKey      String   // "product", "user", "order", etc.
-  planId          String
+  planId                                                                               String
   name            String   // Nome amigável: "Produtos", "Usuários", "Pedidos por mês"
   description     String?  // Descrição do limite
   maxValue        Int      // -1 = ilimitado
   unit            String?  // "itens", "usuários", "pedidos/mês"
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  
-  feature         Feature? @relation(fields: [featureKey], references: [key], onDelete: Cascade)
-  plan            Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
-  
-  @@unique([featureKey, planId])
+  isActive                                                                             Boolean   @default(true)
+  createdAt                                                                            DateTime  @default(now())
+  updatedAt                                                                            DateTime  @updatedAt
+
+  feature                                                                              Feature? @relation(fields: [featureKey], references: [key], onDelete: Cascade)
+  plan                                                                                 Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([featureKey,                                                                planId])
   @@index([planId])
   @@index([featureKey])
 }
@@ -194,30 +194,30 @@ model PlanFeature {
 }
 
 model Plan {
-  id                                                                                   String          @id @default(cuid())
+  id                                                                                   String                 @id @default(cuid())
   name                                                                                 String
   description                                                                          String?
   type                                                                                 PlanType
   price         Int // Preço base mensal em R$ (será calculado conforme billingPeriod)
   // Periodicidade de cobrança
-  billingPeriod                                                                        BillingPeriod   @default(MONTHLY)
+  billingPeriod                                                                        BillingPeriod          @default(MONTHLY)
   // Limites do plano (JSON: { branches: 1, users: 5, products: 100, ordersPerMonth: 1000 })
   limits                                                                               String?
-  discount                                                                             Int             @default(0)
+  discount                                                                             Int                    @default(0)
   // Recursos incluídos (JSON: ["delivery", "stock", "reports", "api"])
   features                                                                             String?
   // Duração do plano de teste em dias (apenas para TRIAL)
-  trialDays                                                                            Int?            @default(7) // Padrão 7 dias conforme legislação brasileira
+  trialDays                                                                            Int?                   @default(7) // Padrão 7 dias conforme legislação brasileira
   // Se o plano está ativo para novos cadastros
-  active                                                                               Boolean         @default(true)
+  active                                                                               Boolean                @default(true)
   // Se é um plano de teste (gratuito, cumprindo legislação brasileira)
-  isTrial                                                                              Boolean         @default(false)
+  isTrial                                                                              Boolean                @default(false)
   // Se o plano está em destaque (mais escolhido)
-  isFeatured                                                                           Boolean         @default(false)
+  isFeatured                                                                           Boolean                @default(false)
   // Ordem de exibição
-  displayOrder                                                                         Int             @default(0)
-  createdAt                                                                            DateTime        @default(now())
-  updatedAt                                                                            DateTime        @updatedAt
+  displayOrder                                                                         Int                    @default(0)
+  createdAt                                                                            DateTime               @default(now())
+  updatedAt                                                                            DateTime               @updatedAt
 
   featureLimits                                                                        FeatureLimit[]
   planFeatures                                                                         PlanFeature[]
@@ -305,25 +305,25 @@ model Subscription {
 }
 
 model SubscriptionHistory {
-  id                String                    @id @default(cuid())
-  subscriptionId    String
-  eventType         SubscriptionEventType
-  previousPlanId    String?
-  newPlanId         String?
-  previousStatus    SubscriptionStatus?
-  newStatus         SubscriptionStatus?
-  previousBillingPeriod BillingPeriod?
-  newBillingPeriod  BillingPeriod?
+  id                                                                                   String                 @id @default(cuid())
+  subscriptionId                                                                       String
+  eventType                                                                            SubscriptionEventType
+  previousPlanId                                                                       String?
+  newPlanId                                                                            String?
+  previousStatus                                                                       SubscriptionStatus?
+  newStatus                                                                            SubscriptionStatus?
+  previousBillingPeriod                                                                BillingPeriod?
+  newBillingPeriod                                                                     BillingPeriod?
   amount            Int?                      // valor em centavos (se aplicável)
   stripeEventId     String?                   // ID do evento do Stripe
   userId            String?                   // usuário que fez a mudança (se manual)
   reason            String?                   // motivo da mudança
   metadata          String?                   // JSON com dados adicionais
-  createdAt         DateTime                  @default(now())
+  createdAt                                                                            DateTime               @default(now())
 
-  subscription      Subscription              @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
-  previousPlan      Plan?                     @relation("PreviousPlan", fields: [previousPlanId], references: [id])
-  newPlan           Plan?                     @relation("NewPlan", fields: [newPlanId], references: [id])
+  subscription                                                                         Subscription          @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  previousPlan                                                                         Plan?                 @relation("PreviousPlan", fields: [previousPlanId], references: [id])
+  newPlan                                                                              Plan?                 @relation("NewPlan", fields: [newPlanId], references: [id])
 
   @@index([subscriptionId])
   @@index([createdAt])
@@ -523,7 +523,7 @@ model Branch {
   ingredients            Ingredient[]
   stockMovements         StockMovement[]
   complements            ProductComplement[]
-  cashRegisters          CashRegister[]
+  cashSessions           CashSession[]
   pointsConfig           PointsConfig?
   pointsTransactions     PointsTransaction[]
   customerPoints         CustomerPoints[]
@@ -592,36 +592,55 @@ model Announcement {
 }
 
 enum CashMovementType {
-  OPENING // Abertura de caixa
-  CLOSING // Fechamento de caixa
-  WITHDRAWAL // Sangria
-  DEPOSIT // Entrada de dinheiro
-  SALE // Venda (pedido)
+  OPENING
+  SALE        // venda automática via pedido
+  DEPOSIT     // entrada manual (suprimento)
+  WITHDRAWAL  // sangria
+  TRANSFER    // transferência entre caixas da mesma filial
+  ADJUSTMENT  // ajuste administrativo
 }
 
-model CashRegister {
-  id                                                     String            @id @default(cuid())
-  branchId                                               String
-  openedBy       String // userId que abriu
-  closedBy       String? // userId que fechou
-  openingDate                                            DateTime          @default(now())
-  closingDate                                            DateTime?
-  openingAmount  Int // Valor inicial do caixa
-  closingAmount  Int? // Valor final do caixa
-  expectedAmount Int? // Valor esperado (calculado)
-  difference     Int? // Diferença entre esperado e real
-  status                                                 CashMovementType  @default(OPENING) // OPEN, CLOSED
-  notes                                                  String?
-  createdAt                                              DateTime          @default(now())
-  updatedAt                                              DateTime          @updatedAt
+enum CashSessionStatus {
+  OPEN      // caixa aberto, aceita operações
+  CLOSING   // em processo de fechamento (conferência), somente leitura
+  CLOSED    // fechado definitivamente
+}
 
-  branch                                                 Branch           @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  movements                                              CashMovement[]
+enum ShiftType {
+  MORNING   // manhã
+  AFTERNOON // tarde
+  NIGHT     // noite
+  CUSTOM    // sem turno fixo
+}
+model CashSession {
+  id                                                                           String             @id @default(cuid())
+  branchId                                                                     String
+  openedBy        String            // userId
+  closedBy        String?           // userId
+  status                                                                       CashSessionStatus  @default(OPEN)
+  shiftType                                                                    ShiftType          @default(CUSTOM)
+  openingAmount   Int               // saldo inicial em centavos
+  closingAmount   Int?              // saldo real contado no fechamento
+  expectedAmount  Int?              // calculado: abertura + entradas - saídas
+  difference      Int?              // closingAmount - expectedAmount
+  openedAt                                                                     DateTime           @default(now())
+  closedAt                                                                     DateTime?
+  notes                                                                        String?
+  createdAt                                                                    DateTime           @default(now())
+  updatedAt                                                                    DateTime           @updatedAt
+
+  branch                                                                       Branch            @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  movements                                                                    CashMovement[]
+  openedByUser                                                                 User?             @relation("OpenedByUser", fields: [openedBy], references: [id])
+  closedByUser                                                                 User?             @relation("ClosedByUser", fields: [closedBy], references: [id])
+
+  @@index([branchId,                                                           status])
+  @@index([openedBy,                                                           status])
 }
 
 model CashMovement {
   id                                                               String              @id @default(cuid())
-  cashRegisterId                                                   String
+  cashSessionId                                                    String
   type                                                             CashMovementType
   amount                                                           Int
   paymentMethod                                                    PaymentMethodType?  @default(CASH) // CASH, CREDIT_CARD, DEBIT_CARD, PIX, ONLINE - apenas para vendas (SALE)
@@ -630,7 +649,7 @@ model CashMovement {
   userId         String // Usuário que fez a movimentação
   createdAt                                                        DateTime            @default(now())
 
-  cashRegister                                                     CashRegister       @relation(fields: [cashRegisterId], references: [id], onDelete: Cascade)
+  cashSession                                                      CashSession        @relation(fields: [cashSessionId], references: [id], onDelete: Cascade)
   order                                                            Order?             @relation(fields: [orderId], references: [id], onDelete: SetNull)
   user                                                             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
@@ -653,6 +672,8 @@ model User {
   branch             Branch?             @relation(fields: [branchId], references: [id], onDelete: Cascade)
   orders             Order[]
   cashMovements      CashMovement[]
+  openedCashSessions CashSession[]       @relation("OpenedByUser")
+  closedCashSessions CashSession[]       @relation("ClosedByUser")
   pointsTransactions PointsTransaction[] @relation("PointsTransactions")
   customerPoints     CustomerPoints?     @relation("CustomerPoints")
   refreshTokens      RefreshToken[]

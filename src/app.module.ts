@@ -1,9 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_FILTER } from '@nestjs/core';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { CashRegisterFilter } from './common/filters/cash-register.filter';
 import { BranchesModule } from './modules/branches/branches.module';
 import { SubscriptionModule } from './modules/subscription/subscription.module';
 import { PlansModule } from './modules/plans/plans.module';
@@ -23,6 +24,7 @@ import { CustomersModule } from './modules/customers/customers.module';
 import { PaymentMethodsModule } from './modules/payment-methods/payment-methods.module';
 import { BillsplitsModule } from './modules/billsplits/billsplits.module';
 import { CashRegisterModule } from './modules/cash-register/cash-register.module';
+import { CashSessionModule } from './modules/cash-register/cash-session.module';
 import { CompaniesModule } from './modules/companies/companies.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { GeocodingModule } from './modules/geocoding/geocoding.module';
@@ -54,6 +56,7 @@ import { MenuGroupsModule } from './modules/menu-groups/menu-groups.module';
     AuthModule,
     UsersModule,
     BranchesModule,
+    CashSessionModule,
     SubscriptionModule,
     PlansModule,
     OrdersModule,
@@ -100,6 +103,10 @@ import { MenuGroupsModule } from './modules/menu-groups/menu-groups.module';
       useClass: JwtAuthGuard,
     },
     { provide: APP_GUARD, useClass: AbilitiesGuard },
+    {
+      provide: APP_FILTER,
+      useClass: CashRegisterFilter,
+    },
   ],
 })
 export class AppModule {}

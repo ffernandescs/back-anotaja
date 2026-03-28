@@ -112,11 +112,12 @@ async function seedFeatures() {
       defaultActions: JSON.stringify(['create', 'read', 'update', 'delete', 'manage']),
     },
     {
-      key: 'cash_register',
-      name: 'Caixa',
-      description: 'Gerenciamento de caixa',
+      key: 'cash_session',
+      name: 'Fluxo de Caixa SaaS PDV',
+      description: 'Gerenciamento completo de sessões de caixa com transferências e multiusuário',
       href: '/admin/cash-register',
-      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete', 'manage']),
+      icon: 'Wallet',
+      defaultActions: JSON.stringify(['create', 'read', 'update', 'delete', 'manage', 'transfer', 'view_all']),
     },
     {
       key: 'coupons',
@@ -317,7 +318,7 @@ async function seedFeatures() {
         groupTitle = 'Vendas';
       } else if (['stock', 'delivery', 'delivery_person', 'delivery_area', 'delivery_route'].includes(featureData.key)) {
         groupTitle = 'Operações';
-      } else if (['payment_method', 'cash_register', 'coupons'].includes(featureData.key)) {
+      } else if (['payment_method', 'cash_session', 'coupons'].includes(featureData.key)) {
         groupTitle = 'Financeiro';
       } else if (['user', 'group', 'branch', 'company', 'subscription', 'settings', 'hours', 'profile', 'announcement'].includes(featureData.key)) {
         groupTitle = 'Configurações';
