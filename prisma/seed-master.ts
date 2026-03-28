@@ -1,204 +1,251 @@
-// ✅ SEED REORGANIZADO — PADRÃO ESCALÁVEL SaaS PDV + DELIVERY
+// ✅ SEED FINAL — 3 NÍVEIS (SAAS PDV + DELIVERY)
 
 import { prisma } from '../lib/prisma';
-import { hash } from 'bcryptjs';
-import { PlanType, BillingPeriod } from '@prisma/client';
+import bcrypt from 'bcryptjs';
+import { BillingPeriod, PlanType } from '@prisma/client';
 
-async function seedFeaturesAndPlans() {
-  console.log('🚀 Seed estruturado iniciado...');
+async function seed() {
+  console.log('🚀 Seed iniciado...');
 
   // ======================================================
-  // 0. USUÁRIO MASTER
+  // MASTER USER
   // ======================================================
-  const masterUser = await prisma.masterUser.upsert({
+  await prisma.masterUser.upsert({
     where: { email: 'master@anotaja.com' },
     update: {},
     create: {
-      name: 'Master User',
       email: 'master@anotaja.com',
-      password: await hash('master123', 10),
-      active: true,
+      name: 'Master User',
+      password: await bcrypt.hash('master123', 10),
     },
   });
 
-  console.log(`✅ Usuário Master criado/atualizado: ${masterUser.email}`);
+  console.log('✅ Usuário Master criado/atualizado');
 
   // ======================================================
-  // 1. MENU GROUPS
+  // MENU GROUPS
   // ======================================================
-  const menuGroups = [
-    { title: 'Dashboard', displayOrder: 1 },
-    { title: 'Vendas', displayOrder: 2 },
-    { title: 'Catálogo', displayOrder: 3 },
-    { title: 'Operação', displayOrder: 4 },
-    { title: 'Financeiro', displayOrder: 5 },
-    { title: 'Relatórios', displayOrder: 6 },
-    { title: 'Administração', displayOrder: 7 },
+  const groupsData = [
+    'Dashboard',
+    'Vendas',
+    'Cardápio',
+    'Delivery',
+    'Operação',
+    'Financeiro',
+    'Relatórios',
+    'Clientes',
+    'Administração',
   ];
 
-  for (const group of menuGroups) {
+  for (let i = 0; i < groupsData.length; i++) {
     const existingGroup = await prisma.menuGroup.findFirst({
-      where: { title: group.title }
+      where: { title: groupsData[i] }
     });
 
     if (existingGroup) {
       await prisma.menuGroup.update({
         where: { id: existingGroup.id },
-        data: { ...group, active: true },
+        data: { displayOrder: i + 1, active: true },
       });
     } else {
       await prisma.menuGroup.create({
-        data: { ...group, active: true },
+        data: {
+          title: groupsData[i],
+          displayOrder: i + 1,
+          active: true,
+        },
       });
     }
   }
 
+  console.log('✅ Menu Groups criados');
+
   const groups = await prisma.menuGroup.findMany();
-  const getGroupId = (title: string) => groups.find(g => g.title === title)?.id;
+  const getGroupId = (title: string) =>
+    groups.find((g) => g.title === title)?.id;
 
   // ======================================================
-  // 2. FEATURES (DOMÍNIO)
+  // FEATURES (NÍVEL 2 - agora são as features principais dentro dos grupos)
   // ======================================================
-  const features = [
-    { key: 'dashboard', name: 'Dashboard', group: 'Dashboard' },
-
-    { key: 'sales', name: 'Vendas', group: 'Vendas' },
-    { key: 'catalog', name: 'Catálogo', group: 'Catálogo' },
-    { key: 'operations', name: 'Operação', group: 'Operação' },
-    { key: 'financial', name: 'Financeiro', group: 'Financeiro' },
-    { key: 'reports', name: 'Relatórios', group: 'Relatórios' },
-    { key: 'admin', name: 'Administração', group: 'Administração' },
+  const rootFeatures = [
+    ['dashboard', 'Dashboard', 'Dashboard'],
+    
+    // Vendas - agora são features dentro do grupo Vendas
+    ['sales_attendance', 'Atendimento', 'Vendas'],
+    ['sales_hall', 'Salão', 'Vendas'],
+    ['sales_kitchen', 'Cozinha', 'Vendas'],
+    
+    // Cardápio - agora são features dentro do grupo Cardápio
+    ['menu_management', 'Gestão', 'Cardápio'],
+    
+    // Delivery - agora são features dentro do grupo Delivery
+    ['delivery_orders_group', 'Pedidos', 'Delivery'],
+    
+    // Operação - agora são features dentro do grupo Operação
+    ['operations', 'Operação', 'Operação'],
+    
+    // Financeiro - agora são features dentro do grupo Financeiro
+    ['financial_cash', 'Caixa', 'Financeiro'],
+    
+    // Relatórios - agora são features dentro do grupo Relatórios
+    ['reports', 'Relatórios', 'Relatórios'],
+    
+    // Clientes - agora são features dentro do grupo Clientes
+    ['customers', 'Clientes', 'Clientes'],
+    
+    // Administração - agora são features dentro do grupo Administração
+    ['admin_access', 'Acesso', 'Administração'],
   ];
 
   const featureMap = new Map<string, string>();
 
-  for (const f of features) {
+  for (const [key, name, group] of rootFeatures) {
     const feature = await prisma.feature.upsert({
-      where: { key: f.key },
+      where: { key },
       update: {},
       create: {
-        key: f.key,
-        name: f.name,
+        key,
+        name,
+        href: key === 'dashboard' ? '/admin/dashboard' : null, // Dashboard tem href, outras não
         active: true,
       },
     });
 
-    featureMap.set(f.key, feature.id);
+    featureMap.set(key, feature.id);
 
-    const groupId = getGroupId(f.group);
+    const groupId = getGroupId(group);
     if (groupId) {
       await prisma.featureMenuGroup.upsert({
         where: {
-          featureId_groupId: {
-            featureId: feature.id,
-            groupId,
-          },
+          featureId_groupId: { featureId: feature.id, groupId },
         },
         update: {},
-        create: {
-          featureId: feature.id,
-          groupId,
-        },
+        create: { featureId: feature.id, groupId },
       });
     }
   }
 
+  console.log('✅ Features principais criadas');
+
   // ======================================================
-  // 3. SUBFEATURES
+  // SUBFEATURES (NÍVEL 3 - agora são subfeatures das features)
   // ======================================================
-  const subFeatures = [
-    // VENDAS
-    ['order', 'Pedidos', 'sales'],
-    ['kanban', 'Kanban', 'sales'],
-    ['pdv', 'PDV', 'sales'],
-    ['customer', 'Clientes', 'sales'],
-    ['kds', 'KDS', 'sales'],
-    ['commands', 'Comandas', 'sales'],
-    ['table', 'Mesas', 'sales'],
+  const subFeatures: [string, string, string | null, string | null][] = [
+    // 🧾 VENDAS - Subfeatures das features de vendas
+    ['orders', 'Pedidos', 'sales_attendance', '/admin/sales/orders'],
+    ['kanban', 'Kanban', 'sales_attendance', '/admin/sales/kanban'],
+    ['pdv', 'PDV', 'sales_attendance', '/admin/sales/pdv'],
 
-    // CATÁLOGO
-    ['product', 'Produtos', 'catalog'],
-    ['category', 'Categorias', 'catalog'],
-    ['complement', 'Complementos', 'catalog'],
+    ['commands', 'Comandas', 'sales_hall', '/admin/sales/commands'],
+    ['tables', 'Mesas', 'sales_hall', '/admin/sales/tables'],
 
-    // OPERAÇÃO
-    ['stock', 'Estoque', 'operations'],
-    ['delivery', 'Entregas', 'operations'],
-    ['delivery_person', 'Entregadores', 'operations'],
-    ['delivery_area', 'Áreas', 'operations'],
-    ['delivery_route', 'Rotas', 'operations'],
-    ['coupons', 'Cupons', 'operations'],
+    ['kds', 'KDS', 'sales_kitchen', '/admin/sales/kds'],
 
-    // FINANCEIRO
-    ['cash_session', 'Caixa', 'financial'],
-    ['cash_history', 'Histórico Caixa', 'financial'],
-    ['cash_reports', 'Relatórios Caixa', 'financial'],
-    ['cash_dashboard', 'Dashboard Caixa', 'financial'],
-    ['cash_shifts', 'Turnos', 'financial'],
-    ['payment_method', 'Pagamentos', 'financial'],
+    // 🍔 CARDÁPIO - Subfeatures das features de cardápio
+    ['products', 'Produtos', 'menu_management', '/admin/menu/products'],
+    ['categories', 'Categorias', 'menu_management', '/admin/menu/categories'],
 
-    // RELATÓRIOS
-    ['reports', 'Relatórios Gerais', 'reports'],
+    // 🚚 DELIVERY - Subfeatures das features de delivery
+    ['delivery_orders', 'Pedidos Delivery', 'delivery_orders_group', '/admin/delivery/orders'],
 
-    // ADMIN
-    ['user', 'Usuários', 'admin'],
-    ['group', 'Grupos', 'admin'],
-    ['branch', 'Filiais', 'admin'],
-    ['subscription', 'Assinatura', 'admin'],
-    ['hours', 'Horários', 'admin'],
-    ['announcement', 'Anúncios', 'admin'],
-    ['points', 'Pontos', 'admin'],
-    ['profile', 'Perfil', 'admin'],
+    // 💰 FINANCEIRO - Subfeatures das features de financeiro
+    ['cash', 'Caixa', 'financial_cash', '/admin/financial/cash'],
+
+    // ⚙️ ADMINISTRAÇÃO - Subfeatures das features de admin
+    ['users', 'Usuários', 'admin_access', '/admin/users'],
   ];
 
-  const subFeatureMap = new Map<string, string>();
-
-  for (const [key, name, parent] of subFeatures) {
-    const parentId = featureMap.get(parent);
-
-    if (!parentId) {
-      console.error(`❌ Parent feature não encontrada: ${parent} para ${key}`);
+  for (const [key, name, parentKey, href] of subFeatures) {
+    // Garante que key e name nunca são null
+    if (!key || !name) {
+      console.error(`❌ Key ou name inválidos: ${key}, ${name}`);
       continue;
     }
 
-    const existing = await prisma.feature.findUnique({ 
-      where: { key },
-      include: { parent: true }
-    });
-
-    let feature;
-
-    if (existing) {
-      // 🔥 Evita converter feature principal em subfeature
-      if (existing.parentId && existing.parentId !== parentId) {
-        console.warn(`⚠️ Subfeature ${key} já existe com parent diferente. Atualizando...`);
-      }
-      
-      // 🔥 GARANTE vínculo com parent (corrige seu problema)
-      feature = await prisma.feature.update({
-        where: { id: existing.id },
-        data: {
+    // Se parentKey for null, é uma feature de nível 1 (categoria)
+    if (!parentKey) {
+      const feature = await prisma.feature.upsert({
+        where: { key },
+        update: {
           name,
-          parentId, // <-- ESSENCIAL
+          href: href || undefined,
           active: true,
         },
-      });
-    } else {
-      feature = await prisma.feature.create({
-        data: {
+        create: {
           key,
           name,
-          parentId,
+          href: href || undefined,
           active: true,
         },
       });
+      
+      featureMap.set(key, feature.id);
+      continue;
     }
 
-    subFeatureMap.set(key, feature.id);
+    // Se parentKey não for null, é uma subfeature (nível 2+)
+    const parentId = featureMap.get(parentKey);
+    
+    if (!parentId) {
+      console.error(`❌ Parent feature não encontrada: ${parentKey} para ${key}`);
+      continue;
+    }
+
+    const feature = await prisma.feature.upsert({
+      where: { key },
+      update: {
+        name,
+        href: href || undefined,
+        parentId,
+        active: true,
+      },
+      create: {
+        key,
+        name,
+        href: href || undefined,
+        parentId,
+        active: true,
+      },
+    });
+
+    // ✅ Associar subfeature ao mesmo grupo da feature principal
+    if (parentId) {
+      // Encontrar o grupo da feature principal
+      const parentFeature = await prisma.feature.findUnique({
+        where: { id: parentId },
+        include: {
+          featureMenuGroups: {
+            include: { group: true }
+          }
+        }
+      });
+
+      if (parentFeature?.featureMenuGroups?.[0]) {
+        const groupId = parentFeature.featureMenuGroups[0].groupId;
+        
+        await prisma.featureMenuGroup.upsert({
+          where: {
+            featureId_groupId: {
+              featureId: feature.id,
+              groupId,
+            },
+          },
+          update: {},
+          create: {
+            featureId: feature.id,
+            groupId,
+          },
+        });
+      }
+    }
+
+    featureMap.set(key, feature.id);
   }
 
+  console.log('✅ Subfeatures criadas');
+
   // ======================================================
-  // 4. PLANOS
+  // PLANOS (AJUSTADO)
   // ======================================================
   const plans = [
     {
@@ -207,90 +254,31 @@ async function seedFeaturesAndPlans() {
       price: 0,
       isTrial: true,
       trialDays: 7,
-      limits: {
-        branches: 1,
-        users: 2,
-        products: 20,
-        ordersPerMonth: 100,
-      },
-      features: [
-        'dashboard',
-        'sales', 'order', 'pdv', 'customer',
-        'catalog', 'product'
-      ],
+      features: ['dashboard', 'orders', 'pdv'], // keys corrigidas
     },
     {
       name: 'BASIC',
       type: PlanType.BASIC,
       price: 99.9,
-      limits: {
-        branches: 1,
-        users: 5,
-        products: 300,
-        ordersPerMonth: 1000,
-      },
-      features: [
-        'dashboard',
-
-        'sales', 'order', 'kanban', 'pdv', 'customer',
-
-        'catalog', 'product', 'category',
-
-        'operations', 'stock',
-
-        'financial', 'cash_session',
-
-        'reports'
-      ],
+      features: ['dashboard', 'orders', 'kanban', 'pdv', 'products', 'categories'], // keys corrigidas
     },
     {
       name: 'PREMIUM',
       type: PlanType.PREMIUM,
       price: 299.9,
-      limits: {
-        branches: 3,
-        users: 15,
-        products: 2000,
-        ordersPerMonth: 5000,
-      },
-      features: [
-        'dashboard',
-
-        'sales', 'order', 'kanban', 'pdv', 'customer', 'kds', 'commands', 'table',
-
-        'catalog', 'product', 'category', 'complement',
-
-        'operations', 'stock', 'delivery', 'delivery_person', 'delivery_area', 'delivery_route', 'coupons',
-
-        'financial', 'cash_session', 'cash_history', 'cash_reports', 'cash_dashboard', 'cash_shifts', 'payment_method',
-
-        'reports',
-
-        'admin', 'user', 'group', 'branch'
-      ],
-    },
-    {
-      name: 'ENTERPRISE',
-      type: PlanType.ENTERPRISE,
-      price: 599.9,
-      limits: {
-        branches: -1,
-        users: -1,
-        products: -1,
-        ordersPerMonth: -1,
-      },
-      features: ['*'],
+      features: ['*'], // todas as features
     },
   ];
 
   for (const p of plans) {
-    let plan = await prisma.plan.findFirst({
+    const existingPlan = await prisma.plan.findFirst({
       where: { type: p.type }
     });
 
-    if (plan) {
+    let plan;
+    if (existingPlan) {
       plan = await prisma.plan.update({
-        where: { id: plan.id },
+        where: { id: existingPlan.id },
         data: {
           name: p.name,
           type: p.type,
@@ -298,7 +286,6 @@ async function seedFeaturesAndPlans() {
           billingPeriod: BillingPeriod.MONTHLY,
           isTrial: p.isTrial || false,
           trialDays: p.trialDays || 0,
-          limits: JSON.stringify(p.limits),
           active: true,
         },
       });
@@ -311,23 +298,19 @@ async function seedFeaturesAndPlans() {
           billingPeriod: BillingPeriod.MONTHLY,
           isTrial: p.isTrial || false,
           trialDays: p.trialDays || 0,
-          limits: JSON.stringify(p.limits),
           active: true,
         },
       });
     }
 
-    let featuresToLink: any[] = [];
+    const features =
+      p.features.includes('*')
+        ? await prisma.feature.findMany()
+        : await prisma.feature.findMany({
+            where: { key: { in: p.features } },
+          });
 
-    if (p.features.includes('*')) {
-      featuresToLink = await prisma.feature.findMany();
-    } else {
-      featuresToLink = await prisma.feature.findMany({
-        where: { key: { in: p.features } },
-      });
-    }
-
-    for (const f of featuresToLink) {
+    for (const f of features) {
       await prisma.planFeature.upsert({
         where: {
           planId_featureId: {
@@ -342,13 +325,12 @@ async function seedFeaturesAndPlans() {
         },
       });
     }
-
-    console.log(`✅ Plano ${p.name} configurado`);
   }
 
-  console.log('🎉 Seed finalizado com sucesso');
+  console.log('✅ Planos criados');
+  console.log('🎉 Seed finalizado!');
 }
 
-seedFeaturesAndPlans()
+seed()
   .catch(console.error)
   .finally(() => prisma.$disconnect());

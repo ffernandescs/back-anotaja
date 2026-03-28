@@ -12,7 +12,7 @@ import { prisma } from '../../../lib/prisma';
 @Injectable()
 export class FeaturesService {
   async create(createFeatureDto: CreateFeatureDto) {
-    const { key, name, description, defaultActions, href, menuGroupId } = createFeatureDto;
+    const { key, name, description, defaultActions, href, menuGroupId, parentId } = createFeatureDto;
 
     // Verificar se já existe feature com esta key
     const existingFeature = await prisma.feature.findUnique({
@@ -21,6 +21,17 @@ export class FeaturesService {
 
     if (existingFeature) {
       throw new ConflictException(`Feature com key '${key}' já existe`);
+    }
+
+    // Se for subfeature, verificar se a feature principal existe
+    if (parentId) {
+      const parentFeature = await prisma.feature.findUnique({
+        where: { id: parentId },
+      });
+
+      if (!parentFeature) {
+        throw new NotFoundException(`Feature principal com ID '${parentId}' não encontrada`);
+      }
     }
 
     // Criar a feature
@@ -32,15 +43,31 @@ export class FeaturesService {
         active: true,
         defaultActions: defaultActions ? JSON.stringify(defaultActions) : JSON.stringify(['read', 'manage']),
         href,
+        parentId: parentId || null, // ✅ Adicionar parentId para subfeatures
       },
     });
 
     // ✅ Se foi informado um grupo, associar a feature ao grupo
-    if (menuGroupId) {
+    // Se for subfeature, herda o grupo da feature principal
+    let targetGroupId = menuGroupId;
+    
+    if (!targetGroupId && parentId) {
+      // Subfeature sem grupo informado - herda do parent
+      const parentGroup = await prisma.featureMenuGroup.findFirst({
+        where: { featureId: parentId },
+        include: { group: true },
+      });
+      
+      if (parentGroup) {
+        targetGroupId = parentGroup.group.id;
+      }
+    }
+
+    if (targetGroupId) {
       await prisma.featureMenuGroup.create({
         data: {
           featureId: feature.id,
-          groupId: menuGroupId,
+          groupId: targetGroupId,
         },
       });
     }
@@ -190,23 +217,31 @@ export class FeaturesService {
       }
     });
 
-    // Agrupar por menu groups
+    // Agrupar por menu groups (agora os grupos são o nível 1)
     const menuGroupsMap = new Map();
+    const processedFeatures = new Set(); // Evitar duplicação
     
-    rootFeatures.forEach(feature => {
-      feature.featureMenuGroups.forEach(fmg => {
-        const group = fmg.group;
-        if (!menuGroupsMap.has(group.id)) {
-          menuGroupsMap.set(group.id, {
-            id: group.id,
-            title: group.title,
-            displayOrder: group.displayOrder,
-            features: []
-          });
-        }
-        menuGroupsMap.get(group.id).features.push(feature);
-      });
+    // Para cada grupo de menu, adicionar todas as features vinculadas a ele
+    const allMenuGroups = await prisma.menuGroup.findMany({
+      where: { active: true },
+      orderBy: { displayOrder: 'asc' }
     });
+
+    for (const group of allMenuGroups) {
+      // Encontrar todas as features vinculadas a este grupo
+      const groupFeatures = allFeatures.filter(feature => 
+        feature.featureMenuGroups.some(fmg => fmg.group.id === group.id)
+      );
+
+      if (groupFeatures.length > 0) {
+        menuGroupsMap.set(group.id, {
+          id: group.id,
+          title: group.title,
+          displayOrder: group.displayOrder,
+          features: groupFeatures
+        });
+      }
+    }
 
     // Converter mapa para array ordenado
     return Array.from(menuGroupsMap.values())
