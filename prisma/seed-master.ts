@@ -4,6 +4,52 @@ import { prisma } from '../lib/prisma';
 import bcrypt from 'bcryptjs';
 import { BillingPeriod, PlanType } from '@prisma/client';
 
+
+export enum PaymentMethodType {
+  CASH = 'CASH',
+  CREDIT = 'CREDIT',
+  DEBIT = 'DEBIT',
+  PIX = 'PIX',
+  BOLETO = 'BOLETO',
+  MEAL_VOUCHER = 'MEAL_VOUCHER', // VA
+  FOOD_VOUCHER = 'FOOD_VOUCHER', // VE
+  OTHER = 'OTHER',
+  ONLINE = 'ONLINE',
+}
+
+const paymentMethods = [
+  {
+    id: PaymentMethodType.CASH,
+    name: 'Dinheiro',
+    isActive: true,
+    type: PaymentMethodType.CASH,
+  },
+  {
+    id: PaymentMethodType.CREDIT,
+    name: 'Cartão de Crédito',
+    isActive: true,
+    type: PaymentMethodType.CREDIT,
+  },
+  {
+    id: PaymentMethodType.DEBIT,
+    name: 'Cartão de Débito',
+    isActive: true,
+    type: PaymentMethodType.DEBIT,
+  },
+  {
+    id: PaymentMethodType.PIX,
+    name: 'PIX',
+    isActive: true,
+    type: PaymentMethodType.PIX,
+  },
+  {
+    id: PaymentMethodType.ONLINE,
+    name: 'Pagamento Online',
+    isActive: true,
+    type: PaymentMethodType.ONLINE,
+  },
+];
+
 async function seed() {
   console.log('🚀 Seed iniciado...');
 
@@ -22,6 +68,20 @@ async function seed() {
 
   console.log('✅ Usuário Master criado/atualizado');
 
+
+   for (const method of paymentMethods) {
+      await prisma.paymentMethod.upsert({
+        where: { id: method.id },
+        update: {},
+        create: {
+          ...method,
+        },
+      });
+    }
+
+    console.log(
+    `✅ ${await prisma.paymentMethod.count()} métodos de pagamento criados/atualizados`,
+  );
   // ======================================================
   // MENU GROUPS
   // ======================================================
