@@ -63,7 +63,39 @@ export class PlansService {
 
     // Se houver features no array, associá-las ao plano
     if (parsedFeatures && Array.isArray(parsedFeatures)) {
-      for (const featureKey of parsedFeatures) {
+      // Buscar todas as features para verificar hierarquia
+      const allFeatures = await prisma.feature.findMany({
+        where: { 
+          key: { in: parsedFeatures },
+          active: true
+        },
+        include: {
+          parent: {
+            select: { id: true, key: true }
+          }
+        }
+      });
+
+      // Encontrar features principais que precisam ser incluídas
+      const mainFeaturesToAdd = new Set<string>();
+      
+      // Adicionar features selecionadas
+      parsedFeatures.forEach(featureKey => {
+        const feature = allFeatures.find(f => f.key === featureKey);
+        if (feature) {
+          // Se for subfeature, adicionar a feature principal também
+          if (feature.parent) {
+            mainFeaturesToAdd.add(feature.parent.key);
+          }
+          mainFeaturesToAdd.add(featureKey);
+        }
+      });
+
+      // Converter para array e ordenar
+      const finalFeatures = Array.from(mainFeaturesToAdd).sort();
+
+      // Adicionar associações (incluindo features principais)
+      for (const featureKey of finalFeatures) {
         const feature = await prisma.feature.findUnique({
           where: { key: featureKey },
         });
@@ -187,13 +219,44 @@ export class PlansService {
 
     // Se houver features no array, atualizar associações
     if (parsedFeatures && Array.isArray(parsedFeatures)) {
+      // Buscar todas as features para verificar hierarquia
+      const allFeatures = await prisma.feature.findMany({
+        where: { 
+          key: { in: parsedFeatures },
+          active: true
+        },
+        include: {
+          parent: {
+            select: { id: true, key: true }
+          }
+        }
+      });
+
+      // Encontrar features principais que precisam ser incluídas
+      const mainFeaturesToAdd = new Set<string>();
+      
+      // Adicionar features selecionadas
+      parsedFeatures.forEach(featureKey => {
+        const feature = allFeatures.find(f => f.key === featureKey);
+        if (feature) {
+          // Se for subfeature, adicionar a feature principal também
+          if (feature.parent) {
+            mainFeaturesToAdd.add(feature.parent.key);
+          }
+          mainFeaturesToAdd.add(featureKey);
+        }
+      });
+
+      // Converter para array e ordenar
+      const finalFeatures = Array.from(mainFeaturesToAdd).sort();
+
       // Remover associações existentes
       await prisma.planFeature.deleteMany({
         where: { planId: id },
       });
 
-      // Adicionar novas associações
-      for (const featureKey of parsedFeatures) {
+      // Adicionar novas associações (incluindo features principais)
+      for (const featureKey of finalFeatures) {
         const feature = await prisma.feature.findUnique({
           where: { key: featureKey },
         });

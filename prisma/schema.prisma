@@ -97,9 +97,13 @@ model Feature {
   key                                                                        String              @unique // "pdv", "kds", "fiscal_note", "multi_branch"
   name                                                                       String
   description                                                                String?
+  icon                                                                       String?             // Ícone Lucide para exibição no menu (ex: "ShoppingCart", "Users")
   active                                                                     Boolean             @default(true)
   defaultActions String?         // Permissões padrão como JSON
   href           String?         // Rota da feature (ex: "/admin/dashboard")
+  parentId                                                                   String?             // ID da feature pai (null para features principais)
+  parent                                                                     Feature?            @relation("FeatureHierarchy", fields: [parentId], references: [id])
+  children                                                                   Feature[]           @relation("FeatureHierarchy")
   createdAt                                                                  DateTime            @default(now())
 
   planFeatures                                                               PlanFeature[]

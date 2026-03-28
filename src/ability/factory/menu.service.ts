@@ -27,200 +27,184 @@ export interface MenuGroup {
 export class MenuService {
   /**
    * Gera menu dinâmico baseado nas features do plano e permissões do usuário
+   * Suporta hierarquia de features (subfeatures como children)
    */
-  async generateMenuFromPlanFeatures(
-    plan: string,
-    addons: string[] = [],
-    userPermissions?: Array<{ action: Action; subject: Subject; inverted: boolean }>
-  ): Promise<MenuGroup[]> {
-    // Construir set de permissões permitidas
-    const allowedPermissions = new Set<string>();
-    
-    if (userPermissions?.length) {
-      for (const permission of userPermissions) {
-        if (permission.action === Action.MANAGE && !permission.inverted) {
-          // Permissão manage concede todas as actions para o subject
-          allowedPermissions.add(`${Action.CREATE}:${permission.subject}`);
-          allowedPermissions.add(`${Action.READ}:${permission.subject}`);
-          allowedPermissions.add(`${Action.UPDATE}:${permission.subject}`);
-          allowedPermissions.add(`${Action.DELETE}:${permission.subject}`);
-        } else if (!permission.inverted) {
-          allowedPermissions.add(`${permission.action}:${permission.subject}`);
+async generateMenuFromPlanFeatures(
+  planId: string,
+  addons: string[] = [],
+  userPermissions?: Array<{ action: Action; subject: Subject; inverted: boolean }>
+): Promise<any[]> {
+
+  // 1. Fetch plan features
+  const planFeatures = await prisma.planFeature.findMany({
+    where: { plan: { id: planId } },
+    include: {
+      feature: {
+        include: {
+          children: {
+            where: { active: true },
+            include: {
+              featureMenuGroups: { include: { group: true } }
+            }
+          },
+          featureMenuGroups: { include: { group: true } },
         }
       }
     }
+  });
 
-    // ✅ Buscar TODAS as features ativas do banco (sem filtrar por plano primeiro)
-    const allFeatures = await prisma.feature.findMany({
-      where: {
-        active: true,
-      },
-      include: {
-        featureMenuGroups: {
-          include: {
-            group: true
+  // 2. Fetch addon features (addons podem estar vinculados a grupos também)
+  const addonFeatures = addons.length > 0
+    ? await prisma.addonFeature.findMany({
+        where: { addon: { key: { in: addons } } },
+        include: {
+          feature: {
+            include: {
+              children: {
+                where: { active: true },
+                include: {
+                  featureMenuGroups: { include: { group: true } }
+                }
+              },
+              featureMenuGroups: { include: { group: true } },
+            }
           }
         }
-      },
-      orderBy: {
-        name: 'asc'
-      }
-    });
+      })
+    : [];
 
-    // Filtrar features baseado nas permissões do usuário
-    const allowedMenuItems: MenuItem[] = [];
-    
-    for (const feature of allFeatures) {
-      const featureKey = feature.key;
-      
-      // ✅ Verificar se o usuário tem permissão para este subject/key
-      const hasReadPermission = allowedPermissions.has(`${Action.READ}:${featureKey}`);
-      const hasManagePermission = allowedPermissions.has(`${Action.MANAGE}:${featureKey}`);
-      const hasCreatePermission = allowedPermissions.has(`${Action.CREATE}:${featureKey}`);
-      const hasUpdatePermission = allowedPermissions.has(`${Action.UPDATE}:${featureKey}`);
-      const hasDeletePermission = allowedPermissions.has(`${Action.DELETE}:${featureKey}`);
-      
-      // ✅ Verificar se tem qualquer permissão para este subject
-      const hasAnyPermission = Array.from(allowedPermissions).some(permission => {
-        const [action, subject] = permission.split(':');
-        return subject === featureKey; // Comparar subject com key da feature
-      });
-      
-      // ✅ Ter qualquer permissão (read, manage, create, update, delete) dá acesso ao menu
-      const hasPermission = hasReadPermission || hasManagePermission || hasCreatePermission || 
-                          hasUpdatePermission || hasDeletePermission || hasAnyPermission;
-     
-      
-      if (hasPermission) {
-        const menuItem: MenuItem = {
-          id: feature.key,
-          label: feature.name,
-          href: feature.href || undefined,
-          action: Action.READ,
-          subject: this.inferSubjectFromFeatureKey(feature.key),
-        };
-        
-        allowedMenuItems.push(menuItem);
-      } 
+  // 3. Collect all unlocked features (plan + addons)
+  const unlockedFeatures = [
+    ...planFeatures.map((pf: any) => pf.feature),
+    ...addonFeatures.map((af: any) => af.feature),
+  ];
+
+  // De-duplicate by feature id
+  const featureMap = new Map<string, typeof unlockedFeatures[number]>();
+  for (const f of unlockedFeatures) {
+    if (f.active) { // Apenas features ativas
+      featureMap.set(f.id, f);
     }
+  }
+  const allFeatures = Array.from(featureMap.values());
 
-    // Agrupar menu items por categorias
-    const menuGroups = this.groupMenuItems(allowedMenuItems);
+  const unlockedKeys = new Set(allFeatures.map(f => f.key));
+
+  // 4. Helper: check if user has at least read permission on a feature
+  const hasPermission = (featureKey: string): boolean => {
+    if (!userPermissions?.length) return true; // no restrictions = allow all
+    const hasPermission = userPermissions.some(
+      p => p.subject === featureKey && ['read', 'manage'].includes(p.action) && !p.inverted
+    );
     
-    return menuGroups;
+    return hasPermission;
+  };
+
+  // 5. Separate root features (no parentId) from children
+  const rootFeatures = allFeatures.filter(f => !f.parentId && f.active);
+
+  // 6. Build a map of menuGroupId -> MenuGroup metadata
+  const menuGroupMap = new Map<string, { id: string; title: string; displayOrder: number; items: any[] }>();
+
+  for (const feature of rootFeatures) {
+    const hasMainPermission = hasPermission(feature.key);
+    
+    // Resolve children that are also unlocked and permitted
+    const children = (feature.children ?? [])
+      .filter(child => 
+        unlockedKeys.has(child.key) && 
+        hasPermission(child.key) && 
+        child.active &&
+        child.href // Apenas children com href são mostrados no menu
+      )
+      .map(child => ({
+        id: child.key,
+        label: child.name,
+        href: child.href,
+      }));
+
+    // Mostrar feature principal se:
+    // 1. Tiver permissão E tiver href próprio, OU
+    // 2. Tiver permissão E tiver children selecionados, OU
+    // 3. NÃO tiver permissão MAS tiver children selecionados (subfeature com permissão)
+    const shouldShow = (hasMainPermission && (feature.href || children.length > 0)) || 
+                      (!hasMainPermission && children.length > 0);
+
+    if (shouldShow) {
+      const menuItem = {
+        id: feature.key,
+        label: feature.name,
+        href: feature.href || null, // Features principais podem não ter href
+        icon: feature.icon || null, // Ícone Lucide para exibição
+        children, // Apenas subfeatures que o usuário tem acesso
+      };
+
+      // Attach to each MenuGroup this feature belongs to
+      // Features principais devem ter grupo, subfeatures herdam do pai
+      for (const fmg of feature.featureMenuGroups) {
+        const g = fmg.group;
+        if (!menuGroupMap.has(g.id)) {
+          menuGroupMap.set(g.id, {
+            id: g.id,
+            title: g.title,
+            displayOrder: g.displayOrder,
+            items: [],
+          });
+        }
+        menuGroupMap.get(g.id)!.items.push(menuItem);
+      }
+    }
   }
 
+  // 7. Sort groups by displayOrder, return final shape
+  return Array.from(menuGroupMap.values())
+    .sort((a, b) => a.displayOrder - b.displayOrder)
+    .map(({ title, items }) => ({ title, items }));
+}
+
   /**
-   * Gera menu dinâmico baseado nas permissões do usuário (método original)
+   * Gera menu dinâmico baseado nas features do plano e permissões do usuário
+   * Suporta hierarquia de features (subfeatures como children)
    */
   async generateMenuFromFeatures(
     plan: string,
     addons: string[] = [],
     userPermissions?: Array<{ action: Action; subject: Subject; inverted: boolean }>
   ): Promise<MenuGroup[]> {
-    // Construir set de permissões permitidas
-    const allowedPermissions = new Set<string>();
-    
-    if (userPermissions?.length) {
-      for (const permission of userPermissions) {
-        if (permission.action === Action.MANAGE && !permission.inverted) {
-          // Permissão manage concede todas as actions para o subject
-          allowedPermissions.add(`${Action.CREATE}:${permission.subject}`);
-          allowedPermissions.add(`${Action.READ}:${permission.subject}`);
-          allowedPermissions.add(`${Action.UPDATE}:${permission.subject}`);
-          allowedPermissions.add(`${Action.DELETE}:${permission.subject}`);
-        } else if (!permission.inverted) {
-          allowedPermissions.add(`${permission.action}:${permission.subject}`);
-        }
-      }
-    }
-
-    // Buscar features do banco dinamicamente
-    const dbFeatures = await prisma.feature.findMany({
-      where: {
-        active: true,
-      },
-      include: {
-        featureMenuGroups: {
-          include: {
-            group: true
-          }
-        }
-      },
-      orderBy: {
-        name: 'asc'
-      }
-    });
-
-    // Filtrar features baseado nas permissões do usuário
-    const allowedMenuItems: MenuItem[] = [];
-    
-    for (const feature of dbFeatures) {
-      const featureKey = feature.key;
-      const hasReadPermission = allowedPermissions.has(`${Action.READ}:${featureKey}`);
-      const hasManagePermission = allowedPermissions.has(`${Action.MANAGE}:${featureKey}`);
-      const hasAnyPermission = Array.from(allowedPermissions).some(permission => 
-        permission.endsWith(`:${featureKey}`)
-      );
-      
-      const hasPermission = hasReadPermission || hasManagePermission || hasAnyPermission;
-      
-      if (hasPermission) {
-        const menuItem: MenuItem = {
-          id: feature.key,
-          label: feature.name,
-          href: feature.href || undefined,
-          action: Action.READ,
-          subject: this.inferSubjectFromFeatureKey(feature.key),
-        };
-        
-        allowedMenuItems.push(menuItem);
-      }
-    }
-
-    // Agrupar menu items por categorias
-    const menuGroups = this.groupMenuItems(allowedMenuItems);
-    
-    return menuGroups;
+    // Usar o método atualizado que suporta hierarquia
+    return this.generateMenuFromPlanFeatures(plan, addons, userPermissions);
   }
 
   /**
    * Agrupa menu items em categorias lógicas baseadas nos grupos do banco
+   * Suporta hierarquia de features
    */
-  private groupMenuItems(menuItems: MenuItem[]): MenuGroup[] {
+  private async groupMenuItems(menuItems: MenuItem[]): Promise<MenuGroup[]> {
     const groupsMap = new Map<string, MenuItem[]>();
 
-    // Agrupar por grupos definidos no banco ou usar fallback
+    // Agrupar por grupos definidos no banco (100% dinâmico)
     for (const item of menuItems) {
       let groupName = 'Outros'; // grupo padrão
 
-      // Aqui poderíamos buscar os grupos do banco se tivéssemos a referência
-      // Por ora, usar fallback baseado no ID do item
-      switch (item.id) {
-        case 'dashboard':
-          groupName = 'Principal';
-          break;
-        case 'product':
-        case 'category':
-          groupName = 'Produtos e Catálogo';
-          break;
-        case 'order':
-        case 'customer':
-        case 'delivery_person':
-          groupName = 'Vendas';
-          break;
-        case 'stock':
-          groupName = 'Operações';
-          break;
-        case 'user':
-        case 'group':
-        case 'subscription':
-        case 'coupon':
-          groupName = 'Configurações';
-          break;
-        case 'report':
-          groupName = 'Relatórios';
-          break;
+      // Buscar a feature completa para obter o grupo
+      const feature = await prisma.feature.findUnique({
+        where: { key: item.id },
+        include: {
+          featureMenuGroups: {
+            include: {
+              group: true
+            }
+          }
+        }
+      });
+
+      if (feature?.featureMenuGroups?.length) {
+        // Feature principal - usar grupo do banco
+        groupName = feature.featureMenuGroups[0].group.title;
+      } else {
+        // Subfeature - herdar grupo da feature principal
+        const parentGroup = await this.getParentGroup(item.id);
+        groupName = parentGroup || 'Outros';
       }
 
       if (!groupsMap.has(groupName)) {
@@ -231,9 +215,11 @@ export class MenuService {
 
     // Construir menu final apenas com grupos que têm itens
     const menuGroups: MenuGroup[] = [];
-    const orderedGroups = ['Principal', 'Produtos e Catálogo', 'Vendas', 'Operações', 'Configurações', 'Relatórios', 'Outros'];
     
-    for (const groupName of orderedGroups) {
+    // Ordenar grupos por displayOrder se disponível, senão alfabeticamente
+    const sortedGroups = Array.from(groupsMap.keys()).sort();
+    
+    for (const groupName of sortedGroups) {
       const items = groupsMap.get(groupName) || [];
       if (items.length > 0) {
         menuGroups.push({
@@ -244,6 +230,60 @@ export class MenuService {
     }
 
     return menuGroups;
+  }
+
+  /**
+   * Determina se uma feature é principal (não tem pai)
+   * @param featureKey - Key da feature a verificar
+   * @returns boolean - true se for feature principal (sem parentId)
+   */
+  private async isMainFeature(featureKey: string): Promise<boolean> {
+    const feature = await prisma.feature.findUnique({
+      where: { key: featureKey },
+      select: { parentId: true }
+    });
+    
+    if (!feature) {
+      console.warn(`⚠️ Feature "${featureKey}" not found, treating as subfeature`);
+      return false;
+    }
+    
+    // Feature principal não tem parentId (null)
+    return feature.parentId === null || feature.parentId === undefined;
+  }
+
+  /**
+   * Determina o grupo da feature principal baseado na subfeature
+   * (100% dinâmico, busca do banco de dados)
+   */
+  private async getParentGroup(subfeatureKey: string): Promise<string | null> {
+    // 1. Buscar a subfeature pelo key
+    const subfeature = await prisma.feature.findUnique({
+      where: { key: subfeatureKey },
+      include: {
+        parent: {
+          include: {
+            featureMenuGroups: {
+              include: {
+                group: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // 2. Verificar se tem feature principal
+    if (!subfeature?.parent) {
+      return null; // Não é subfeature, não tem grupo para herdar
+    }
+
+    // 3. Obter o grupo da feature principal
+    const parentFeature = subfeature.parent;
+    const group = parentFeature.featureMenuGroups?.[0]?.group;
+    
+    // 4. Retornar o título do grupo ou null
+    return group?.title || null;
   }
 
   /**

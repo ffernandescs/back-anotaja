@@ -69,7 +69,7 @@ export class AbilityLoaderService {
         createdAt: true,
         subscription: {
           select: {
-            plan: { select: { type: true } },
+            plan: { select: { type: true, id: true } },
             addons: {
               where: {
                 // Apenas add-ons ainda ativos (sem endDate ou endDate no futuro)
@@ -97,6 +97,9 @@ export class AbilityLoaderService {
     // mas aqui o AbilityFactory espera um Plano. 
     // Vamos garantir que sempre haja um PlanType para o applyPlanRules.
     const planType = (company.subscription?.plan?.type as PlanType) || PlanType.BASIC;
+    const planId = (company.subscription?.plan?.id as string);
+    if (!planId) throw new NotFoundException('Plano não encontrada');
+
     const activeAddons = company.subscription?.addons?.map(
       (sa) => sa.addon.key as AddonType,
     ) || [];
@@ -122,6 +125,7 @@ export class AbilityLoaderService {
       },
       tenant: {
         plan: planType,
+        planId: planId,
         createdAt: company.createdAt,
         subscriptionStart: company.subscription?.startDate || company.createdAt,
         subscriptionEnd: company.subscription?.endDate || null,

@@ -119,6 +119,7 @@ export interface AbilityContext {
   };
   tenant: {
     plan: PlanType;
+    planId: string;
     createdAt: Date;
     addons: AddonType[];             // add-ons ativos
     subscriptionStart: Date | null;

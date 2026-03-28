@@ -435,25 +435,18 @@ export class AuthService {
         effectivePermissions.push(...user.permissions);
         userOverrides = user.permissions;
       }
-      
       // ✅ Gerar menu baseado nas features do plano e permissões do usuário
       menu = await this.menuService.generateMenuFromPlanFeatures(
-        ctx.tenant.plan,
+        ctx.tenant.planId,
         ctx.tenant.addons,
         effectivePermissions
       );
-      
       // ✅ permissions no response = apenas overrides do usuário
       permissions = userOverrides;
 
       
       // ✅ USAR MENU DINÂMICO A PARTIR DAS FEATURES com permissões efetivas (grupo + overrides)
-      try {
-        menu = await this.menuService.generateMenuFromFeatures(ctx.tenant.plan, ctx.tenant.addons, effectivePermissions);
-      } catch (error) {
-        console.warn('Erro ao gerar menu:', error);
-        menu = [];
-      }
+     
 
       // Calcular trialDaysRemaining para o bootstrap/Header
       if (subscriptionInfo && subscriptionInfo.plan.isTrial) {
