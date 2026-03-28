@@ -16,6 +16,7 @@ import type { Request } from 'express';
 import { FeaturesService } from './features.service';
 import { CreateFeatureDto } from './dto/create-feature.dto';
 import { UpdateFeatureDto } from './dto/update-feature.dto';
+import { ReorderFeaturesDto } from './dto/reorder-features.dto';
 import { JwtOwnerMultiAuthGuard } from '../../common/guards/jwt-owner-multi.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -60,6 +61,19 @@ export class FeaturesController {
   ) {
     // Se necessário, você pode usar o token para validações adicionais
     return this.featuresService.create(createFeatureDto);
+  }
+
+  @Public()
+  @Patch('reorder')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  reorder(
+    @Body() reorderFeaturesDto: ReorderFeaturesDto,
+    @Headers('authorization') authorization?: string,
+    @Req() req?: Request,
+  ) {
+    const token = this.extractOwnerToken(req as Request, authorization);
+    return this.featuresService.reorder(reorderFeaturesDto);
   }
 
   @Public()
@@ -149,4 +163,6 @@ export class FeaturesController {
     const token = this.extractOwnerToken(req as Request, authorization);
     return this.featuresService.remove(id);
   }
+
+
 }

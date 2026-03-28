@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { CreateFeatureDto } from './dto/create-feature.dto';
 import { UpdateFeatureDto } from './dto/update-feature.dto';
+import { ReorderFeaturesDto } from './dto/reorder-features.dto';
 import { prisma } from '../../../lib/prisma';
 
 @Injectable()
@@ -50,7 +51,10 @@ export class FeaturesService {
   async findAll() {
     return prisma.feature.findMany({
       where: { active: true },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [
+        { displayOrder: 'asc' },
+        { createdAt: 'desc' }
+      ],
       include: {
         _count: {
           select: {
@@ -67,6 +71,11 @@ export class FeaturesService {
               },
             },
           },
+          orderBy: {
+            group: {
+              displayOrder: 'asc'
+            }
+          }
         },
       },
     });
@@ -74,13 +83,31 @@ export class FeaturesService {
 
   async findAllIncludingInactive() {
     return prisma.feature.findMany({
-      orderBy: { createdAt: 'desc' },
+      orderBy: [
+        { displayOrder: 'asc' },
+        { createdAt: 'desc' }
+      ],
       include: {
         _count: {
           select: {
             planFeatures: true,
             addonFeatures: true,
           },
+        },
+        featureMenuGroups: {
+          include: {
+            group: {
+              select: {
+                id: true,
+                title: true,
+              },
+            },
+          },
+          orderBy: {
+            group: {
+              displayOrder: 'asc'
+            }
+          }
         },
       },
     });
@@ -158,12 +185,33 @@ export class FeaturesService {
     }
 
     // ✅ Remover menuGroupId do update da feature (é tratado separadamente)
-    const { menuGroupId, ...featureUpdateData } = updateData;
+    const { menuGroupId, parentId, ...featureUpdateData } = updateData;
+
+    // ✅ Remover isMainFeature se existir (não é salvo no banco)
+    const { isMainFeature, ...cleanUpdateData } = featureUpdateData;
+
+    // ✅ Preparar dados para o Prisma
+    const prismaUpdateData: any = cleanUpdateData;
+    
+    // ✅ Se parentId foi fornecido, preparar o relacionamento
+    if (parentId !== undefined) {
+      if (parentId) {
+        // Conectar a uma feature principal
+        prismaUpdateData.parent = {
+          connect: { id: parentId }
+        };
+      } else {
+        // Desconectar de qualquer feature principal (tornar principal)
+        prismaUpdateData.parent = {
+          disconnect: true
+        };
+      }
+    }
 
     // ✅ Atualizar a feature
     const updatedFeature = await prisma.feature.update({
       where: { id },
-      data: featureUpdateData,
+      data: prismaUpdateData,
     });
 
     // ✅ Se menuGroupId foi fornecido, atualizar a associação
@@ -218,5 +266,33 @@ export class FeaturesService {
       where: { id },
       data: { active: !feature.active },
     });
+  }
+
+  async reorder(reorderFeaturesDto: ReorderFeaturesDto) {
+    const { features } = reorderFeaturesDto;
+
+    // Validar se todas as features existem
+    const featureIds = features.map(f => f.id);
+    const existingFeatures = await prisma.feature.findMany({
+      where: { id: { in: featureIds } },
+      select: { id: true, key: true, name: true },
+    });
+
+    if (existingFeatures.length !== featureIds.length) {
+      const missingIds = featureIds.filter(id => !existingFeatures.find(f => f.id === id));
+      throw new NotFoundException(`Features não encontradas: ${missingIds.join(', ')}`);
+    }
+
+    // Atualizar displayOrder de todas as features em uma transação
+    const updatePromises = features.map(feature =>
+      prisma.feature.update({
+        where: { id: feature.id },
+        data: { displayOrder: feature.displayOrder },
+      })
+    );
+
+    await prisma.$transaction(updatePromises);
+
+    return { message: 'Features reordenadas com sucesso' };
   }
 }

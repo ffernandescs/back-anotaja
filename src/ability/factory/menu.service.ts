@@ -45,9 +45,16 @@ async generateMenuFromPlanFeatures(
             where: { active: true },
             include: {
               featureMenuGroups: { include: { group: true } }
+            },
+            orderBy: {
+              displayOrder: 'asc'
             }
           },
-          featureMenuGroups: { include: { group: true } },
+          featureMenuGroups: { 
+            include: { 
+              group: true 
+            }
+          },
         }
       }
     }
@@ -64,9 +71,16 @@ async generateMenuFromPlanFeatures(
                 where: { active: true },
                 include: {
                   featureMenuGroups: { include: { group: true } }
+                },
+                orderBy: {
+                  displayOrder: 'asc'
                 }
               },
-              featureMenuGroups: { include: { group: true } },
+              featureMenuGroups: { 
+                include: { 
+                  group: true 
+                }
+              },
             }
           }
         }
@@ -100,8 +114,10 @@ async generateMenuFromPlanFeatures(
     return hasPermission;
   };
 
-  // 5. Separate root features (no parentId) from children
-  const rootFeatures = allFeatures.filter(f => !f.parentId && f.active);
+  // 5. Separate root features (no parentId) from children e ordenar por displayOrder
+  const rootFeatures = allFeatures
+    .filter(f => !f.parentId && f.active)
+    .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
 
   // 6. Build a map of menuGroupId -> MenuGroup metadata
   const menuGroupMap = new Map<string, { id: string; title: string; displayOrder: number; items: any[] }>();
@@ -136,6 +152,7 @@ async generateMenuFromPlanFeatures(
         label: feature.name,
         href: feature.href || null, // Features principais podem não ter href
         icon: feature.icon || null, // Ícone Lucide para exibição
+        displayOrder: feature.displayOrder || 0, // Incluir displayOrder para ordenação
         children, // Apenas subfeatures que o usuário tem acesso
       };
 
@@ -156,10 +173,13 @@ async generateMenuFromPlanFeatures(
     }
   }
 
-  // 7. Sort groups by displayOrder, return final shape
+  // 7. Sort groups by displayOrder e ordenar items dentro de cada grupo
   return Array.from(menuGroupMap.values())
     .sort((a, b) => a.displayOrder - b.displayOrder)
-    .map(({ title, items }) => ({ title, items }));
+    .map(group => ({
+      title: group.title,
+      items: group.items.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))
+    }));
 }
 
   /**

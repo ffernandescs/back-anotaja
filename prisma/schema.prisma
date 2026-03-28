@@ -101,6 +101,7 @@ model Feature {
   active                                                                     Boolean             @default(true)
   defaultActions String?         // Permissões padrão como JSON
   href           String?         // Rota da feature (ex: "/admin/dashboard")
+  displayOrder                                                               Int?                // Ordem de exibição
   parentId                                                                   String?             // ID da feature pai (null para features principais)
   parent                                                                     Feature?            @relation("FeatureHierarchy", fields: [parentId], references: [id])
   children                                                                   Feature[]           @relation("FeatureHierarchy")

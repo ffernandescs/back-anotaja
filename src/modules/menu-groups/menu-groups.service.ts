@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, ConflictException } from '@nestjs/common
 import { prisma } from '../../../lib/prisma';
 import { CreateMenuGroupDto } from './dto/create-menu-group.dto';
 import { UpdateMenuGroupDto } from './dto/update-menu-group.dto';
+import { ReorderMenuGroupsDto } from './dto/reorder-menu-groups.dto';
 
 @Injectable()
 export class MenuGroupsService {
@@ -39,14 +40,20 @@ export class MenuGroupsService {
         featureMenuGroups: {
           include: {
             feature: {
-              select: {
-                id: true,
-                key: true,
-                name: true,
-                href: true,
-              },
+             include: {
+              children: {
+                orderBy: {
+                  displayOrder: 'asc'
+                }
+              }
+             }
             },
           },
+          orderBy: {
+            feature: {
+              displayOrder: 'asc'
+            }
+          }
         },
       },
     });
@@ -62,14 +69,20 @@ export class MenuGroupsService {
         featureMenuGroups: {
           include: {
             feature: {
-              select: {
-                id: true,
-                key: true,
-                name: true,
-                href: true,
-              },
+             include: {
+              children: {
+                orderBy: {
+                  displayOrder: 'asc'
+                }
+              }
+             }
             },
           },
+          orderBy: {
+            feature: {
+              displayOrder: 'asc'
+            }
+          }
         },
       },
     });
@@ -273,5 +286,33 @@ export class MenuGroupsService {
     });
 
     return availableFeatures;
+  }
+
+  async reorder(reorderMenuGroupsDto: ReorderMenuGroupsDto) {
+    const { groups } = reorderMenuGroupsDto;
+
+    // Validar se todos os grupos existem
+    const groupIds = groups.map(g => g.id);
+    const existingGroups = await prisma.menuGroup.findMany({
+      where: { id: { in: groupIds } },
+      select: { id: true, title: true },
+    });
+
+    if (existingGroups.length !== groupIds.length) {
+      const missingIds = groupIds.filter(id => !existingGroups.find(g => g.id === id));
+      throw new NotFoundException(`Grupos não encontrados: ${missingIds.join(', ')}`);
+    }
+
+    // Atualizar displayOrder de todos os grupos em uma transação
+    const updatePromises = groups.map(group =>
+      prisma.menuGroup.update({
+        where: { id: group.id },
+        data: { displayOrder: group.displayOrder },
+      })
+    );
+
+    await prisma.$transaction(updatePromises);
+
+    return { message: 'Grupos reordenados com sucesso' };
   }
 }

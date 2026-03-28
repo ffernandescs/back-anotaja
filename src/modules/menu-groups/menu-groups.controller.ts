@@ -14,8 +14,8 @@ import type { Request } from 'express';
 import { MenuGroupsService } from './menu-groups.service';
 import { CreateMenuGroupDto } from './dto/create-menu-group.dto';
 import { UpdateMenuGroupDto } from './dto/update-menu-group.dto';
+import { ReorderMenuGroupsDto } from './dto/reorder-menu-groups.dto';
 import { JwtOwnerAuthGuard } from '../../common/guards/jwt-owner.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 
@@ -67,6 +67,19 @@ export class MenuGroupsController {
     return this.menuGroupsService.findOne(id);
   }
 
+  @Public()
+  @Patch('reorder')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  reorder(
+    @Body() reorderMenuGroupsDto: ReorderMenuGroupsDto,
+    @Headers('authorization') authorization?: string,
+    @Req() req?: Request,
+  ) {
+    console.log('DTO recebido:', reorderMenuGroupsDto);
+    return this.menuGroupsService.reorder(reorderMenuGroupsDto);
+  }
+  
   @Public()
   @Patch(':id')
   @UseGuards(JwtOwnerAuthGuard)
@@ -133,4 +146,6 @@ export class MenuGroupsController {
   getAvailableFeaturesForGroup(@Param('id') id: string) {
     return this.menuGroupsService.getAvailableFeaturesForGroup(id);
   }
+
+  
 }
