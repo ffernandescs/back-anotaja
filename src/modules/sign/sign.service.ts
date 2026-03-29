@@ -19,15 +19,13 @@ export class SignService {
     }
   }
 
-  sign(data: string): string {
-    if (!data) {
-      throw new Error('Data parameter is required and cannot be empty');
-    }
-    
-    const signer = crypto.createSign('SHA512');
-    signer.update(data);
-    signer.end();
+    sign(data: string): string {
+        if (!data) throw new Error('Data is required');
 
-    return signer.sign(this.privateKey, 'base64');
-  }
+        const signer = crypto.createSign('SHA256'); // ⚠️ SHA256 é obrigatório
+        signer.update(data);
+        signer.end();
+
+        return signer.sign(this.privateKey, 'base64'); // Base64 é o que QZ Tray espera
+    }
 }
