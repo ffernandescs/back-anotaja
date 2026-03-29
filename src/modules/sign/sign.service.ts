@@ -10,7 +10,13 @@ export class SignService {
   constructor() {
     const keyPath = path.resolve(process.cwd(), 'src/keys/private-key.pem');
     
-    this.privateKey = fs.readFileSync(keyPath, 'utf8');
+    try {
+      this.privateKey = fs.readFileSync(keyPath, 'utf8');
+      // Remove any extra whitespace and ensure proper formatting
+      this.privateKey = this.privateKey.trim();
+    } catch (error) {
+      throw new Error(`Failed to load private key from ${keyPath}: ${(error as Error).message}`);
+    }
   }
 
   sign(data: string): string {
@@ -18,7 +24,7 @@ export class SignService {
       throw new Error('Data parameter is required and cannot be empty');
     }
     
-    const signer = crypto.createSign('SHA256');
+    const signer = crypto.createSign('SHA512');
     signer.update(data);
     signer.end();
 
