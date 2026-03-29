@@ -46,6 +46,7 @@ import { AddonsModule } from './modules/addons/addons.module';
 import { LimitsModule } from './modules/limits/limits.module';
 import { AccessModule } from './access/access.module';
 import { MenuGroupsModule } from './modules/menu-groups/menu-groups.module';
+import { MasterModule } from './modules/master/master.module';
 
 @Module({
   imports: [
@@ -95,7 +96,8 @@ import { MenuGroupsModule } from './modules/menu-groups/menu-groups.module';
     AddonsModule,
     LimitsModule,
     AccessModule,
-    MenuGroupsModule
+    MenuGroupsModule,
+    MasterModule
   ],
   providers: [
     {

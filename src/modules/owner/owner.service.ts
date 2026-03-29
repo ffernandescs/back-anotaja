@@ -328,6 +328,50 @@ export class OwnerService {
   }
 
   /**
+   * Busca todas as assinaturas do sistema
+   */
+  async findAllSubscriptions() {
+    const subscriptions = await prisma.subscription.findMany({
+      include: {
+        company: {
+          select: {
+            id: true,
+            name: true,
+            document: true,
+            email: true,
+          },
+        },
+        plan: true,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    return subscriptions;
+  }
+
+  /**
+   * Busca todos os planos do sistema
+   */
+  async findAllPlans() {
+    const plans = await prisma.plan.findMany({
+      include: {
+        _count: {
+          select: {
+            subscriptions: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    return { plans };
+  }
+
+  /**
    * Verifica se owner existe com base nos campos fornecidos
    */
   async verifyOwnerExists(dto: VerifyOwnerExistsDto) {

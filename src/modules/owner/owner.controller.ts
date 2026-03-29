@@ -138,4 +138,22 @@ export class OwnerController {
       ],
     };
   }
+
+  @Public()
+  @Get('subscriptions')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  @HttpCode(HttpStatus.OK)
+  async getAllSubscriptions() {
+    return this.ownerService.findAllSubscriptions();
+  }
+
+  @Public()
+  @Get('plans')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  @HttpCode(HttpStatus.OK)
+  async getAllPlans() {
+    return this.ownerService.findAllPlans();
+  }
 }
