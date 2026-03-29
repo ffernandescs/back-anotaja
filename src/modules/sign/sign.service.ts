@@ -8,8 +8,8 @@ export class SignService {
   private privateKey: string;
 
   constructor() {
-    const keyPath = path.resolve(process.cwd(), 'private-key.pem');
-
+    const keyPath = path.resolve(process.cwd(), 'src/keys/private-key.pem');
+    
     this.privateKey = fs.readFileSync(keyPath, 'utf8');
   }
 
