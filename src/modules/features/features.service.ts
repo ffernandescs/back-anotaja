@@ -8,9 +8,13 @@ import { CreateFeatureDto } from './dto/create-feature.dto';
 import { UpdateFeatureDto } from './dto/update-feature.dto';
 import { ReorderFeaturesDto } from './dto/reorder-features.dto';
 import { prisma } from '../../../lib/prisma';
+import { PlanSyncService } from '../plans/plan-sync.service';
 
 @Injectable()
 export class FeaturesService {
+  constructor(
+    private readonly planSyncService: PlanSyncService,
+  ) {}
   async create(createFeatureDto: CreateFeatureDto) {
     const { key, name, description, defaultActions, href, menuGroupId, parentId } = createFeatureDto;
 
@@ -422,6 +426,25 @@ export class FeaturesService {
           },
         });
       }
+    }
+
+    // ✅ Sincronizar permissões de todos os planos que usam esta feature
+    // Buscar todos os planos que contêm esta feature
+    const planFeatures = await prisma.planFeature.findMany({
+      where: { featureId: id },
+      select: { planId: true }
+    });
+
+    if (planFeatures.length > 0) {
+      // Para cada plano que usa esta feature, sincronizar permissões
+      const syncPromises = planFeatures.map(pf => 
+        this.planSyncService.syncPlanPermissions(pf.planId)
+      );
+      
+      // Executar sincronizações em paralelo, mas não bloquear a resposta
+      Promise.allSettled(syncPromises).catch(error => {
+        console.error('Erro ao sincronizar permissões dos planos:', error);
+      });
     }
 
     return updatedFeature;
