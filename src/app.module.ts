@@ -48,6 +48,7 @@ import { AccessModule } from './access/access.module';
 import { MenuGroupsModule } from './modules/menu-groups/menu-groups.module';
 import { MasterModule } from './modules/master/master.module';
 import { PrinterModule } from './modules/printer/printer.module';
+import { SignModule } from './modules/sign/sign.module';
 
 @Module({
   imports: [
@@ -99,7 +100,8 @@ import { PrinterModule } from './modules/printer/printer.module';
     AccessModule,
     MenuGroupsModule,
     MasterModule,
-    PrinterModule
+    PrinterModule,
+    SignModule
   ],
   providers: [
     {
