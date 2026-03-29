@@ -137,8 +137,6 @@ async function seed() {
     
     // Cardápio - agora são features dentro do grupo Cardápio
     ['menu_management', 'Gestão', 'Cardápio'],
-    ['complements_management', 'Complementos', 'Cardápio'],
-    ['complement_options_management', 'Opções de Complemento', 'Cardápio'],
     
     // Delivery - agora são features dentro do grupo Delivery
     ['delivery_orders_group', 'Pedidos', 'Delivery'],
@@ -210,26 +208,22 @@ async function seed() {
     ['products', 'Produtos', 'menu_management', '/admin/menu/products', 1],
     ['categories', 'Categorias', 'menu_management', '/admin/menu/categories', 2],
     ['ingredients', 'Ingredientes', 'menu_management', '/admin/menu/ingredients', 3],
-
-    // 🍔 COMPLEMENTOS - Subfeatures das features de complementos
-    ['complements', 'Complementos', 'complements_management', '/admin/menu/complements', 1],
-    ['complement_groups', 'Grupos de Complementos', 'complements_management', '/admin/menu/complement-groups', 2],
+    ['complements', 'Complementos', 'menu_management', '/admin/menu/complements', 4],
+    ['complement_options', 'Opções de Complemento', 'menu_management', '/admin/menu/complement-options', 5],
+    ['stock', 'Estoque', 'menu_management', '/admin/menu/stock', 4],
 
     // 🍔 OPÇÕES DE COMPLEMENTO - Subfeatures das features de opções de complemento
-    ['complement_options', 'Opções de Complemento', 'complement_options_management', '/admin/menu/complement-options', 1],
 
     // 🚚 DELIVERY - Subfeatures das features de delivery
-    ['delivery_orders', 'Pedidos Delivery', 'delivery_orders_group', '/admin/delivery/orders', 1],
-    ['delivery_areas', 'Áreas de Entrega', 'delivery_orders_group', '/admin/delivery/areas', 2],
-    ['delivery_persons', 'Entregadores', 'delivery_orders_group', '/admin/delivery/persons', 3],
-    ['delivery_routes', 'Rotas de Entrega', 'delivery_orders_group', '/admin/delivery/routes', 4],
-    ['delivery_assignments', 'Atribuições', 'delivery_orders_group', '/admin/delivery/assignments', 5],
+    ['delivery_areas', 'Áreas de Entrega', 'delivery_orders_group', '/admin/delivery/areas', 1],
+    ['delivery_persons', 'Entregadores', 'delivery_orders_group', '/admin/delivery/persons', 2],
+    ['delivery_routes', 'Rotas de Entrega', 'delivery_orders_group', '/admin/delivery/routes', 3],
+    ['delivery_assignments', 'Atribuições', 'delivery_orders_group', '/admin/delivery/assignments', 4],
 
     // 💰 FINANCEIRO - Subfeatures das features de financeiro
     ['cash', 'Caixa', 'financial_cash', '/admin/financial/cash', 1],
     ['payment_methods', 'Métodos de Pagamento', 'financial_management', '/admin/financial/methods', 2],
     ['coupons', 'Cupons', 'financial_management', '/admin/financial/coupons', 3],
-    ['stock', 'Estoque', 'financial_management', '/admin/financial/stock', 4],
 
     // ⚙️ ADMINISTRAÇÃO - Subfeatures das features de admin
     ['users', 'Usuários', 'admin_access', '/admin/users', 1],
