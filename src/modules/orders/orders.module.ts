@@ -1,10 +1,14 @@
 import { Module } from '@nestjs/common';
-import { OrdersService } from './orders.service';
 import { OrdersController } from './orders.controller';
+import { OrdersService } from './orders.service';
 import { WebSocketModule } from '../websocket/websocket.module';
+import { PrinterModule } from '../printer/printer.module';
 
 @Module({
-  imports: [WebSocketModule],
+  imports: [
+    WebSocketModule,
+    PrinterModule,
+  ],
   controllers: [OrdersController],
   providers: [OrdersService],
   exports: [OrdersService],

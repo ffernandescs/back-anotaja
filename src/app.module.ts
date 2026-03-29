@@ -47,6 +47,7 @@ import { LimitsModule } from './modules/limits/limits.module';
 import { AccessModule } from './access/access.module';
 import { MenuGroupsModule } from './modules/menu-groups/menu-groups.module';
 import { MasterModule } from './modules/master/master.module';
+import { PrinterModule } from './modules/printer/printer.module';
 
 @Module({
   imports: [
@@ -97,7 +98,8 @@ import { MasterModule } from './modules/master/master.module';
     LimitsModule,
     AccessModule,
     MenuGroupsModule,
-    MasterModule
+    MasterModule,
+    PrinterModule
   ],
   providers: [
     {

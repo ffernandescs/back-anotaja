@@ -42,7 +42,9 @@ export class OrdersWebSocketGateway
     private jwtService: JwtService,
     private configService: ConfigService,
     private redisService: RedisService,
-  ) {}
+  ) {
+    console.log('🖨️ WebSocketGateway constructor initialized');
+  }
 
   async handleConnection(client: AuthenticatedSocket) {
     this.logger.log(`🔌 Nova conexão WebSocket: ${client.id}`);
@@ -385,7 +387,7 @@ export class OrdersWebSocketGateway
   /**
    * Emitir evento de atualização de pedido
    */
-  emitOrderUpdate(
+  async emitOrderUpdate(
     order: {
       id: string;
       status?: string;
@@ -445,6 +447,164 @@ export class OrdersWebSocketGateway
       this.server.to(orderRoom).emit('order:update', eventData);
       this.logger.debug(`📤 Emitted order:update to order room ${orderRoom}`);
     }
+
+    // 🖨️ Imprimir pedido automaticamente quando criado
+    if (eventType === 'order:created') {
+      console.log('🖨️ WebSocketGateway - Attempting to print order:', order.orderNumber);
+      console.log('🖨️ WebSocketGateway - Full order object received:', JSON.stringify(order, null, 2));
+      
+      try {
+        // Formatar dados para impressão
+        const orderData = {
+          number: String(order.orderNumber || '0000').padStart(4, '0'),
+          table: order.tableNumber || (order.deliveryType === 'DELIVERY' ? 'Entrega' : order.deliveryType === 'TAKEOUT' ? 'Retirada' : undefined),
+          deliveryType: order.deliveryType || 'PICKUP',
+          payment: this.getPaymentMethodText(order),
+          discount: Number(order.discount || 0) / 100, // converter de centavos para reais
+          deliveryFee: Number(order.deliveryFee || 0) / 100, // converter de centavos para reais
+          serviceFee: Number(order.serviceFee || 0) / 100, // converter de centavos para reais
+          notes: order.notes || undefined,
+          store: {
+            name: 'Estabelecimento', // será sobrescrito abaixo
+            cnpj: '',
+            address: '',
+          },
+          customer: order.customer ? {
+            name: order.customer.name,
+            phone: this.formatPhone(order.customer.phone || order.customerPhone || ''),
+          } : undefined,
+          deliveryAddress: order.deliveryAddress,
+          pickupTime: order.pickupTime,
+          items: order.items?.map((item: any) => ({
+            name: item.product?.name || 'Item desconhecido',
+            qty: item.quantity,
+            price: Number(item.price) / 100, // converter de centavos para reais
+          })) || [],
+        };
+
+        // Buscar dados completos da branch
+        const branch = await prisma.branch.findUnique({
+          where: { id: order.branchId },
+          include: { company: true },
+        });
+
+        // Buscar dados completos do cliente se for delivery
+        let customerData: any = null;
+        let addressData: any = null;
+        
+        console.log('🖨️ WebSocketGateway - Order data:', {
+          deliveryType: order.deliveryType,
+          customerId: order.customerId,
+          customerAddressId: order.customerAddressId,
+          customerPhone: order.customerPhone
+        });
+        
+        if (order.deliveryType === 'DELIVERY' && order.customerId) {
+          customerData = await prisma.customer.findUnique({
+            where: { id: order.customerId },
+          });
+          console.log('🖨️ WebSocketGateway - Customer data:', customerData);
+        }
+
+        // Buscar endereço se for delivery
+        if (order.deliveryType === 'DELIVERY' && order.customerAddressId) {
+          addressData = await prisma.customerAddress.findUnique({
+            where: { id: order.customerAddressId },
+          });
+          console.log('🖨️ WebSocketGateway - Address data:', addressData);
+        }
+
+        if (branch) {
+          orderData.store.name = branch.branchName || 'Estabelecimento';
+          orderData.store.cnpj = branch.company?.document || '';
+          orderData.store.address = branch.branchName || ''; // usar branchName como address por temporarily
+          
+          // Adicionar dados do cliente
+          if (customerData) {
+            // Formatar telefone com máscara
+            const formattedPhone = this.formatPhone(customerData.phone || order.customerPhone || '');
+            
+            orderData.customer = {
+              name: customerData.name || 'Cliente',
+              phone: formattedPhone,
+            };
+          }
+          
+          // Adicionar endereço de entrega completo
+          if (addressData) {
+            const addressParts = [
+              addressData.street,
+              addressData.number || 'S/N',
+              addressData.complement,
+              addressData.neighborhood,
+              addressData.zipCode, // campo correto é zipCode
+              addressData.city,
+              addressData.state
+            ].filter(Boolean);
+            
+            orderData.deliveryAddress = addressParts.join(', ');
+            // Adicionar taxa de entrega padrão se não tiver
+            if (!orderData.deliveryFee) {
+              orderData.deliveryFee = 5.00; // taxa padrão
+            }
+            console.log('🖨️ WebSocketGateway - Address added to orderData:', orderData.deliveryAddress);
+          } else {
+            console.log('🖨️ WebSocketGateway - No address data found, using fallback');
+            // Adicionar endereço genérico se não encontrar
+            orderData.deliveryAddress = 'Endereço não informado';
+          }
+          
+          console.log('🖨️ WebSocketGateway - Complete data assembled, sending to printer');
+          
+          // Enviar diretamente para API da impressora
+          const payload = {
+            order: orderData,
+            copies: 1,
+          };
+
+          const response = await fetch('http://localhost:3131/print', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+          });
+
+          if (response.ok) {
+            const result = await response.json();
+            console.log('🖨️ WebSocketGateway - Print sent successfully:', result);
+          } else {
+            const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+            console.error('🖨️ WebSocketGateway - Printer API error:', error);
+          }
+        } else {
+          console.log('🖨️ WebSocketGateway - Branch not found');
+        }
+      } catch (error) {
+        console.error('🖨️ WebSocketGateway - Print error:', error instanceof Error ? error.message : String(error));
+      }
+    }
+  }
+
+  private getPaymentMethodText(order: any): string {
+    const payments = order.payments || [];
+    if (payments.length === 0) return 'Não informado';
+
+    if (payments.length === 1) {
+      const payment = payments[0];
+      const value = String(payment.type || payment.paymentMethod || '').toLowerCase();
+      
+      if (['pix'].includes(value)) return 'PIX';
+      if (['dinheiro', 'cash'].includes(value)) return 'Dinheiro';
+      if (['credito', 'crédito', 'credit', 'credit_card', 'cartão de crédito', 'cartao de credito'].includes(value))
+        return 'Cartão Crédito';
+      if (['debito', 'débito', 'debit', 'debit_card', 'cartão de débito', 'cartao de debito'].includes(value))
+        return 'Cartão Débito';
+      
+      return 'Outros';
+    }
+
+    return 'Múltiplos';
   }
 
   /**
@@ -613,5 +773,28 @@ export class OrdersWebSocketGateway
     }
     
     client.emit('heartbeat:ack', { timestamp: new Date().toISOString() });
+  }
+
+  /**
+   * Formatar telefone com máscara brasileira
+   */
+  private formatPhone(phone: string): string {
+    if (!phone) return '';
+    
+    // Remover todos os caracteres não numéricos
+    const numbersOnly = phone.replace(/\D/g, '');
+    
+    // Verificar se é um número válido de celular ou fixo
+    if (numbersOnly.length >= 10 && numbersOnly.length <= 11) {
+      // Formatar: (XX) XXXXX-XXXX ou (XX) XXXX-XXXX
+      const ddd = numbersOnly.substring(0, 2);
+      const firstPart = numbersOnly.substring(2, numbersOnly.length === 11 ? 7 : 6);
+      const secondPart = numbersOnly.substring(numbersOnly.length === 11 ? 7 : 6);
+      
+      return `(${ddd}) ${firstPart}-${secondPart}`;
+    }
+    
+    // Se não for um formato padrão, retornar o original
+    return phone;
   }
 }

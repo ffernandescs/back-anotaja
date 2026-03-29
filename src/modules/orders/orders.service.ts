@@ -9,6 +9,7 @@ import { UpdateOrderDto, UpdateOrderItemDto } from './dto/update-order.dto';
 import { PaginatedResponseDto } from '../../common/dto/paginated-response.dto';
 import { QueryOrdersDto } from './dto/query-orders.dto';
 import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
+import { PrinterService } from '../printer/printer.service';
 import { prisma } from '../../../lib/prisma';
 import { DeliveryTypeDto, OrderStatusDto } from './dto/create-order-item.dto';
 import { OrderStatus, Prisma, CashMovementType, PaymentMethodType } from '@prisma/client';
@@ -17,7 +18,12 @@ import { money } from '../../utils/money';
 
 @Injectable()
 export class OrdersService {
-  constructor(private webSocketGateway: OrdersWebSocketGateway) {}
+  constructor(
+    private webSocketGateway: OrdersWebSocketGateway,
+    private printerService: PrinterService,
+  ) {
+    console.log('🖨️ OrdersService constructor - PrinterService injected:', !!this.printerService);
+  }
 
   async create(createOrderDto: CreateOrderDto, userId: string) {
     // Verificar se o usuário existe e tem acesso à filial
@@ -83,6 +89,7 @@ export class OrdersService {
 
           notes: createOrderDto.notes || null,
           customerId: createOrderDto.customerId || null,
+          customerAddressId: createOrderDto.addressId || null,
           branchId,
           userId: userId,
           couponId: createOrderDto.couponId || null,
@@ -212,7 +219,15 @@ export class OrdersService {
 
     // Emitir evento de criação via WebSocket com payload completo
     const fullCreatedOrder = await this.findOne(order.id, userId);
-    this.webSocketGateway.emitOrderUpdate(fullCreatedOrder, 'order:created');
+    await this.webSocketGateway.emitOrderUpdate(fullCreatedOrder, 'order:created');
+
+    // 🖨️ Imprimir pedido automaticamente na criação
+    console.log('🖨️ About to call printOrderOnCreate for order:', fullCreatedOrder.orderNumber);
+    console.log('🖨️ Branch data:', JSON.stringify(branch, null, 2));
+    console.log('🖨️ PrinterService exists:', !!this.printerService);
+    
+    await this.printerService.printOrderOnCreate(fullCreatedOrder, branch);
+    console.log('🖨️ printOrderOnCreate completed');
 
     return order;
   }
@@ -965,6 +980,15 @@ export class OrdersService {
     // Emitir evento WebSocket
     this.webSocketGateway.emitOrderUpdate(updatedOrder);
 
+    // 🖨️ Imprimir pedido automaticamente se estiver pago
+    if (updatedOrder.paymentStatus === 'PAID') {
+      const branch = await prisma.branch.findUnique({
+        where: { id: user.branchId! },
+        include: { company: true },
+      });
+      await this.printerService.printOrderIfPaid(updatedOrder, branch);
+    }
+
     return updatedOrder;
   }
 
@@ -1133,6 +1157,20 @@ export class OrdersService {
     // Emitir evento WebSocket
     this.webSocketGateway.emitOrderUpdate(updatedOrder);
 
+    // 🖨️ Imprimir pedido automaticamente se estiver pago
+    if (updatedOrder.paymentStatus === 'PAID') {
+      const branch = await prisma.branch.findUnique({
+        where: { id: user.branchId! },
+        include: { company: true },
+      });
+      await this.printerService.printOrderIfPaid(updatedOrder, branch);
+    }
+
     return updatedOrder;
+  }
+
+  async testPrint(order: any, branch: any): Promise<void> {
+    console.log('🖨️ testPrint called - PrinterService exists:', !!this.printerService);
+    await this.printerService.printOrder(order, branch);
   }
 }

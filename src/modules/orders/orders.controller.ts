@@ -112,4 +112,43 @@ export class OrdersController {
     const userId = req.user.userId;
     return this.ordersService.markOrderAsPaid(orderId, userId);
   }
+
+  @Post('test-print')
+  @Roles('admin', 'manager')
+  async testPrint(@Req() req: RequestWithUser) {
+    const userId = req.user.userId;
+    
+    const testOrder = {
+      orderNumber: '8888',
+      tableNumber: 'Mesa Teste Controller',
+      notes: 'Teste via OrdersController',
+      paymentStatus: 'PENDING',
+      total: 50.00,
+      discount: 5,
+      items: [
+        {
+          product: { name: 'Teste Controller' },
+          quantity: 2,
+          price: 25.00,
+        },
+      ],
+      payments: [],
+    };
+
+    const testBranch = {
+      branchName: 'Loja Teste Controller',
+      address: 'Endereço Teste Controller',
+      company: {
+        cnpj: '00.000.000/0001-00',
+      },
+    };
+
+    try {
+      await this.ordersService.testPrint(testOrder, testBranch);
+      return { success: true, message: 'Test print sent from OrdersController' };
+    } catch (error) {
+      console.error('Test print error:', error instanceof Error ? error.message : String(error));
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
 }

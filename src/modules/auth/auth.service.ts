@@ -20,6 +20,7 @@ import { AbilityLoaderService } from '../../ability/factory/ability-loader.servi
 import { MenuService } from '../../ability/factory/menu.service';
 import { AbilityFactory } from '../../ability/factory/ability.factory';
 import { PaymentMethodsService } from '../payment-methods/payment-methods.service';
+import { SubscriptionService } from '../subscription/subscription.service';
 
 const OTP_EXPIRES_IN_MINUTES = Number(process.env.OTP_EXPIRES_IN_MINUTES ?? 10);
 
@@ -33,6 +34,7 @@ export class AuthService {
     private menuService: MenuService,
     private abilityFactory: AbilityFactory,
     private paymentMethodsService: PaymentMethodsService,
+    private subscriptionService: SubscriptionService,
   ) {}
 
   private async sendResetEmail(email: string, otp: string) {
@@ -340,6 +342,24 @@ export class AuthService {
       throw new NotFoundException('Usuário não encontrado');
     }
 
+    // Se usuário não tem branchId, buscar a primeira branch da empresa
+    if (!user.branchId && user.companyId) {
+      const firstBranch = await prisma.branch.findFirst({
+        where: { companyId: user.companyId },
+        include: {
+          address: true,
+          paymentMethods: true,
+          openingHours: true,
+        },
+      });
+      
+      if (firstBranch) {
+        user.branchId = firstBranch.id;
+        // Adicionar a branch ao objeto user
+        (user as any).branch = firstBranch;
+      }
+    }
+
     // Buscar pedidos pendentes da filial do usuário
     let pendingOrders: any[] = [];
     if (user.branchId) {
@@ -375,6 +395,12 @@ export class AuthService {
       deliveryPeople: 0,
       ordersMonth: 0,
     };
+    let growthMetrics = {
+      ordersGrowth: 0,
+      productsGrowth: 0,
+      usersGrowth: 0,
+      revenueGrowth: 0,
+    };
 
     if (user.companyId) {
       // 1. Carregar contagens para limites
@@ -392,6 +418,48 @@ export class AuthService {
           },
         }),
       ]);
+
+      // 2. Calcular métricas de crescimento (comparação com mês anterior)
+      const lastMonth = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1);
+      const thisMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+      
+      const [lastMonthOrders, lastMonthProducts, lastMonthUsers] = await Promise.all([
+        prisma.order.count({
+          where: {
+            branchId: user.branchId as string,
+            createdAt: {
+              gte: lastMonth,
+              lt: thisMonth,
+            },
+          },
+        }),
+        prisma.product.count({
+          where: {
+            branchId: user.branchId as string,
+            createdAt: {
+              gte: lastMonth,
+              lt: thisMonth,
+            },
+          },
+        }),
+        prisma.user.count({
+          where: {
+            branchId: user.branchId as string,
+            createdAt: {
+              gte: lastMonth,
+              lt: thisMonth,
+            },
+          },
+        }),
+      ]);
+
+      // Calcular crescimento percentual
+      growthMetrics = {
+        ordersGrowth: lastMonthOrders > 0 ? ((ordersMonthCount - lastMonthOrders) / lastMonthOrders) * 100 : 0,
+        productsGrowth: lastMonthProducts > 0 ? ((productsCount - lastMonthProducts) / lastMonthProducts) * 100 : 0,
+        usersGrowth: lastMonthUsers > 0 ? ((usersCount - lastMonthUsers) / lastMonthUsers) * 100 : 0,
+        revenueGrowth: 0, // TODO: Calcular baseado em faturamento
+      };
 
       resourceCounts = {
         users: usersCount,
@@ -493,6 +561,15 @@ export class AuthService {
       // Não quebra se falhar, apenas retorna array vazio
     }
 
+    // ✅ Buscar invoices do usuário
+    let invoices: any[] = [];
+    try {
+      invoices = await this.subscriptionService.getInvoices(userId);
+    } catch (error) {
+      console.warn('Erro ao buscar invoices:', error);
+      // Não quebra se falhar, apenas retorna array vazio
+    }
+
     // Salvar branches antes de transformar company
     const companyBranches = user.company?.branches || [];
 
@@ -530,14 +607,14 @@ export class AuthService {
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
         orders: user.orders || undefined,
-        permission: permissions, // ✅ Enviar permissões efetivas com conditions/limites
+        pendingOrders: pendingOrders || [],
         counts: resourceCounts,
-        menu, // ✅ Menu agora vem dentro do user
-        globalPaymentMethods, // ✅ Métodos de pagamento globais para onboarding
-      },
-      bootstrap: {
-        pendingOrders,
-        branches: companyBranches,
+        growthMetrics: growthMetrics,
+        permission: user.permissions,
+        globalPaymentMethods,
+        invoices,
+        menu,
+        limits: planLimits,
       },
     };
   }
