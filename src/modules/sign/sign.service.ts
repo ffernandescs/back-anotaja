@@ -14,6 +14,10 @@ export class SignService {
   }
 
   sign(data: string): string {
+    if (!data) {
+      throw new Error('Data parameter is required and cannot be empty');
+    }
+    
     const signer = crypto.createSign('SHA256');
     signer.update(data);
     signer.end();
