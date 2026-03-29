@@ -47,7 +47,6 @@ export class TablesController {
 
   //Tem que filtrar as mesas pelo status da mesa
   @Get()
-  @Roles('admin', 'waiter', 'manager')
   async getTables(
     @Req() req: RequestWithUser,
     @Query('includeMerged') includeMerged?: string,
@@ -71,7 +70,6 @@ export class TablesController {
    * Busca uma mesa específica
    */
   @Get(':id')
-  @Roles('admin', 'waiter', 'manager')
   async getTable(@Param('id') id: string, @Req() req: RequestWithUser,) {
     const table = await this.tablesService.getTableById(id, req.user.userId);
 
@@ -145,7 +143,6 @@ export class TablesController {
    * Abre uma mesa e cria uma comanda
    */
   @Post(':id/open')
-  @Roles('admin', 'waiter', 'manager')
   async openTable(
     @Param('id') id: string,
     @Body() openTableDto: OpenTableDto,
@@ -171,7 +168,6 @@ export class TablesController {
    * Fecha uma mesa (após pagamento)
    */
   @Post(':id/close')
-  @Roles('admin', 'waiter', 'manager')
   async closeTable(@Param('id') id: string, @Req() req: RequestWithUser) {
     await this.tablesService.closeTable(id, req.user.userId);
 
@@ -186,7 +182,6 @@ export class TablesController {
    * Marca mesa como limpa e disponível
    */
   @Post(':id/clean')
-  @Roles('admin', 'waiter', 'manager')
   async markTableAsClean(@Param('id') id: string, @Req() req: RequestWithUser) {
     await this.tablesService.markTableAsClean(id, req.user.userId);
 
@@ -201,7 +196,6 @@ export class TablesController {
    * Transfere uma mesa para outra
    */
   @Post('transfer')
-  @Roles('admin', 'waiter', 'manager')
   async transferTable(
     @Body() transferTableDto: TransferTableDto,
     @Req() req: RequestWithUser,
@@ -219,7 +213,6 @@ export class TablesController {
    * Junta múltiplas mesas
    */
   @Post('merge')
-  @Roles('admin', 'waiter', 'manager')
   async mergeTables(
     @Body() mergeTablesDto: MergeTablesDto,
     @Req() req: RequestWithUser,
@@ -241,7 +234,6 @@ export class TablesController {
    * Reserva uma mesa
    */
   @Post(':id/reserve')
-  @Roles('admin', 'waiter', 'manager')
   async reserveTable(
     @Param('id') id: string,
     @Body() reserveTableDto: ReserveTableDto,
@@ -259,7 +251,6 @@ export class TablesController {
    * Cancela reserva de uma mesa
    */
   @Delete(':id/reservation')
-  @Roles('admin', 'waiter', 'manager')
   async cancelReservation(@Param('id') id: string) {
     await this.tablesService.cancelReservation(id);
 
