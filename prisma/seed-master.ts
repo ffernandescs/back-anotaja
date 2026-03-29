@@ -236,6 +236,7 @@ async function seed() {
     ['settings_payment', 'Forma de Pagamento', 'settings_management', '/admin/administration/settings/payment', 3],
     ['settings_announcements', 'Avisos', 'settings_management', '/admin/administration/settings/announcements', 4],
     ['settings_subscription', 'Assinatura', 'settings_management', '/admin/administration/settings/payments', 5],
+    ['settings_printer', 'Impressoras', 'settings_management', '/admin/administration/settings/printer', 6],
   ];
 
   for (const [key, name, parentKey, href, displayOrder] of subFeatures) {
@@ -347,7 +348,7 @@ async function seed() {
       name: 'BASIC',
       type: PlanType.BASIC,
       price: 99.9,
-      features: ['dashboard', 'orders', 'kanban', 'pdv', 'products', 'categories'], // keys corrigidas
+      features: ['dashboard', 'orders', 'kanban', 'pdv', 'products', 'categories', 'settings_printer'], // keys corrigidas
     },
     {
       name: 'PREMIUM',
