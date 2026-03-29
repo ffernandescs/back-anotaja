@@ -442,8 +442,8 @@ export class AuthService {
         ctx.tenant.addons,
         effectivePermissions
       );
-      // ✅ permissions no response = apenas overrides do usuário
-      permissions = userOverrides;
+      // ✅ permissions no response = permissões efetivas (grupo + overrides)
+      permissions = effectivePermissions;
 
       
       // ✅ USAR MENU DINÂMICO A PARTIR DAS FEATURES com permissões efetivas (grupo + overrides)
