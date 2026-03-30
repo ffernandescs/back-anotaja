@@ -48,6 +48,7 @@ import { AccessModule } from './access/access.module';
 import { MenuGroupsModule } from './modules/menu-groups/menu-groups.module';
 import { MasterModule } from './modules/master/master.module';
 import { PrinterModule } from './modules/printer/printer.module';
+import { PrinterSectorsModule } from './modules/printer-sectors/printer-sectors.module';
 import { SignModule } from './modules/sign/sign.module';
 import { QZTrayModule } from './modules/qz-tray/qz-tray.module';
 
@@ -102,6 +103,7 @@ import { QZTrayModule } from './modules/qz-tray/qz-tray.module';
     MenuGroupsModule,
     MasterModule,
     PrinterModule,
+    PrinterSectorsModule,
     SignModule,
     QZTrayModule
   ],

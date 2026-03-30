@@ -537,6 +537,7 @@ model Branch {
   addressId              String?
   autoRouteConfig        AutoRouteConfig?
   printers               Printer[]
+  printerSectors         PrinterSectorConfig[]
 }
 
 model BranchSchedule {
@@ -1528,6 +1529,27 @@ enum PrinterSector {
   DELIVERY   // Entrega
 }
 
+model PrinterSectorConfig {
+  id                                                                                                                     String     @id @default(cuid())
+  name                                                       String     // Nome do setor (ex: "Cozinha", "Bar", "Caixa")
+  code                                                       String     // Código interno (ex: "KITCHEN", "BAR")
+  color       String?       // Cor para identificação visual
+  icon        String?       // Ícone Lucide
+  description String?       // Descrição do setor
+  isActive                                                                                                               Boolean    @default(true)
+  order                                                                                                                  Int        @default(0) // Ordem de exibição
+  branchId                                                   String     // ← Mudado para branchId
+  createdAt                                                                                                              DateTime   @default(now())
+  updatedAt                                                                                                              DateTime   @updatedAt
+
+  branch                                                                                                                 Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  printers                                                                                                               Printer[]
+
+  @@unique([branchId, code]) // Código único por branch
+  @@unique([branchId, name]) // Nome único por branch
+  @@map("printer_sectors")
+}
+
 enum PrinterStatus {
   ONLINE     // Online e funcionando
   OFFLINE    // Offline ou desconectada
@@ -1535,40 +1557,42 @@ enum PrinterStatus {
 }
 
 model Printer {
-  id              String        @id @default(cuid())
+  id                                                                              String                @id @default(cuid())
   name            String        // Nome da impressora (ex: "Impressora Cozinha")
   printerName     String        // Nome real da impressora no sistema operacional
-  sector          PrinterSector @default(GENERAL)
-  isActive        Boolean       @default(true)
-  status          PrinterStatus @default(OFFLINE)
-  copies          Int           @default(1) // Número de vias de impressão
-  printComplements Boolean      @default(true) // Imprimir complementos
+  sector                                                                          PrinterSector         @default(GENERAL)
+  isActive                                                                        Boolean               @default(true)
+  status                                                                          PrinterStatus         @default(OFFLINE)
+  copies                                                                          Int                   @default(1) // Número de vias de impressão
+  printComplements                                                                Boolean               @default(true) // Imprimir complementos
   customMessage   String?       // Mensagem personalizada no final da comanda
   qrCodeUrl       String?       // URL para QR code na comanda
-  branchId        String
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  branchId                                                                        String
+  sectorConfigId  String?       // Referência ao setor configurado pela empresa
+  createdAt                                                                       DateTime              @default(now())
+  updatedAt                                                                       DateTime              @updatedAt
 
-  branch          Branch        @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  printJobs       PrintJob[]
+  branch                                                                          Branch               @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  sectorConfig                                                                    PrinterSectorConfig? @relation(fields: [sectorConfigId], references: [id])
+  printJobs                                                                       PrintJob[]
 
   @@map("printers")
 }
 
 model PrintJob {
-  id              String        @id @default(cuid())
-  printerId       String
-  orderId         String
+  id                                                          String         @id @default(cuid())
+  printerId                                                   String
+  orderId                                                     String
   orderType       String        // DELIVERY, TAKEOUT, DINE_IN
-  sector          PrinterSector
-  copies          Int           @default(1)
-  status          String        @default("PENDING") // PENDING, PRINTING, COMPLETED, ERROR
-  errorMessage    String?
-  printedAt       DateTime?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  sector                                                      PrinterSector
+  copies                                                      Int            @default(1)
+  status                                                      String         @default("PENDING") // PENDING, PRINTING, COMPLETED, ERROR
+  errorMessage                                                String?
+  printedAt                                                   DateTime?
+  createdAt                                                   DateTime       @default(now())
+  updatedAt                                                   DateTime       @updatedAt
 
-  printer         Printer       @relation(fields: [printerId], references: [id], onDelete: Cascade)
+  printer                                                     Printer       @relation(fields: [printerId], references: [id], onDelete: Cascade)
 
   @@map("print_jobs")
 }
