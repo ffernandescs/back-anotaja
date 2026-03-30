@@ -44,6 +44,9 @@ export class QZTrayController {
         return;
       }
       
+      console.log('📄 Certificado carregado, tamanho:', certificate.length, 'bytes');
+      console.log('📄 Primeiras linhas do certificado:', certificate.substring(0, 100) + '...');
+      
       res.type('text/plain').send(certificate.trim());
     } catch (error) {
       console.error('❌ Erro ao ler certificado:', error);
