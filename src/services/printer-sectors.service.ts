@@ -31,7 +31,7 @@ export class PrinterSectorService {
   }
 
   async create(createSectorDto: any, userId: string) {
-    const { ...data } = createSectorDto;
+    const { printerId, ...data } = createSectorDto;
     
     // Buscar usuário para obter o branchId
     const user = await prisma.user.findUnique({
@@ -67,7 +67,7 @@ export class PrinterSectorService {
   }
 
   async update(id: string, updateSectorDto: any) {
-    const { branchId, ...data } = updateSectorDto;
+    const { branchId, printerId, ...data } = updateSectorDto;
     
     // Verificar se já existe outro setor com o mesmo nome/código
     if (data.name || data.code) {
