@@ -111,7 +111,11 @@ export class PrinterSectorService {
       });
       
       if (currentSector && currentSector.printers.length > 0) {
-        throw new Error('Este setor já tem uma impressora associada');
+        // Se já tem uma impressora, remove a associação antiga
+        await prisma.printer.update({
+          where: { id: currentSector.printers[0].id },
+          data: { sectorConfigId: null }
+        });
       }
       
       // Atualizar a impressora para apontar para este setor
