@@ -30,10 +30,10 @@ cert.validity.notBefore = new Date();
 cert.validity.notAfter = new Date();
 cert.validity.notAfter.setFullYear(cert.validity.notBefore.getFullYear() + 10);
 
-// Atributos do certificado
+// Atributos do certificado - ATUALIZE COM SEU DOMÍNIO REAL
 const attrs = [{
   name: 'commonName',
-  value: 'anotaja.shop'
+  value: process.env.PRODUCTION_DOMAIN || 'anotaja.shop'
 }, {
   name: 'organizationName',
   value: 'Anotaja'
@@ -45,19 +45,28 @@ const attrs = [{
 cert.setSubject(attrs);
 cert.setIssuer(attrs);
 
-// Adicionar SAN (Subject Alternative Name) para QZ Tray
+// Adicionar SAN (Subject Alternative Name) para QZ Tray - ATUALIZE COM SEUS DOMÍNIOS
+const productionDomain = process.env.PRODUCTION_DOMAIN || 'anotaja.shop';
 const sans = [
   {
     type: 2, // DNS name
-    value: 'anotaja.shop'
+    value: productionDomain
   },
   {
     type: 2,
-    value: 'www.anotaja.shop'
+    value: 'www.' + productionDomain
   },
   {
     type: 2,
     value: 'localhost'
+  },
+  {
+    type: 2,
+    value: 'anotaja.shop' // manter como fallback
+  },
+  {
+    type: 2,
+    value: 'www.anotaja.shop'
   },
   {
     type: 7, // IP address
