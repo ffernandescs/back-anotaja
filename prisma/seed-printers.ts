@@ -36,8 +36,11 @@ async function seedPrinters() {
     {
       name: 'Impressora Principal',
       printerName: 'Impressora_Termica_1',
-      sector: PrinterSector.GENERAL,
+      sectorConfigId: null, // Será criado depois
       isActive: true,
+      isDefault: true,
+      columns: 40,
+      isThermal: true,
       status: PrinterStatus.ONLINE,
       copies: 1,
       printComplements: true,
@@ -48,8 +51,11 @@ async function seedPrinters() {
     {
       name: 'Impressora Cozinha',
       printerName: 'Impressora_Cozinha',
-      sector: PrinterSector.KITCHEN,
+      sectorConfigId: null, // Será criado depois
       isActive: true,
+      isDefault: false,
+      columns: 40,
+      isThermal: true,
       status: PrinterStatus.ONLINE,
       copies: 2,
       printComplements: true,
@@ -59,8 +65,11 @@ async function seedPrinters() {
     {
       name: 'Impressora Bar',
       printerName: 'Impressora_Bar',
-      sector: PrinterSector.BAR,
+      sectorConfigId: null, // Será criado depois
       isActive: true,
+      isDefault: false,
+      columns: 40,
+      isThermal: true,
       status: PrinterStatus.ONLINE,
       copies: 1,
       printComplements: false,
@@ -70,8 +79,11 @@ async function seedPrinters() {
     {
       name: 'Impressora Delivery',
       printerName: 'Impressora_Delivery',
-      sector: PrinterSector.DELIVERY,
+      sectorConfigId: null, // Será criado depois
       isActive: false, // Desativada para exemplo
+      isDefault: false,
+      columns: 40,
+      isThermal: true,
       status: PrinterStatus.OFFLINE,
       copies: 1,
       printComplements: true,
@@ -114,7 +126,6 @@ async function seedPrinters() {
       printerId: printers[0]?.id,
       orderId: 'ORDER-001',
       orderType: 'DINE_IN',
-      sector: PrinterSector.GENERAL,
       copies: 1,
       status: 'COMPLETED',
       printedAt: new Date(Date.now() - 1000 * 60 * 30), // 30 minutos atrás
@@ -123,7 +134,6 @@ async function seedPrinters() {
       printerId: printers[1]?.id,
       orderId: 'ORDER-002',
       orderType: 'DINE_IN',
-      sector: PrinterSector.KITCHEN,
       copies: 2,
       status: 'COMPLETED',
       printedAt: new Date(Date.now() - 1000 * 60 * 15), // 15 minutos atrás
@@ -132,7 +142,6 @@ async function seedPrinters() {
       printerId: printers[0]?.id,
       orderId: 'ORDER-003',
       orderType: 'DELIVERY',
-      sector: PrinterSector.GENERAL,
       copies: 1,
       status: 'PENDING',
     },
@@ -140,7 +149,6 @@ async function seedPrinters() {
       printerId: printers[2]?.id,
       orderId: 'ORDER-004',
       orderType: 'DINE_IN',
-      sector: PrinterSector.BAR,
       copies: 1,
       status: 'ERROR',
       errorMessage: 'Impressora sem papel',
