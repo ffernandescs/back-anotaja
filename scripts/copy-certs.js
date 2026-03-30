@@ -34,7 +34,7 @@ filesToCopy.forEach(file => {
   
   if (fs.existsSync(srcPath)) {
     try {
-      fs.copyFileSync(srcPath, distPath);
+    fs.copyFileSync(srcPath, distPath);
       console.log(`✅ Copiado ${file} -> dist/src/keys/`);
       
       // Verificar se foi copiado corretamente

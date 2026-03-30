@@ -3,11 +3,13 @@ import { Response } from 'express';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import * as crypto from 'crypto';
+import { Public } from 'src/common/decorators/public.decorator';
 
 @Controller('qz-tray')
 export class QZTrayController {
   
   // Endpoint para fornecer o certificado
+  @Public()
   @Get('cert')
   getCertificate(@Res() res: Response) {
     try {
@@ -50,6 +52,7 @@ export class QZTrayController {
   }
 
   // Endpoint para assinar mensagens
+  @Public()
   @Post('sign')
   async signMessage(@Body() body: { toSign: string }) {
     try {
