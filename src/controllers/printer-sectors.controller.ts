@@ -31,8 +31,8 @@ export class PrinterSectorsController {
   }
 
   @Put(':id')
-  async update(@Param('id') id: string, @Body() updateSectorDto: any) {
-    return this.printerSectorsService.update(id, updateSectorDto);
+  async update(@Param('id') id: string, @Body() updateSectorDto: any, @Req() req: RequestWithUser) {
+    return this.printerSectorsService.update(id, updateSectorDto, req.user.userId);
   }
 
   @Delete(':id')

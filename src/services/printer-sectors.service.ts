@@ -86,11 +86,34 @@ export class PrinterSectorService {
     });
   }
 
-  async update(id: string, updateSectorDto: any) {
+  async update(id: string, updateSectorDto: any, userId: string) {
     const { branchId, printerId, ...data } = updateSectorDto;
     
     // Se está associando uma impressora, validar regras 1:1
     if (printerId) {
+      // Buscar usuário para obter o branchId
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        include: { branch: true },
+      });
+
+      if (!user || !user.branchId) {
+        throw new Error('Usuário não está associado a uma filial');
+      }
+      
+      // Verificar se a impressora existe e pertence ao mesmo branch
+      const printer = await prisma.printer.findUnique({
+        where: { id: printerId }
+      });
+      
+      if (!printer) {
+        throw new Error('Impressora não encontrada');
+      }
+      
+      if (printer.branchId !== user.branchId) {
+        throw new Error('Esta impressora não pertence à sua filial');
+      }
+      
       // Verificar se a impressora já está associada a outro setor
       const existingPrinterSector = await prisma.printerSectorConfig.findFirst({
         where: {

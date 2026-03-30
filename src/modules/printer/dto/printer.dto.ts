@@ -1,4 +1,5 @@
-import { IsString, IsEnum, IsBoolean, IsOptional, IsInt, Min, IsNotEmpty } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsOptional, IsNumber, IsString, Min, IsInt, IsBoolean } from 'class-validator';
+import { OrderType } from '../../../common/enums/order-type.enum';
 import { PrinterStatus } from '@prisma/client';
 
 export class CreatePrinterDto {
@@ -105,15 +106,13 @@ export class UpdatePrinterStatusDto {
   @IsEnum(PrinterStatus)
   status!: PrinterStatus;
 
-  @IsString()
   @IsOptional()
   errorMessage?: string;
 }
 
 export class CreatePrintConfigDto {
-  @IsString()
-  @IsNotEmpty()
-  orderType!: string;
+  @IsEnum(OrderType)
+  orderType!: OrderType;
 
   @IsInt()
   @Min(1)
@@ -128,8 +127,7 @@ export class CreatePrintConfigDto {
   productionPrinterId?: string;
 
   @IsBoolean()
-  @IsOptional()
-  isActive?: boolean;
+  isActive!: boolean;
 
   @IsString()
   @IsNotEmpty()
@@ -137,11 +135,11 @@ export class CreatePrintConfigDto {
 }
 
 export class UpdatePrintConfigDto {
-  @IsString()
+  @IsEnum(OrderType)
   @IsOptional()
-  orderType?: string;
+  orderType?: OrderType;
 
-  @IsInt()
+  @IsNumber()
   @Min(1)
   @IsOptional()
   copies?: number;
