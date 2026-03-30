@@ -1,5 +1,5 @@
 import { IsString, IsEnum, IsBoolean, IsOptional, IsInt, Min, IsNotEmpty } from 'class-validator';
-import { PrinterSector, PrinterStatus } from '@prisma/client';
+import { PrinterStatus } from '@prisma/client';
 
 export class CreatePrinterDto {
   @IsString()
@@ -10,9 +10,9 @@ export class CreatePrinterDto {
   @IsNotEmpty()
   printerName!: string;
 
-  @IsEnum(PrinterSector)
+  @IsString()
   @IsOptional()
-  sector?: PrinterSector;
+  sectorConfigId?: string;
 
   @IsBoolean()
   @IsOptional()
@@ -49,9 +49,9 @@ export class UpdatePrinterDto {
   @IsOptional()
   printerName?: string;
 
-  @IsEnum(PrinterSector)
+  @IsString()
   @IsOptional()
-  sector?: PrinterSector;
+  sectorConfigId?: string;
 
   @IsBoolean()
   @IsOptional()
@@ -84,9 +84,9 @@ export class TestPrinterDto {
   @IsNotEmpty()
   printerId!: string;
 
-  @IsEnum(PrinterSector)
+  @IsString()
   @IsOptional()
-  sector?: PrinterSector;
+  sectorConfigId?: string;
 }
 
 export class UpdatePrinterStatusDto {

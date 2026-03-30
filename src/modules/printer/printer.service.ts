@@ -221,11 +221,16 @@ export class PrinterService {
       throw new Error('Usuário não está associado a uma filial');
     }
 
+    // O frontend agora envia apenas sectorConfigId
+    const { sectorConfigId, ...data } = createPrinterDto;
+
     return prisma.printer.create({
       data: {
-        ...createPrinterDto,
+        ...data,
         branchId: user.branchId,
         status: 'OFFLINE',
+        // Se sectorConfigId foi enviado, usar ele
+        ...(sectorConfigId && { sectorConfigId }),
       },
     });
   }

@@ -1522,12 +1522,6 @@ model NotificationRead {
 }
 
 // Sistema de configuração de impressoras
-enum PrinterSector {
-  GENERAL    // Geral - impressão principal
-  KITCHEN    // Cozinha
-  BAR        // Bar
-  DELIVERY   // Entrega
-}
 
 model PrinterSectorConfig {
   id                                                                                                                     String     @id @default(cuid())
@@ -1560,7 +1554,6 @@ model Printer {
   id                                                                              String                @id @default(cuid())
   name            String        // Nome da impressora (ex: "Impressora Cozinha")
   printerName     String        // Nome real da impressora no sistema operacional
-  sector                                                                          PrinterSector         @default(GENERAL)
   isActive                                                                        Boolean               @default(true)
   status                                                                          PrinterStatus         @default(OFFLINE)
   copies                                                                          Int                   @default(1) // Número de vias de impressão
@@ -1584,7 +1577,6 @@ model PrintJob {
   printerId                                                   String
   orderId                                                     String
   orderType       String        // DELIVERY, TAKEOUT, DINE_IN
-  sector                                                      PrinterSector
   copies                                                      Int            @default(1)
   status                                                      String         @default("PENDING") // PENDING, PRINTING, COMPLETED, ERROR
   errorMessage                                                String?
