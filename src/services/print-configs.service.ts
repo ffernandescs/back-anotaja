@@ -1,0 +1,94 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { prisma } from '../../lib/prisma';
+
+@Injectable()
+export class PrintConfigService {
+  private readonly logger = new Logger(PrintConfigService.name);
+
+  async findAll(userId: string) {
+    // Buscar usuário para obter o branchId
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { branch: true },
+    });
+
+    if (!user || !user.branchId) {
+      throw new Error('Usuário não está associado a uma filial');
+    }
+
+    return prisma.printConfig.findMany({
+      where: { branchId: user.branchId },
+      include: {
+        printer: {
+          select: {
+            id: true,
+            name: true,
+            printerName: true,
+          },
+        },
+        productionPrinter: {
+          select: {
+            id: true,
+            name: true,
+            printerName: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async findOne(id: string) {
+    return prisma.printConfig.findUnique({
+      where: { id },
+      include: {
+        printer: {
+          select: {
+            id: true,
+            name: true,
+            printerName: true,
+          },
+        },
+        productionPrinter: {
+          select: {
+            id: true,
+            name: true,
+            printerName: true,
+          },
+        },
+      },
+    });
+  }
+
+  async create(createPrintConfigDto: any, userId: string) {
+    // Buscar usuário para obter o branchId
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { branch: true },
+    });
+
+    if (!user || !user.branchId) {
+      throw new Error('Usuário não está associado a uma filial');
+    }
+
+    return prisma.printConfig.create({
+      data: {
+        ...createPrintConfigDto,
+        branchId: user.branchId,
+      },
+    });
+  }
+
+  async update(id: string, updatePrintConfigDto: any) {
+    return prisma.printConfig.update({
+      where: { id },
+      data: updatePrintConfigDto,
+    });
+  }
+
+  async remove(id: string) {
+    return prisma.printConfig.delete({
+      where: { id },
+    });
+  }
+}

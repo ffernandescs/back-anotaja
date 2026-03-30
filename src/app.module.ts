@@ -49,6 +49,7 @@ import { MenuGroupsModule } from './modules/menu-groups/menu-groups.module';
 import { MasterModule } from './modules/master/master.module';
 import { PrinterModule } from './modules/printer/printer.module';
 import { PrinterSectorsModule } from './modules/printer-sectors/printer-sectors.module';
+import { PrintConfigsModule } from './modules/print-configs/print-configs.module';
 import { SignModule } from './modules/sign/sign.module';
 import { QZTrayModule } from './modules/qz-tray/qz-tray.module';
 
@@ -104,6 +105,7 @@ import { QZTrayModule } from './modules/qz-tray/qz-tray.module';
     MasterModule,
     PrinterModule,
     PrinterSectorsModule,
+    PrintConfigsModule,
     SignModule,
     QZTrayModule
   ],
