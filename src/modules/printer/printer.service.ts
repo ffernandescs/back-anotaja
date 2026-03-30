@@ -206,6 +206,17 @@ export class PrinterService {
 
     return prisma.printer.findMany({
       where: { branchId: user.branchId },
+      include: {
+        sectorConfig: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            color: true,
+            icon: true,
+          },
+        },
+      },
       orderBy: { createdAt: 'desc' },
     });
   }
