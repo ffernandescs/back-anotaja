@@ -49,6 +49,7 @@ import { MenuGroupsModule } from './modules/menu-groups/menu-groups.module';
 import { MasterModule } from './modules/master/master.module';
 import { PrinterModule } from './modules/printer/printer.module';
 import { SignModule } from './modules/sign/sign.module';
+import { QZTrayModule } from './modules/qz-tray/qz-tray.module';
 
 @Module({
   imports: [
@@ -101,7 +102,8 @@ import { SignModule } from './modules/sign/sign.module';
     MenuGroupsModule,
     MasterModule,
     PrinterModule,
-    SignModule
+    SignModule,
+    QZTrayModule
   ],
   providers: [
     {
