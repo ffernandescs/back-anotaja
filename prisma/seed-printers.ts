@@ -1,7 +1,7 @@
 // 🖨️ Seed de Impressoras - Dados de exemplo para o sistema
 
 import { prisma } from '../lib/prisma';
-import { PrinterSector, PrinterStatus } from '@prisma/client';
+import { PrinterStatus } from '@prisma/client';
 
 async function seedPrinters() {
   console.log('🖨️ Iniciando seed de impressoras...');
