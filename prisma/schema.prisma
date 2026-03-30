@@ -538,6 +538,7 @@ model Branch {
   autoRouteConfig        AutoRouteConfig?
   printers               Printer[]
   printerSectors         PrinterSectorConfig[]
+  printConfigs           PrintConfig[]
 }
 
 model BranchSchedule {
@@ -1555,7 +1556,10 @@ model Printer {
   name            String        // Nome da impressora (ex: "Impressora Cozinha")
   printerName     String        // Nome real da impressora no sistema operacional
   isActive                                                                        Boolean               @default(true)
+  isDefault                                                                       Boolean               @default(false) // Impressora padrão
   status                                                                          PrinterStatus         @default(OFFLINE)
+  columns                                                                         Int                   @default(40) // Quantidade de colunas
+  isThermal                                                                       Boolean               @default(true) // Impressora térmica
   copies                                                                          Int                   @default(1) // Número de vias de impressão
   printComplements                                                                Boolean               @default(true) // Imprimir complementos
   customMessage   String?       // Mensagem personalizada no final da comanda
@@ -1568,6 +1572,8 @@ model Printer {
   branch                                                                          Branch               @relation(fields: [branchId], references: [id], onDelete: Cascade)
   sectorConfig                                                                    PrinterSectorConfig? @relation(fields: [sectorConfigId], references: [id])
   printJobs                                                                       PrintJob[]
+  printConfigs                                                                    PrintConfig[]       @relation("PrintConfigPrinter")
+  productionPrintConfigs                                                           PrintConfig[]       @relation("PrintConfigProductionPrinter")
 
   @@map("printers")
 }
@@ -1587,4 +1593,23 @@ model PrintJob {
   printer                                                     Printer       @relation(fields: [printerId], references: [id], onDelete: Cascade)
 
   @@map("print_jobs")
+}
+
+model PrintConfig {
+  id                        String        @id @default(cuid())
+  orderType                 String        // DELIVERY, TAKEOUT, DINE_IN
+  copies                    Int           @default(1) // Quantidade de vias
+  printerId                 String?       // Impressora para via padrão
+  productionPrinterId       String?       // Impressora para via de produção
+  isActive                  Boolean       @default(true)
+  branchId                  String
+  createdAt                 DateTime      @default(now())
+  updatedAt                 DateTime      @updatedAt
+
+  branch                    Branch        @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  printer                   Printer?      @relation("PrintConfigPrinter", fields: [printerId], references: [id])
+  productionPrinter         Printer?      @relation("PrintConfigProductionPrinter", fields: [productionPrinterId], references: [id])
+
+  @@unique([branchId, orderType])
+  @@map("print_configs")
 }

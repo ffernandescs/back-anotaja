@@ -18,6 +18,18 @@ export class CreatePrinterDto {
   @IsOptional()
   isActive?: boolean;
 
+  @IsBoolean()
+  @IsOptional()
+  isDefault?: boolean;
+
+  @IsInt()
+  @IsOptional()
+  columns?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  isThermal?: boolean;
+
   @IsInt()
   @Min(1)
   @IsOptional()
@@ -96,4 +108,53 @@ export class UpdatePrinterStatusDto {
   @IsString()
   @IsOptional()
   errorMessage?: string;
+}
+
+export class CreatePrintConfigDto {
+  @IsString()
+  @IsNotEmpty()
+  orderType!: string;
+
+  @IsInt()
+  @Min(1)
+  copies!: number;
+
+  @IsString()
+  @IsOptional()
+  printerId?: string;
+
+  @IsString()
+  @IsOptional()
+  productionPrinterId?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  isActive?: boolean;
+
+  @IsString()
+  @IsNotEmpty()
+  branchId!: string;
+}
+
+export class UpdatePrintConfigDto {
+  @IsString()
+  @IsOptional()
+  orderType?: string;
+
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  copies?: number;
+
+  @IsString()
+  @IsOptional()
+  printerId?: string;
+
+  @IsString()
+  @IsOptional()
+  productionPrinterId?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  isActive?: boolean;
 }
