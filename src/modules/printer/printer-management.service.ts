@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { prisma } from '../../../lib/prisma';
-import { Printer, PrinterSector, PrinterStatus } from '@prisma/client';
+import { Printer, PrinterStatus } from '@prisma/client';
 import { 
   CreatePrinterDto, 
   UpdatePrinterDto, 
@@ -258,7 +258,6 @@ export class PrinterManagementService {
           printerId: printer.id,
           orderId: testJobData.orderId,
           orderType: testJobData.orderType,
-          sector: testPrinterDto.sector || printer.sector,
           copies: 1,
           status: result.success ? 'COMPLETED' : 'ERROR',
           errorMessage: result.error,
@@ -354,8 +353,7 @@ export class PrinterManagementService {
           copies: printer.copies,
           printComplements: printer.printComplements,
           customMessage: printer.customMessage,
-          qrCodeUrl: printer.qrCodeUrl,
-          sector: printer.sector
+          qrCodeUrl: printer.qrCodeUrl
         }
       };
 
@@ -388,7 +386,6 @@ export class PrinterManagementService {
     printerId: string,
     orderId: string,
     orderType: string,
-    sector: PrinterSector,
     copies: number = 1
   ): Promise<void> {
     await prisma.printJob.create({
@@ -396,7 +393,6 @@ export class PrinterManagementService {
         printerId,
         orderId,
         orderType,
-        sector,
         copies,
         status: 'PENDING'
       }

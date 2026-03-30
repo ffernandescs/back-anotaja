@@ -1,11 +1,10 @@
-import { Printer, PrinterSector, PrinterStatus } from '@prisma/client';
+import { Printer, PrinterStatus } from '@prisma/client';
 
 export interface PrinterWithJobs extends Printer {
   printJobs: Array<{
     id: string;
     orderId: string;
     orderType: string;
-    sector: PrinterSector;
     copies: number;
     status: string;
     errorMessage?: string | null;
