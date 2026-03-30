@@ -6,7 +6,7 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "postbuild": "node scripts/fix-prisma-path.js",
+    "postbuild": "node scripts/fix-prisma-path.js && node scripts/copy-certs.js",
     "build": "prisma generate && nest build",
     "prisma:generate": "prisma generate",
     "migrate:dev": "dotenv -e environments/.env.dev -- prisma migrate dev",
