@@ -1,12 +1,10 @@
-import { Controller, Get, Post, Res, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Res, Body } from '@nestjs/common';
 import { Response } from 'express';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import * as crypto from 'crypto';
-import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 
 @Controller('qz-tray')
-@UseGuards(JwtAuthGuard)
 export class QZTrayController {
   
   // Endpoint para fornecer o certificado
