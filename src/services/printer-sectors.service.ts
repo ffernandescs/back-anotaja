@@ -20,6 +20,16 @@ export class PrinterSectorService {
 
     return prisma.printerSectorConfig.findMany({
       where: { branchId: user.branchId },
+      include: {
+        printers: {
+          select: {
+            id: true,
+            name: true,
+            printerName: true,
+            isActive: true,
+          }
+        }
+      },
       orderBy: { order: 'asc' },
     });
   }
@@ -27,6 +37,16 @@ export class PrinterSectorService {
   async findOne(id: string) {
     return prisma.printerSectorConfig.findUnique({
       where: { id },
+      include: {
+        printers: {
+          select: {
+            id: true,
+            name: true,
+            printerName: true,
+            isActive: true,
+          }
+        }
+      }
     });
   }
 
@@ -69,6 +89,38 @@ export class PrinterSectorService {
   async update(id: string, updateSectorDto: any) {
     const { branchId, printerId, ...data } = updateSectorDto;
     
+    // Se está associando uma impressora, validar regras 1:1
+    if (printerId) {
+      // Verificar se a impressora já está associada a outro setor
+      const existingPrinterSector = await prisma.printerSectorConfig.findFirst({
+        where: {
+          printers: {
+            some: { id: printerId }
+          }
+        }
+      });
+      
+      if (existingPrinterSector && existingPrinterSector.id !== id) {
+        throw new Error('Esta impressora já está associada a outro setor');
+      }
+      
+      // Verificar se este setor já tem uma impressora associada
+      const currentSector = await prisma.printerSectorConfig.findUnique({
+        where: { id },
+        include: { printers: true }
+      });
+      
+      if (currentSector && currentSector.printers.length > 0) {
+        throw new Error('Este setor já tem uma impressora associada');
+      }
+      
+      // Atualizar a impressora para apontar para este setor
+      await prisma.printer.update({
+        where: { id: printerId },
+        data: { sectorConfigId: id }
+      });
+    }
+    
     // Verificar se já existe outro setor com o mesmo nome/código
     if (data.name || data.code) {
       const existing = await prisma.printerSectorConfig.findFirst({
@@ -80,6 +132,9 @@ export class PrinterSectorService {
             data.code ? { code: data.code } : {},
           ].filter((condition: any) => Object.keys(condition).length > 0),
         },
+        include: {
+          printers: true
+        }
       });
 
       if (existing) {
