@@ -71,18 +71,43 @@ export class PrintConfigService {
       throw new Error('Usuário não está associado a uma filial');
     }
 
-    return prisma.printConfig.create({
-      data: {
-        ...createPrintConfigDto,
+    return prisma.printConfig.upsert({
+      where: {
+        branchId_orderType_copyType: {
+          branchId: user.branchId,
+          orderType: createPrintConfigDto.orderType,
+          copyType: createPrintConfigDto.copyType,
+        },
+      },
+      update: {
+        copies: createPrintConfigDto.copies,
+        printerId: createPrintConfigDto.printerId || null,
+        productionPrinterId: createPrintConfigDto.productionPrinterId || null,
+        isActive: createPrintConfigDto.isActive,
+      },
+      create: {
+        orderType: createPrintConfigDto.orderType,
+        copyType: createPrintConfigDto.copyType,
+        copies: createPrintConfigDto.copies,
+        printerId: createPrintConfigDto.printerId || null,
+        productionPrinterId: createPrintConfigDto.productionPrinterId || null,
+        isActive: createPrintConfigDto.isActive,
         branchId: user.branchId,
       },
     });
   }
 
   async update(id: string, updatePrintConfigDto: any) {
+    const { printerId, productionPrinterId, copies, isActive } = updatePrintConfigDto;
+    
     return prisma.printConfig.update({
       where: { id },
-      data: updatePrintConfigDto,
+      data: {
+        ...(printerId !== undefined && { printerId: printerId || null }),
+        ...(productionPrinterId !== undefined && { productionPrinterId: productionPrinterId || null }),
+        ...(copies !== undefined && { copies }),
+        ...(isActive !== undefined && { isActive }),
+      },
     });
   }
 

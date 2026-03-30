@@ -52,6 +52,7 @@ import { PrinterSectorsModule } from './modules/printer-sectors/printer-sectors.
 import { PrintConfigsModule } from './modules/print-configs/print-configs.module';
 import { SignModule } from './modules/sign/sign.module';
 import { QZTrayModule } from './modules/qz-tray/qz-tray.module';
+import { GeneralConfigModule } from './modules/general-config/general-config.module';
 
 @Module({
   imports: [
@@ -107,7 +108,8 @@ import { QZTrayModule } from './modules/qz-tray/qz-tray.module';
     PrinterSectorsModule,
     PrintConfigsModule,
     SignModule,
-    QZTrayModule
+    QZTrayModule,
+    GeneralConfigModule
   ],
   providers: [
     {
