@@ -2,7 +2,10 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Delete,
+  Body,
+  Param,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -25,6 +28,31 @@ interface RequestWithUser extends Request {
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class PrinterController {
   constructor(private readonly printerService: PrinterService) {}
+
+  @Get()
+  async findAll(@Req() req: RequestWithUser) {
+    return this.printerService.findAll(req.user.userId);
+  }
+
+  @Post()
+  async create(@Body() createPrinterDto: any, @Req() req: RequestWithUser) {
+    return this.printerService.create(createPrinterDto, req.user.userId);
+  }
+
+  @Put(':id')
+  async update(@Param('id') id: string, @Body() updatePrinterDto: any) {
+    return this.printerService.update(id, updatePrinterDto);
+  }
+
+  @Delete(':id')
+  async remove(@Param('id') id: string) {
+    return this.printerService.remove(id);
+  }
+
+  @Post(':id/status')
+  async updateStatus(@Param('id') id: string, @Body() body: { isActive: boolean }) {
+    return this.printerService.updateStatus(id, body.isActive);
+  }
 
   @Get('status')
   @Roles('admin', 'manager')

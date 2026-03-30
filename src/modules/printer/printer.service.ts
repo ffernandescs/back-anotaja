@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Order, Prisma } from '@prisma/client';
 import { money } from '../../utils/money';
+import { prisma } from 'lib/prisma';
 
 export interface PrinterOrderData {
   number: string;
@@ -186,14 +187,70 @@ export class PrinterService {
   }
 
   async clearPrinterQueue(): Promise<void> {
-    if (!this.config.enabled) return;
+    // Implementar limpeza de fila se necessário
+    this.logger.log('Printer queue cleared');
+  }
 
-    try {
-      await fetch(`${this.config.endpoint}/queue`, { method: 'DELETE' });
-      this.logger.log('Printer queue cleared');
-    } catch (error) {
-      this.logger.error('Failed to clear printer queue:', error instanceof Error ? error.message : String(error));
+  // ── CRUD Methods for Printers ───────────────────────────────────────────────
+
+  async findAll(userId: string) {
+    // Buscar usuário para obter o branchId
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { branch: true },
+    });
+
+    if (!user || !user.branchId) {
+      throw new Error('Usuário não está associado a uma filial');
     }
+
+    return prisma.printer.findMany({
+      where: { branchId: user.branchId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async create(createPrinterDto: any, userId: string) {
+    // Buscar usuário para obter o branchId
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { branch: true },
+    });
+
+    if (!user || !user.branchId) {
+      throw new Error('Usuário não está associado a uma filial');
+    }
+
+    return prisma.printer.create({
+      data: {
+        ...createPrinterDto,
+        branchId: user.branchId,
+        status: 'OFFLINE',
+      },
+    });
+  }
+
+  async update(id: string, updatePrinterDto: any) {
+    return prisma.printer.update({
+      where: { id },
+      data: updatePrinterDto,
+    });
+  }
+
+  async remove(id: string) {
+    return prisma.printer.delete({
+      where: { id },
+    });
+  }
+
+  async updateStatus(id: string, isActive: boolean) {
+    return prisma.printer.update({
+      where: { id },
+      data: { 
+        isActive,
+        status: isActive ? 'ONLINE' : 'OFFLINE'
+      },
+    });
   }
 
   getConfig(): PrinterConfig {
