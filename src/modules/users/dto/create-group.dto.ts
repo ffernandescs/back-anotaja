@@ -12,6 +12,10 @@ class PermissionDto {
   @IsOptional()
   @IsBoolean()
   inverted?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isOverride?: boolean;
 }
 
 export class CreateGroupDto {
