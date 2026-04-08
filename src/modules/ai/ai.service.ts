@@ -65,6 +65,170 @@ export class AiService {
     }
   }
 
+  async generatePrinterMessage(type: 'delivery' | 'table'): Promise<string> {
+    try {
+      // Tentar usar Groq primeiro
+      let message = await this.generatePrinterMessageWithGroq(type);
+
+      // Se falhar, usar fallback inteligente
+      if (!message || message.trim().length === 0) {
+        message = this.generateIntelligentPrinterMessage(type);
+      }
+
+      // Limpar e formatar a mensagem
+      message = message
+        .replace(/^["']|["']$/g, '') // Remover aspas
+        .replace(/\n+/g, ' ') // Remover quebras de linha
+        .trim();
+
+      // Limitar a 150 caracteres
+      if (message.length > 150) {
+        message = message.substring(0, 147) + '...';
+      }
+
+      return message;
+    } catch {
+      return this.generateIntelligentPrinterMessage(type);
+    }
+  }
+
+  async generateQRCodeMessage(type: 'delivery' | 'table'): Promise<string> {
+    try {
+      // Tentar usar Groq para gerar URL sugerida
+      let url = await this.generateQRCodeWithGroq(type);
+
+      // Se falhar, usar fallback inteligente
+      if (!url || url.trim().length === 0) {
+        url = this.generateIntelligentQRCode(type);
+      }
+
+      // Limpar e formatar a URL
+      url = url
+        .replace(/^["']|["']$/g, '') // Remover aspas
+        .trim();
+
+      return url;
+    } catch {
+      return this.generateIntelligentQRCode(type);
+    }
+  }
+
+  private async generatePrinterMessageWithGroq(
+    type: 'delivery' | 'table',
+  ): Promise<string> {
+    if (!this.GROQ_API_KEY) {
+      return '';
+    }
+
+    const systemMessage =
+      'Você é um especialista em marketing para restaurantes. Crie mensagens curtas e amigáveis para cupons fiscais.';
+
+    const userMessage =
+      type === 'delivery'
+        ? 'Crie uma mensagem de agradecimento para cupom de delivery/retirada (máximo 100 caracteres)'
+        : 'Crie uma mensagem de agradecimento para fechamento de mesa/comanda (máximo 100 caracteres)';
+
+    try {
+      const response = await axios.post<OpenAIResponse>(
+        this.GROQ_API_URL,
+        {
+          model: 'llama-3.1-8b-instant',
+          messages: [
+            {
+              role: 'system',
+              content: systemMessage,
+            },
+            {
+              role: 'user',
+              content: userMessage,
+            },
+          ],
+          max_tokens: 80,
+          temperature: 0.7,
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${this.GROQ_API_KEY}`,
+          },
+          timeout: 10000,
+        },
+      );
+
+      if (
+        response.data &&
+        response.data.choices &&
+        response.data.choices[0] &&
+        response.data.choices[0].message
+      ) {
+        return response.data.choices[0].message.content.trim();
+      }
+
+      return '';
+    } catch (error: any) {
+      console.error('Erro ao gerar mensagem de impressora com Groq:', error);
+      return '';
+    }
+  }
+
+  private async generateQRCodeWithGroq(
+    type: 'delivery' | 'table',
+  ): Promise<string> {
+    if (!this.GROQ_API_KEY) {
+      return '';
+    }
+
+    const systemMessage =
+      'Você é um especialista em URLs. Gere apenas a URL completa, sem explicações.';
+
+    const userMessage =
+      type === 'delivery'
+        ? 'Gere uma URL de exemplo para avaliação de pedido delivery (formato: https://exemplo.com/avaliar)'
+        : 'Gere uma URL de exemplo para avaliação de atendimento em mesa (formato: https://exemplo.com/avaliar-mesa)';
+
+    try {
+      const response = await axios.post<OpenAIResponse>(
+        this.GROQ_API_URL,
+        {
+          model: 'llama-3.1-8b-instant',
+          messages: [
+            {
+              role: 'system',
+              content: systemMessage,
+            },
+            {
+              role: 'user',
+              content: userMessage,
+            },
+          ],
+          max_tokens: 50,
+          temperature: 0.3,
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${this.GROQ_API_KEY}`,
+          },
+          timeout: 10000,
+        },
+      );
+
+      if (
+        response.data &&
+        response.data.choices &&
+        response.data.choices[0] &&
+        response.data.choices[0].message
+      ) {
+        return response.data.choices[0].message.content.trim();
+      }
+
+      return '';
+    } catch (error: any) {
+      console.error('Erro ao gerar QR Code com Groq:', error);
+      return '';
+    }
+  }
+
   private async generateWithGroq(
     name: string,
     type: 'produto' | 'categoria' = 'produto',
@@ -338,5 +502,34 @@ export class AiService {
       }
       return this.generateIntelligentDescription(name);
     }
+  }
+
+  private generateIntelligentPrinterMessage(type: 'delivery' | 'table'): string {
+    const deliveryMessages = [
+      'Obrigado pela preferência! Volte sempre e aproveite nossas promoções.',
+      'Agradecemos seu pedido! Esperamos vê-lo novamente em breve.',
+      'Muito obrigado! Sua satisfação é nossa prioridade.',
+      'Obrigado por escolher a gente! Até a próxima!',
+      'Agradecemos a confiança! Volte sempre para mais sabor.',
+    ];
+
+    const tableMessages = [
+      'Obrigado por sua visita! Esperamos vê-lo novamente em breve.',
+      'Foi um prazer atendê-lo! Volte sempre!',
+      'Agradecemos sua presença! Até a próxima visita.',
+      'Obrigado pela preferência! Esperamos recebê-lo novamente.',
+      'Foi ótimo ter você aqui! Volte sempre para mais momentos especiais.',
+    ];
+
+    const messages = type === 'delivery' ? deliveryMessages : tableMessages;
+    const randomIndex = Math.floor(Math.random() * messages.length);
+    return messages[randomIndex];
+  }
+
+  private generateIntelligentQRCode(type: 'delivery' | 'table'): string {
+    if (type === 'delivery') {
+      return 'https://exemplo.com/avaliar-pedido';
+    }
+    return 'https://exemplo.com/avaliar-atendimento';
   }
 }

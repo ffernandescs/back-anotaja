@@ -78,6 +78,7 @@ async function bootstrap() {
   const port = configService.get<number>('PORT') ?? 3001;
   app.use(
     bodyParser.json({
+      limit: '50mb', // Aumentado para aceitar imagens base64
       verify: (req: any, res, buf) => {
         req['rawBody'] = buf.toString();
       },

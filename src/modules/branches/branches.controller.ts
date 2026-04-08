@@ -120,7 +120,7 @@ export class BranchesController {
     return this.branchesService.update(id, updateBranchDto, req.user.userId);
   }
 
-  @Put()
+  @Put('current')
   updateCurrent(
     @Body() updateBranchDto: UpdateBranchDto,
     @Req() req: RequestWithUser,

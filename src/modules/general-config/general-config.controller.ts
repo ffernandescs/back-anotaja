@@ -11,7 +11,6 @@ export class GeneralConfigController {
   constructor(private readonly generalConfigService: GeneralConfigService) {}
 
   @Get()
-  @Roles('admin', 'owner')
   async getConfig(@Request() req) {
     try {
       const branchId = req.user.branchId;
@@ -35,29 +34,6 @@ export class GeneralConfigController {
           tableClosingMessage: '',
           standardRouteQRCode: '',
           tableClosingQRCode: '',
-          
-          // Outros campos mantidos para compatibilidade
-          companyName: '',
-          cnpj: '',
-          address: '',
-          phone: '',
-          email: '',
-          showTaxInfo: true,
-          showCustomerInfo: true,
-          showOrderDetails: true,
-          showPaymentInfo: true,
-          showTimestamp: true,
-          headerMessage: '',
-          footerMessage: '',
-          thankYouMessage: 'Obrigado pela preferência!',
-          maxCharactersPerLine: 40,
-          fontSize: 'medium',
-          printLogo: false,
-          logoUrl: '',
-          showTaxNumber: true,
-          showFiscalInfo: true,
-          showOrderNumber: true,
-          showTableNumber: true,
         };
       }
       
@@ -68,7 +44,6 @@ export class GeneralConfigController {
   }
 
   @Put()
-  @Roles('admin', 'owner')
   async updateConfig(@Request() req, @Body() updateDto: UpdateGeneralConfigDto) {
     try {
       const branchId = req.user.branchId;

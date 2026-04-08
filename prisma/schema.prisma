@@ -1626,7 +1626,6 @@ model GeneralConfig {
   showComplementName        Boolean   @default(true)
   useLargerFontForProduction Boolean  @default(true)
   multiplyOptionsByQuantity Boolean   @default(false)
-  printCompanyLogo          Boolean   @default(true)
   printCancellationReceipt  Boolean   @default(false)
   printRatingQRCode         Boolean   @default(true)
   

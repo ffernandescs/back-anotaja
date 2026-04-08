@@ -1,6 +1,7 @@
 import { Controller, Post, Body, UseGuards } from '@nestjs/common';
 import { AiService } from './ai.service';
 import { GenerateDescriptionDto } from './dto/generate-description.dto';
+import { GeneratePrinterMessageDto } from './dto/generate-printer-message.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -37,6 +38,36 @@ export class AiController {
     return {
       name: generateDescriptionDto.name,
       description,
+    };
+  }
+
+  @Post('generate-printer-message')
+  
+  async generatePrinterMessage(
+    @Body() generatePrinterMessageDto: GeneratePrinterMessageDto,
+  ) {
+    const message = await this.aiService.generatePrinterMessage(
+      generatePrinterMessageDto.type,
+    );
+
+    return {
+      type: generatePrinterMessageDto.type,
+      message,
+    };
+  }
+
+  @Post('generate-qrcode-message')
+  
+  async generateQRCodeMessage(
+    @Body() generatePrinterMessageDto: GeneratePrinterMessageDto,
+  ) {
+    const url = await this.aiService.generateQRCodeMessage(
+      generatePrinterMessageDto.type,
+    );
+
+    return {
+      type: generatePrinterMessageDto.type,
+      url,
     };
   }
 }

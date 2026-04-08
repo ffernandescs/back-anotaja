@@ -325,7 +325,8 @@ export class AuthService {
                 },
                 customerAddress: true
               }
-            }
+            },
+            address:true
           }
         },
         permissions: true,

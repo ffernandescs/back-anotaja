@@ -14,9 +14,11 @@ import { PrintConfigService } from '../services/print-configs.service';
 
 interface RequestWithUser extends Request {
   user: {
-    userId: string;
+    id: string;
+    userId?: string;
     email?: string;
     role?: string;
+    branchId?: string;
   };
 }
 
@@ -26,7 +28,13 @@ export class PrintConfigsController {
 
   @Get()
   async findAll(@Req() req: RequestWithUser) {
-    return this.printConfigService.findAll(req.user.userId);
+    
+    const userId = req.user.userId || req.user.id;
+    if (!userId) {
+      throw new Error('User ID is required');
+    }
+    
+    return this.printConfigService.findAll(userId);
   }
 
   @Get(':id')
@@ -37,7 +45,14 @@ export class PrintConfigsController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async create(@Body() createPrintConfigDto: any, @Req() req: RequestWithUser) {
-    return this.printConfigService.create(createPrintConfigDto, req.user.userId);
+    console.log('PrintConfigsController.create - req.user.userId:', req.user.userId);
+    
+    const userId = req.user.userId || req.user.id;
+    if (!userId) {
+      throw new Error('User ID is required');
+    }
+    
+    return this.printConfigService.create(createPrintConfigDto, userId);
   }
 
   @Put(':id')

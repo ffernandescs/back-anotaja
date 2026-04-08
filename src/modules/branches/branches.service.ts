@@ -426,6 +426,7 @@ export class BranchesService {
   }
 
   async updateCurrent(userId: string, updateBranchDto: UpdateBranchDto) {
+    // Buscar usuário com company
     const user = await prisma.user.findUnique({
       where: { id: userId },
       include: { company: true },
@@ -435,8 +436,27 @@ export class BranchesService {
       throw new ForbiddenException('Usuário não está associado a uma empresa');
     }
 
-    if (!user.branchId) {
-      throw new NotFoundException('Usuário não está associado a uma filial');
+    // Se usuário não tem branchId, buscar a primeira branch da empresa (similar ao auth.service)
+    let branchId = user.branchId;
+    if (!branchId) {
+      const firstBranch = await prisma.branch.findFirst({
+        where: { companyId: user.companyId },
+      });
+      
+      if (!firstBranch) {
+        throw new NotFoundException('Nenhuma filial encontrada para esta empresa');
+      }
+      
+      branchId = firstBranch.id;
+    }
+
+    // Verificar se a branch existe
+    const branch = await prisma.branch.findUnique({
+      where: { id: branchId },
+    });
+
+    if (!branch) {
+      throw new NotFoundException('Filial não encontrada');
     }
 
     // Verificar se subdomain já existe (se fornecido e diferente do atual)
@@ -444,7 +464,7 @@ export class BranchesService {
       const existingBranch = (await prisma.branch.findFirst({
         where: {
           subdomain: updateBranchDto.subdomain,
-          NOT: { id: user.branchId },
+          NOT: { id: branchId },
         },
       })) as { id: string } | null;
 
@@ -454,24 +474,35 @@ export class BranchesService {
     }
 
     return prisma.branch.update({
-      where: { id: user.branchId },
+      where: { id: branchId },
       data: {
-        ...updateBranchDto,
-        document: updateBranchDto.document ?? '',
+        branchName: updateBranchDto.branchName,
+        logoUrl: updateBranchDto.logoUrl,
+        bannerUrl: updateBranchDto.bannerUrl,
         phone: updateBranchDto.phone,
+        primaryColor: updateBranchDto.primaryColor,
+        description: updateBranchDto.description,
+        instagram: updateBranchDto.instagram,
+        minOrderValue: updateBranchDto.minOrderValue,
+        checkoutMessage: updateBranchDto.checkoutMessage,
+        latitude: updateBranchDto.latitude,
+        longitude: updateBranchDto.longitude,
         address: {
           update: {
-            street: updateBranchDto.street ?? '',
-            city: updateBranchDto.city ?? '',
-            state: updateBranchDto.state ?? '',
-            zipCode: updateBranchDto.zipCode ?? '',
+            street: updateBranchDto.street,
+            number: updateBranchDto.number,
+            complement: updateBranchDto.complement,
+            neighborhood: updateBranchDto.neighborhood,
+            city: updateBranchDto.city,
+            state: updateBranchDto.state,
+            zipCode: updateBranchDto.zipCode,
           },
         },
-        paymentMethods: {
-          set: updateBranchDto.paymentMethods?.map((paymentMethod) => ({
+        paymentMethods: updateBranchDto.paymentMethods ? {
+          set: updateBranchDto.paymentMethods.map((paymentMethod) => ({
             id: paymentMethod.id,
           })),
-        },
+        } : undefined,
       },
       include: {
         company: {
