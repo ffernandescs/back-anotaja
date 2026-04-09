@@ -408,4 +408,206 @@ export class ProductsService {
       },
     });
   }
+
+  async importCatalog(sourceBranchId: string, userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { branch: true, company: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    if (!user.branchId) {
+      throw new ForbiddenException('Usuário não está associado a uma filial');
+    }
+
+    if (!user.companyId) {
+      throw new ForbiddenException('Usuário não está associado a uma empresa');
+    }
+
+    // Verificar se a filial de origem existe e pertence à mesma empresa
+    const sourceBranch = await prisma.branch.findUnique({
+      where: { id: sourceBranchId },
+    });
+
+    if (!sourceBranch) {
+      throw new NotFoundException('Filial de origem não encontrada');
+    }
+
+    if (sourceBranch.companyId !== user.companyId) {
+      throw new ForbiddenException('A filial de origem não pertence à sua empresa');
+    }
+
+    if (sourceBranch.id === user.branchId) {
+      throw new ForbiddenException('Não é possível importar da mesma filial');
+    }
+
+    // Buscar categorias e produtos da filial de origem
+    const sourceCategories = await prisma.category.findMany({
+      where: { 
+        branchId: sourceBranchId,
+        active: true 
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const sourceProducts = await prisma.product.findMany({
+      where: { 
+        branchId: sourceBranchId,
+        active: true 
+      },
+      include: {
+        complements: {
+          include: {
+            options: true,
+          },
+        },
+      },
+      orderBy: [
+        { displayOrder: 'asc' },
+        { featured: 'desc' },
+        { createdAt: 'desc' },
+      ],
+    });
+
+    const result = await prisma.$transaction(async (prisma) => {
+      let importedCategories = 0;
+      let importedProducts = 0;
+      const categoryMapping = new Map<string, string>(); // sourceId -> targetId
+
+      // Importar categorias
+      for (const sourceCategory of sourceCategories) {
+        // Verificar se já existe uma categoria com o mesmo nome na filial de destino
+        const existingCategory = await prisma.category.findFirst({
+          where: {
+            branchId: user.branchId!,
+            name: sourceCategory.name,
+          },
+        });
+
+        if (!existingCategory) {
+          const newCategory = await prisma.category.create({
+            data: {
+              name: sourceCategory.name,
+              slug: sourceCategory.slug,
+              description: sourceCategory.description || null,
+              image: sourceCategory.image || null,
+              active: sourceCategory.active,
+              featured: sourceCategory.featured,
+              branchId: user.branchId!,
+            },
+          });
+          categoryMapping.set(sourceCategory.id, newCategory.id);
+          importedCategories++;
+        } else {
+          categoryMapping.set(sourceCategory.id, existingCategory.id);
+        }
+      }
+
+      // Importar produtos
+      for (const sourceProduct of sourceProducts) {
+        const targetCategoryId = categoryMapping.get(sourceProduct.categoryId);
+        
+        if (!targetCategoryId) {
+          console.warn(`Categoria não encontrada para o produto ${sourceProduct.name}, pulando...`);
+          continue;
+        }
+
+        // Verificar se já existe um produto com o mesmo nome na categoria de destino
+        const existingProduct = await prisma.product.findFirst({
+          where: {
+            branchId: user.branchId!,
+            categoryId: targetCategoryId,
+            name: sourceProduct.name,
+          },
+        });
+
+        if (!existingProduct) {
+          const newProduct = await prisma.product.create({
+            data: {
+              name: sourceProduct.name,
+              description: sourceProduct.description,
+              price: sourceProduct.price,
+              image: sourceProduct.image,
+              active: sourceProduct.active,
+              featured: sourceProduct.featured,
+              hasPromotion: sourceProduct.hasPromotion,
+              promotionalPrice: sourceProduct.promotionalPrice,
+              promotionalType: sourceProduct.promotionalType,
+              promotionalPeriodType: sourceProduct.promotionalPeriodType,
+              promotionalStartDate: sourceProduct.promotionalStartDate,
+              promotionalEndDate: sourceProduct.promotionalEndDate,
+              promotionalDays: sourceProduct.promotionalDays,
+              weight: sourceProduct.weight,
+              preparationTime: sourceProduct.preparationTime,
+              stockControlEnabled: sourceProduct.stockControlEnabled,
+              minStock: sourceProduct.minStock,
+              tags: sourceProduct.tags,
+              filterMetadata: sourceProduct.filterMetadata,
+              displayOrder: sourceProduct.displayOrder,
+              installmentEnabled: sourceProduct.installmentEnabled,
+              maxInstallments: sourceProduct.maxInstallments,
+              minInstallmentValue: sourceProduct.minInstallmentValue,
+              installmentInterestRate: sourceProduct.installmentInterestRate,
+              installmentOnPromotionalPrice: sourceProduct.installmentOnPromotionalPrice,
+              categoryId: targetCategoryId,
+              branchId: user.branchId!,
+              companyId: user.companyId!,
+            },
+          });
+
+          // Importar complementos se existirem
+          if (sourceProduct.complements && sourceProduct.complements.length > 0) {
+            for (const sourceComplement of sourceProduct.complements) {
+              // Criar o complemento na filial de destino
+              const newComplement = await prisma.productComplement.create({
+                data: {
+                  name: sourceComplement.name,
+                  minOptions: sourceComplement.minOptions,
+                  maxOptions: sourceComplement.maxOptions,
+                  required: sourceComplement.required,
+                  allowRepeat: sourceComplement.allowRepeat,
+                  active: sourceComplement.active,
+                  displayOrder: sourceComplement.displayOrder,
+                  selectionType: sourceComplement.selectionType,
+                  productId: newProduct.id,
+                  branchId: user.branchId!,
+                },
+              });
+
+              // Importar opções do complemento
+              if (sourceComplement.options && sourceComplement.options.length > 0) {
+                for (const sourceOption of sourceComplement.options) {
+                  await prisma.complementOption.create({
+                    data: {
+                      name: sourceOption.name,
+                      price: sourceOption.price,
+                      active: sourceOption.active,
+                      stockControlEnabled: sourceOption.stockControlEnabled,
+                      minStock: sourceOption.minStock,
+                      displayOrder: sourceOption.displayOrder,
+                      branchId: user.branchId!,
+                    },
+                  });
+                }
+              }
+            }
+          }
+
+          importedProducts++;
+        }
+      }
+
+      return {
+        importedCategories,
+        importedProducts,
+        totalCategories: sourceCategories.length,
+        totalProducts: sourceProducts.length,
+      };
+    });
+
+    return result;
+  }
 }

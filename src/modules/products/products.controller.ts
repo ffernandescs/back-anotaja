@@ -113,4 +113,13 @@ export class ProductsController {
   remove(@Param('id') id: string, @Req() req: RequestWithUser) {
     return this.productsService.remove(id, req.user.userId);
   }
+
+  @Post('import-catalog')
+  
+  importCatalog(
+    @Body() body: { sourceBranchId: string },
+    @Req() req: RequestWithUser,
+  ) {
+    return this.productsService.importCatalog(body.sourceBranchId, req.user.userId);
+  }
 }

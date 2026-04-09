@@ -310,7 +310,9 @@ export class AuthService {
                 plan: true,
               },
             },
-            branches:true
+            branches: {
+              orderBy: { branchName: 'asc' }
+            }
           },
         },
         branch: {
@@ -650,5 +652,63 @@ export class AuthService {
       where: { token: refreshToken },
     });
     return { message: 'Logout realizado com sucesso' };
+  }
+
+  async switchBranch(branchId: string, userId: string) {
+    // Verificar se o usuário existe
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { company: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    // Verificar se a filial existe e pertence à empresa do usuário
+    const branch = await prisma.branch.findUnique({
+      where: { id: branchId },
+    });
+
+    if (!branch) {
+      throw new NotFoundException('Filial não encontrada');
+    }
+
+    if (branch.companyId !== user.companyId) {
+      throw new UnauthorizedException('A filial não pertence à sua empresa');
+    }
+
+    // Atualizar a filial do usuário
+    await prisma.user.update({
+      where: { id: userId },
+      data: { branchId },
+    });
+
+    // Gerar novo token JWT com a nova filial
+    const payload = {
+      email: user.email,
+      sub: user.id,
+      companyId: user.companyId,
+      branchId: branchId,
+      groupId: user.groupId,
+    };
+
+    const token = this.jwtService.sign(payload);
+
+    // Gerar novo refresh token
+    const refreshToken = await this.generateRefreshToken(userId);
+
+    return {
+      token,
+      refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        branchId,
+        companyId: user.companyId,
+        groupId: user.groupId,
+      },
+    };
   }
 }

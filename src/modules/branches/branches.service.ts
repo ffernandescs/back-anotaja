@@ -36,42 +36,124 @@ export class BranchesService {
         throw new ConflictException('Subdomínio já está em uso');
     }
 
+    // Verificar se telefone já existe
+    const existingPhoneBranch = await prisma.branch.findUnique({
+      where: { phone: createBranchDto.phone },
+    });
+    if (existingPhoneBranch) {
+      throw new ConflictException('Este número de telefone já está sendo usado por outra filial');
+    }
+
+    // Verificar se documento (CNPJ/CPF) já existe
+    if (createBranchDto.document) {
+      const existingDocumentBranch = await prisma.branch.findUnique({
+        where: { document: createBranchDto.document },
+      });
+      if (existingDocumentBranch) {
+        throw new ConflictException('Este documento (CNPJ/CPF) já está sendo usado por outra filial');
+      }
+    }
+
+    // Verificar se email já existe
+    if (createBranchDto.email) {
+      const existingEmailBranch = await prisma.branch.findUnique({
+        where: { email: createBranchDto.email },
+      });
+      if (existingEmailBranch) {
+        throw new ConflictException('Este email já está sendo usado por outra filial');
+      }
+    }
+
+    
+
     // Extrair dados de endereço do DTO
     const {
       street,
-      city,
-      state,
-      zipCode,
       complement,
       neighborhood,
       reference,
       latitude,
+      number,
       longitude,
+      document,
+      city,
+      state,
+      zipCode,
       ...branchData
     } = createBranchDto;
 
-    // Buscar coordenadas do endereço se não foram fornecidas
-    let lat = latitude;
-    let lng = longitude;
+      if (!branchData.branchName || !document || !branchData.email || !branchData.phone ) {
+          throw new BadRequestException(
+            'Todos os campos obrigatórios da empresa devem ser preenchidos.',
+          );
+        }
+    
+        if (!neighborhood || !city || !state || !zipCode || !number) {
+          throw new BadRequestException(
+            'Todos os campos obrigatórios do endereço devem ser preenchidos.',
+          );
+        }
 
-    if (!lat || !lng) {
-      const cleanZipCode = zipCode?.replace(/-/g, '') || '';
-      try {
-        const coordinates = await this.geocodingService.getCoordinates(
-          street || '',
-          createBranchDto.number || '',
-          city || '',
-          cleanZipCode,
-          state,
+    const cleanZipCode = zipCode.replace(/-/g, '');
+    let lat: number | null = null;
+    let lng: number | null = null;
+    // Buscar coordenadas do endereço se não foram fornecidas
+
+    
+   try {
+      // Tentar geocodificação com endereço completo primeiro
+      const fullAddress = `${street || ''}, ${number || ''} ${neighborhood || ''}, ${city}, ${state}, ${cleanZipCode}, Brasil`;
+      
+      const geocodeResponse = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+          fullAddress,
+        )}&limit=1`,
+        {
+          headers: {
+            'User-Agent': 'AnotaJa/1.0',
+          },
+        },
+      );
+
+      if (geocodeResponse.ok) {
+        const geocodeData = await geocodeResponse.json();
+        if (
+          geocodeData &&
+          geocodeData.length > 0 &&
+          geocodeData[0].lat &&
+          geocodeData[0].lon
+        ) {
+          lat = parseFloat(geocodeData[0].lat);
+          lng = parseFloat(geocodeData[0].lon);
+        }
+      }
+
+      // Se não conseguiu com endereço completo, tentar apenas com CEP
+      if (!lat || !lng) {
+        const cepGeocode = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&postalcode=${cleanZipCode}&country=Brasil&limit=1`,
+          {
+            headers: {
+              'User-Agent': 'AnotaJa/1.0',
+            },
+          },
         );
 
-        if (coordinates) {
-          lat = coordinates.lat;
-          lng = coordinates.lng;
+        if (cepGeocode.ok) {
+          const cepData = await cepGeocode.json();
+          if (
+            cepData &&
+            cepData.length > 0 &&
+            cepData[0].lat &&
+            cepData[0].lon
+          ) {
+            lat = parseFloat(cepData[0].lat);
+            lng = parseFloat(cepData[0].lon);
+          }
         }
-      } catch (error) {
-        console.warn('Erro ao buscar coordenadas da branch:', error);
       }
+    } catch (error) {
+      console.warn('Erro ao buscar coordenadas da empresa:', error);
     }
 
     // Criar branch e endereço em transação
@@ -80,24 +162,7 @@ export class BranchesService {
         throw new ForbiddenException(
           'Usuário não está associado a uma empresa',
         );
-      if (!street) throw new BadRequestException('Endereço é obrigatório');
 
-      const createAddress = await prisma.companyAddress.create({
-        data: {
-          street: street,
-          number: createBranchDto.number ?? '',
-          complement,
-          neighborhood,
-          city,
-          state,
-          zipCode,
-          isDefault: true,
-          reference,
-          lat,
-          lng,
-          companyId: user.companyId,
-        },
-      });
       // 1️⃣ Criar branch
       const createdBranch = await prisma.branch.create({
         data: {
@@ -107,7 +172,6 @@ export class BranchesService {
           latitude: lat,
           longitude: lng,
           companyId: user.companyId,
-          addressId: createAddress.id,
           paymentMethods: {
             connect: createBranchDto.paymentMethods?.map((pm) => ({
               id: pm.id,
@@ -119,7 +183,7 @@ export class BranchesService {
       // 2️⃣ Criar endereço da branch
       await prisma.branchAddress.create({
         data: {
-          street: street,
+          street: createBranchDto.street || '',
           city,
           state,
           zipCode,
@@ -309,12 +373,24 @@ export class BranchesService {
     excludeBranchId?: string,
   ) {
     if (!subdomain) {
-      throw new BadRequestException('Subdomínio é obrigatório');
+      return {
+        available: false,
+        message: 'Subdomínio é obrigatório',
+      };
+    }
+
+    // Validação básica do subdomínio
+    const subdomainRegex = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+    if (!subdomainRegex.test(subdomain.toLowerCase())) {
+      return {
+        available: false,
+        message: 'Subdomínio inválido. Use apenas letras, números e hífens',
+      };
     }
 
     const existingBranch = await prisma.branch.findFirst({
       where: {
-        subdomain,
+        subdomain: subdomain.toLowerCase(),
         ...(excludeBranchId && {
           NOT: { id: excludeBranchId },
         }),
@@ -322,8 +398,17 @@ export class BranchesService {
       select: { id: true },
     });
 
+    if (existingBranch) {
+      return {
+        available: false,
+        message: 'Este subdomínio já está em uso',
+      };
+    }
+
     return {
-      available: !existingBranch,
+      available: true,
+      message: 'Subdomínio disponível',
+      url: `https://${subdomain.toLowerCase()}.localhost:3000`,
     };
   }
 
@@ -338,7 +423,10 @@ export class BranchesService {
     }
 
     return prisma.branch.findMany({
-      where: { companyId: user.companyId },
+      where: { 
+        companyId: user.companyId,
+        active: true 
+      },
       orderBy: { branchName: 'asc' },
       include: {
         company: {
@@ -347,6 +435,7 @@ export class BranchesService {
             name: true,
           },
         },
+        address: true
       },
     });
   }
@@ -369,6 +458,7 @@ export class BranchesService {
       where: {
         id: user.branchId,
         companyId: user.companyId,
+        active: true,
       },
       include: {
         address: true,
@@ -473,45 +563,78 @@ export class BranchesService {
       }
     }
 
-    return prisma.branch.update({
-      where: { id: branchId },
-      data: {
-        branchName: updateBranchDto.branchName,
-        logoUrl: updateBranchDto.logoUrl,
-        bannerUrl: updateBranchDto.bannerUrl,
-        phone: updateBranchDto.phone,
-        primaryColor: updateBranchDto.primaryColor,
-        description: updateBranchDto.description,
-        instagram: updateBranchDto.instagram,
-        minOrderValue: updateBranchDto.minOrderValue,
-        checkoutMessage: updateBranchDto.checkoutMessage,
-        latitude: updateBranchDto.latitude,
-        longitude: updateBranchDto.longitude,
-        address: {
-          update: {
-            street: updateBranchDto.street,
-            number: updateBranchDto.number,
-            complement: updateBranchDto.complement,
-            neighborhood: updateBranchDto.neighborhood,
-            city: updateBranchDto.city,
-            state: updateBranchDto.state,
-            zipCode: updateBranchDto.zipCode,
-          },
+    return prisma.$transaction(async (tx) => {
+      let addressId = ''
+      if (updateBranchDto.street || updateBranchDto.number) {
+        // Primeiro, remove a referência do addressId da Branch
+        await tx.branch.update({
+          where: { id: branchId },
+          data: { addressId: null }
+        });
+
+        // Agora pode remover o endereço existente
+        await tx.branchAddress.deleteMany({
+          where: { branchId }
+        });
+
+        // Cria um novo endereço
+        const newAddress = await tx.branchAddress.create({
+          data: {
+            street: updateBranchDto.street || '',
+            number: updateBranchDto.number || '',
+            complement: updateBranchDto.complement || '',
+            neighborhood: updateBranchDto.neighborhood || '',
+            city: updateBranchDto.city || '',
+            state: updateBranchDto.state || '',
+            zipCode: updateBranchDto.zipCode || '',
+            branchId
+          }
+        });
+
+        if(newAddress.id) {
+          addressId = newAddress.id
+        }
+      }
+      // Primeiro, atualiza os dados da filial
+      await tx.branch.update({
+        where: { id: branchId },
+        data: {
+          branchName: updateBranchDto.branchName,
+          logoUrl: updateBranchDto.logoUrl,
+          bannerUrl: updateBranchDto.bannerUrl,
+          addressId:addressId,
+          phone: updateBranchDto.phone,
+          primaryColor: updateBranchDto.primaryColor,
+          description: updateBranchDto.description,
+          instagram: updateBranchDto.instagram,
+          minOrderValue: updateBranchDto.minOrderValue,
+          checkoutMessage: updateBranchDto.checkoutMessage,
+          latitude: updateBranchDto.latitude,
+          longitude: updateBranchDto.longitude,
+          paymentMethods: updateBranchDto.paymentMethods ? {
+            set: updateBranchDto.paymentMethods.map((paymentMethod) => ({
+              id: paymentMethod.id,
+            })),
+          } : undefined,
         },
-        paymentMethods: updateBranchDto.paymentMethods ? {
-          set: updateBranchDto.paymentMethods.map((paymentMethod) => ({
-            id: paymentMethod.id,
-          })),
-        } : undefined,
-      },
-      include: {
-        company: {
-          select: {
-            id: true,
-            name: true,
+      });
+
+      // Depois, trata o endereço separadamente
+      
+
+      // Busca a branch atualizada com o novo endereço
+      return tx.branch.findUnique({
+        where: { id: branchId },
+        include: {
+          company: {
+            select: {
+              id: true,
+              name: true,
+            },
           },
+          address: true
         },
-      },
+      });
     });
   }
 
@@ -589,38 +712,8 @@ export class BranchesService {
 
     // Atualizar branch e endereço em uma transação
     return prisma.$transaction(async (tx) => {
-      // Atualizar endereço se houver campos de endereço e branch tiver addressId
-      if (
-        branch.addressId &&
-        (updateBranchDto.street ||
-          updateBranchDto.number ||
-          updateBranchDto.complement !== undefined ||
-          updateBranchDto.neighborhood ||
-          updateBranchDto.city ||
-          updateBranchDto.state ||
-          updateBranchDto.zipCode ||
-          lat ||
-          lng)
-      ) {
-        // Atualizar o endereço usando o addressId da branch
-        await tx.branchAddress.update({
-          where: { id: branch.addressId },
-          data: {
-            street: updateBranchDto.street || undefined,
-            number: updateBranchDto.number || undefined,
-            complement: updateBranchDto.complement || undefined,
-            neighborhood: updateBranchDto.neighborhood || undefined,
-            city: updateBranchDto.city || undefined,
-            state: updateBranchDto.state || undefined,
-            zipCode: updateBranchDto.zipCode || undefined,
-            lat: lat ? Math.round(lat * 1000000) : undefined,
-            lng: lng ? Math.round(lng * 1000000) : undefined,
-          },
-        });
-      }
-
       // Atualizar branch
-      return tx.branch.update({
+      await tx.branch.update({
         where: { id },
         data: {
           ...updateData,
@@ -632,6 +725,54 @@ export class BranchesService {
               }
             : undefined,
         },
+      });
+
+      // Tratar endereço separadamente (mesma lógica do updateCurrent)
+      let addressId = ''
+      if (updateBranchDto.street || updateBranchDto.number) {
+        // Primeiro, remove a referência do addressId da Branch
+        await tx.branch.update({
+          where: { id },
+          data: { addressId: null }
+        });
+
+        // Agora pode remover o endereço existente
+        await tx.branchAddress.deleteMany({
+          where: { branchId: id }
+        });
+
+        // Cria um novo endereço
+        const newAddress = await tx.branchAddress.create({
+          data: {
+            street: updateBranchDto.street || '',
+            number: updateBranchDto.number || '',
+            complement: updateBranchDto.complement || '',
+            neighborhood: updateBranchDto.neighborhood || '',
+            city: updateBranchDto.city || '',
+            state: updateBranchDto.state || '',
+            zipCode: updateBranchDto.zipCode || '',
+            lat: lat ? Math.round(lat * 1000000) : undefined,
+            lng: lng ? Math.round(lng * 1000000) : undefined,
+            branchId: id,
+          }
+        });
+
+        if(newAddress.id) {
+          addressId = newAddress.id
+        }
+      }
+
+      // Atualiza a branch com o novo addressId se houver
+      if(addressId) {
+        await tx.branch.update({
+          where: { id },
+          data: { addressId }
+        });
+      }
+
+      // Busca a branch atualizada com o novo endereço
+      return tx.branch.findUnique({
+        where: { id },
         include: {
           address: true,
           paymentMethods: true,
@@ -650,8 +791,13 @@ export class BranchesService {
     // Verificar se a branch pertence à empresa do usuário
     await this.findOne(id, userId);
 
-    return prisma.branch.delete({
+    // Fazer soft delete em vez de excluir fisicamente
+    // para evitar problemas com foreign key constraints
+    return prisma.branch.update({
       where: { id },
+      data: {
+        active: false,
+      },
     });
   }
 
@@ -735,5 +881,211 @@ export class BranchesService {
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
     return R * c;
+  }
+
+  async exportCatalog(sourceBranchId: string, userId: string) {
+    if (!sourceBranchId) {
+      throw new BadRequestException('ID da filial de origem é obrigatório');
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { branch: true, company: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    if (!user.branchId) {
+      throw new ForbiddenException('Usuário não está associado a uma filial');
+    }
+
+    if (!user.companyId) {
+      throw new ForbiddenException('Usuário não está associado a uma empresa');
+    }
+
+    // Verificar se a filial de origem existe e pertence à mesma empresa
+    const sourceBranch = await prisma.branch.findUnique({
+      where: { id: sourceBranchId },
+    });
+
+    if (!sourceBranch) {
+      throw new NotFoundException('Filial de origem não encontrada');
+    }
+
+    if (sourceBranch.companyId !== user.companyId) {
+      throw new ForbiddenException('A filial de origem não pertence à sua empresa');
+    }
+
+    if (sourceBranch.id === user.branchId) {
+      throw new ForbiddenException('Não é possível exportar da mesma filial');
+    }
+
+    // Buscar categorias e produtos da filial de origem
+    const sourceCategories = await prisma.category.findMany({
+      where: { 
+        branchId: sourceBranchId,
+        active: true 
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const sourceProducts = await prisma.product.findMany({
+      where: { 
+        branchId: sourceBranchId,
+        active: true 
+      },
+      include: {
+        complements: {
+          include: {
+            options: true,
+          },
+        },
+      },
+      orderBy: [
+        { displayOrder: 'asc' },
+        { featured: 'desc' },
+        { createdAt: 'desc' },
+      ],
+    });
+
+    const result = await prisma.$transaction(async (prisma) => {
+      let exportedCategories = 0;
+      let exportedProducts = 0;
+      const categoryMapping = new Map<string, string>(); // sourceId -> targetId
+
+      // Exportar categorias
+      for (const sourceCategory of sourceCategories) {
+        // Verificar se já existe uma categoria com o mesmo nome na filial de destino
+        const existingCategory = await prisma.category.findFirst({
+          where: {
+            branchId: user.branchId!,
+            name: sourceCategory.name,
+          },
+        });
+
+        if (!existingCategory) {
+          const newCategory = await prisma.category.create({
+            data: {
+              name: sourceCategory.name,
+              slug: sourceCategory.slug,
+              description: sourceCategory.description || null,
+              image: sourceCategory.image || null,
+              active: sourceCategory.active,
+              featured: sourceCategory.featured,
+              branchId: user.branchId!,
+            },
+          });
+          categoryMapping.set(sourceCategory.id, newCategory.id);
+          exportedCategories++;
+        } else {
+          categoryMapping.set(sourceCategory.id, existingCategory.id);
+        }
+      }
+
+      // Exportar produtos
+      for (const sourceProduct of sourceProducts) {
+        const targetCategoryId = categoryMapping.get(sourceProduct.categoryId);
+        
+        if (!targetCategoryId) {
+          console.warn(`Categoria não encontrada para o produto ${sourceProduct.name}, pulando...`);
+          continue;
+        }
+
+        // Verificar se já existe um produto com o mesmo nome na categoria de destino
+        const existingProduct = await prisma.product.findFirst({
+          where: {
+            branchId: user.branchId!,
+            categoryId: targetCategoryId,
+            name: sourceProduct.name,
+          },
+        });
+
+        if (!existingProduct) {
+          const newProduct = await prisma.product.create({
+            data: {
+              name: sourceProduct.name,
+              description: sourceProduct.description,
+              price: sourceProduct.price,
+              image: sourceProduct.image,
+              active: sourceProduct.active,
+              featured: sourceProduct.featured,
+              hasPromotion: sourceProduct.hasPromotion,
+              promotionalPrice: sourceProduct.promotionalPrice,
+              promotionalType: sourceProduct.promotionalType,
+              promotionalPeriodType: sourceProduct.promotionalPeriodType,
+              promotionalStartDate: sourceProduct.promotionalStartDate,
+              promotionalEndDate: sourceProduct.promotionalEndDate,
+              promotionalDays: sourceProduct.promotionalDays,
+              weight: sourceProduct.weight,
+              preparationTime: sourceProduct.preparationTime,
+              stockControlEnabled: sourceProduct.stockControlEnabled,
+              minStock: sourceProduct.minStock,
+              tags: sourceProduct.tags,
+              filterMetadata: sourceProduct.filterMetadata,
+              displayOrder: sourceProduct.displayOrder,
+              installmentEnabled: sourceProduct.installmentEnabled,
+              maxInstallments: sourceProduct.maxInstallments,
+              minInstallmentValue: sourceProduct.minInstallmentValue,
+              installmentInterestRate: sourceProduct.installmentInterestRate,
+              installmentOnPromotionalPrice: sourceProduct.installmentOnPromotionalPrice,
+              categoryId: targetCategoryId,
+              branchId: user.branchId!,
+              companyId: user.companyId!,
+            },
+          });
+
+          // Exportar complementos se existirem
+          if (sourceProduct.complements && sourceProduct.complements.length > 0) {
+            for (const sourceComplement of sourceProduct.complements) {
+              // Criar o complemento na filial de destino
+              const newComplement = await prisma.productComplement.create({
+                data: {
+                  name: sourceComplement.name,
+                  minOptions: sourceComplement.minOptions,
+                  maxOptions: sourceComplement.maxOptions,
+                  required: sourceComplement.required,
+                  allowRepeat: sourceComplement.allowRepeat,
+                  active: sourceComplement.active,
+                  displayOrder: sourceComplement.displayOrder,
+                  selectionType: sourceComplement.selectionType,
+                  productId: newProduct.id,
+                  branchId: user.branchId!,
+                },
+              });
+
+              // Exportar opções do complemento
+              if (sourceComplement.options && sourceComplement.options.length > 0) {
+                for (const sourceOption of sourceComplement.options) {
+                  await prisma.complementOption.create({
+                    data: {
+                      name: sourceOption.name,
+                      price: sourceOption.price,
+                      active: sourceOption.active,
+                      stockControlEnabled: sourceOption.stockControlEnabled,
+                      minStock: sourceOption.minStock,
+                      displayOrder: sourceOption.displayOrder,
+                      branchId: user.branchId!,
+                    },
+                  });
+                }
+              }
+            }
+          }
+
+          exportedProducts++;
+        }
+      }
+
+      return {
+        exportedCategories,
+        exportedProducts,
+        totalCategories: sourceCategories.length,
+        totalProducts: sourceProducts.length,
+      };
+    });
+
+    return result;
   }
 }

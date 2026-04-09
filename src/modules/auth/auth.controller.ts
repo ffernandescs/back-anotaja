@@ -68,4 +68,13 @@ export class AuthController {
   resetPassword(@Body() dto: ResetPasswordDto) {
     return this.authService.resetPassword(dto.email, dto.otp, dto.newPassword);
   }
+
+  @Post('switch-branch')
+  @UseGuards(JwtAuthGuard)
+  switchBranch(
+    @Body() body: { branchId: string },
+    @Req() req: RequestWithUser,
+  ) {
+    return this.authService.switchBranch(body.branchId, req.user.userId);
+  }
 }

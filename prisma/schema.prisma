@@ -502,6 +502,8 @@ model Branch {
   // Total de avaliações
   ratingsCount           Int                      @default(0)
   companyId              String
+  onboardingStep        OnboardingStep          @default(SCHEDULE)
+  onboardingCompleted   Boolean                  @default(false)
   createdAt              DateTime                 @default(now())
   updatedAt              DateTime                 @updatedAt
 

@@ -42,6 +42,11 @@ export class BranchesController {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
 
+  @Get('check-subdomain')
+  async checkSubdomainAvailability(@Query('subdomain') subdomain: string) {
+    return this.branchesService.checkSubdomainAvailability(subdomain);
+  }
+
   @Get()
   findAll(
     @Req() req: RequestWithUser,
@@ -145,5 +150,13 @@ export class BranchesController {
   @Delete(':id')
   remove(@Param('id') id: string, @Req() req: RequestWithUser) {
     return this.branchesService.remove(id, req.user.userId);
+  }
+
+  @Post('export-catalog')
+  exportCatalog(
+    @Body() body: { sourceBranchId: string },
+    @Req() req: RequestWithUser,
+  ) {
+    return this.branchesService.exportCatalog(body.sourceBranchId, req.user.userId);
   }
 }

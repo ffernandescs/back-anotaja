@@ -56,8 +56,9 @@ export class CreateBranchDto {
   @IsEmail()
   email!: string;
 
+  @IsOptional()
   @IsString()
-  subdomain!: string;
+  subdomain?: string;
 
   @IsOptional()
   @IsString()
@@ -87,10 +88,6 @@ export class CreateBranchDto {
   @IsOptional()
   @IsString()
   document?: string;
-
-  @IsOptional()
-  @IsString()
-  cnpj?: string;
 
   @IsOptional()
   @IsString()
