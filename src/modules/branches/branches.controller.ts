@@ -111,6 +111,11 @@ export class BranchesController {
     return this.branchesService.findOne(id, req.user.userId);
   }
 
+  @Get('currency')
+  findCurrency(@Param('id') id: string, @Req() req: RequestWithUser) {
+    return this.branchesService.findOne(id, req.user.userId);
+  }
+
   @Patch(':id')
   update(
     @Param('id') id: string,
