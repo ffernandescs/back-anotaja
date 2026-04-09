@@ -19,6 +19,14 @@ export interface PrinterOrderData {
     name: string;
     qty: number;
     price: number;
+    complements?: Array<{
+      name: string;
+      options: Array<{
+        name: string;
+        qty: number;
+        price: number;
+      }>;
+    }>;
   }>;
 }
 
@@ -91,11 +99,24 @@ export class PrinterService {
   }
 
   private formatOrderForPrinter(order: any, branch: any): PrinterOrderData {
-    const items = order.items?.map((item: any) => ({
-      name: item.product?.name || 'Item desconhecido',
-      qty: item.quantity,
-      price: Number(item.price),
-    })) || [];
+    const items = order.items?.map((item: any) => {
+      // Processar complementos e opções
+      const complements = item.complements?.map((complement: any) => ({
+        name: complement.complement?.name || complement.name || 'Complemento',
+        options: complement.options?.map((option: any) => ({
+          name: option.option?.name || option.name || 'Opção',
+          qty: option.quantity || 1,
+          price: Number(option.price || 0),
+        })) || [],
+      })) || [];
+
+      return {
+        name: item.product?.name || 'Item desconhecido',
+        qty: item.quantity,
+        price: Number(item.price),
+        complements: complements.length > 0 ? complements : undefined,
+      };
+    }) || [];
 
     const paymentMethod = this.getPaymentMethodText(order);
 

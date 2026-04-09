@@ -311,13 +311,24 @@ async function seedTablesForBranch(branchId: string, userId: string) {
     }),
   );
 
-  console.log('🔄 Criando mesas para a filial...');
+  console.log('🔄 Verificando/Criando mesas para a filial...');
   for (let i = 0; i < tables.length; i++) {
-    await prisma.table.create({
-      data: {
-        ...tables[i],
+    const existingTable = await prisma.table.findUnique({
+      where: {
+        branchId_number: {
+          branchId: tables[i].branchId,
+          number: tables[i].number,
+        },
       },
     });
+
+    if (!existingTable) {
+      await prisma.table.create({
+        data: {
+          ...tables[i],
+        },
+      });
+    }
   }
 }
 
@@ -4030,21 +4041,33 @@ async function main() {
 
   for (const [type, companies] of Object.entries(companiesData)) {
     for (const companyData of companies) {
-      console.log(`🏢 Criando empresa - ${companyData.name}`);
+      console.log(`🏢 Verificando empresa - ${companyData.name}`);
 
-      const company = await prisma.company.create({
-        data: {
-          companyName: companyData.name,
+      // Verificar se a empresa já existe pelo nome
+      let company = await prisma.company.findFirst({
+        where: {
           name: companyData.name,
-          document: generateRandomDocument(14),
-          email: `teste${userCounter}@anotaja.com`,
-          phone: generateUniquePhone(),
-          onboardingStep: 'SCHEDULE',
-          active: true,
         },
       });
 
-      // Buscar plano trial e criar assinatura
+      if (company) {
+        console.log(`✅ Empresa "${companyData.name}" já existe, pulando criação...`);
+      } else {
+        console.log(`🏢 Criando empresa - ${companyData.name}`);
+        company = await prisma.company.create({
+          data: {
+            companyName: companyData.name,
+            name: companyData.name,
+            document: generateRandomDocument(14),
+            email: `teste${userCounter}@anotaja.com`,
+            phone: generateUniquePhone(),
+            onboardingStep: 'SCHEDULE',
+            active: true,
+          },
+        });
+      }
+
+      // Buscar plano trial e criar assinatura se não existir
       const trialPlan = await prisma.plan.findFirst({
         where: {
           type: 'TRIAL',
@@ -4055,26 +4078,36 @@ async function main() {
       if (!trialPlan) {
         console.warn('⚠️ Plano trial não encontrado. Pulando criação de assinatura.');
       } else {
-        const now = new Date();
-        const trialEndDate = new Date(now);
-        trialEndDate.setDate(trialEndDate.getDate() + (trialPlan.trialDays ?? 7));
-        trialEndDate.setHours(23, 59, 59, 999);
-
-        await prisma.subscription.create({
-          data: {
-            companyId: company.id,
-            planId: trialPlan.id,
-            status: 'ACTIVE',
-            billingPeriod: trialPlan.billingPeriod,
-            startDate: now,
-            trialEndsAt: trialEndDate,
-            nextBillingDate: trialEndDate,
-            notes: `Trial de ${trialPlan.trialDays ?? 7} dias - Criado automaticamente no seed`,
-          },
+        // Verificar se já tem subscription
+        const existingSubscription = await prisma.subscription.findUnique({
+          where: { companyId: company.id },
         });
+
+        if (existingSubscription) {
+          console.log(`✅ Subscription já existe para "${companyData.name}", pulando...`);
+        } else {
+          console.log(`📝 Criando subscription para "${companyData.name}"...`);
+          const now = new Date();
+          const trialEndDate = new Date(now);
+          trialEndDate.setDate(trialEndDate.getDate() + (trialPlan.trialDays ?? 7));
+          trialEndDate.setHours(23, 59, 59, 999);
+
+          await prisma.subscription.create({
+            data: {
+              companyId: company.id,
+              planId: trialPlan.id,
+              status: 'ACTIVE',
+              billingPeriod: trialPlan.billingPeriod,
+              startDate: now,
+              trialEndsAt: trialEndDate,
+              nextBillingDate: trialEndDate,
+              notes: `Trial de ${trialPlan.trialDays ?? 7} dias - Criado automaticamente no seed`,
+            },
+          });
+        }
       }
 
-      // Criar filial matriz (primeira filial) ANTES do admin
+      // Criar filiais
       const firstBranchData = companyData.branches[0];
 
       const defaultSocialMedia = JSON.stringify({
@@ -4086,84 +4119,119 @@ async function main() {
       const branches = companyData.branches;
       for (const [index, branchData] of branches.entries()) {
         const isMatriz = index === 0;
+        const branchName = isMatriz
+          ? `Matriz - ${companyData.companyName}`
+          : branchData.branchName;
 
-        const createBranchAddress = await prisma.branchAddress.create({
-          data: {
-            street: branchData.state,
-            number: Math.floor(Math.random() * 1000).toString(),
-            complement: '',
-            neighborhood: '',
-            city: branchData.city,
-            state: branchData.state,
-            zipCode: branchData.zipCode,
-          },
-        });
-
-        const branch = await prisma.branch.create({
-          data: {
-            branchName: isMatriz
-              ? `Matriz - ${companyData.companyName}`
-              : branchData.branchName,
-            document: isMatriz ? companyData.document : branchData.document,
-            addressId: createBranchAddress.id,
-            phone: branchData.phone,
-          email: `teste${userCounter}@anotaja.com`,
-            subdomain: null,
-            logoUrl: companyData.logo || null,
-            bannerUrl: companyData.banner || null,
+        // Verificar se a branch já existe
+        let branch = await prisma.branch.findFirst({
+          where: {
+            branchName: branchName,
             companyId: company.id,
-            active: true,
-            primaryColor:
-              type === 'hamburgueria'
-                ? '#FF6B35'
-                : type === 'pizzaria'
-                  ? '#E63946'
-                  : type === 'restaurante'
-                    ? '#2A9D8F'
-                    : type === 'depositoBebidas'
-                      ? '#F77F00'
-                      : type === 'perfumaria'
-                        ? '#9B59B6'
-                        : '#3B82F6',
-            socialMedia: defaultSocialMedia,
-            description: `A melhor ${
-              type === 'hamburgueria'
-                ? 'hamburgueria'
-                : type === 'pizzaria'
-                  ? 'pizzaria'
-                  : type === 'restaurante'
-                    ? 'experiência gastronômica'
-                    : type === 'depositoBebidas'
-                      ? 'seleção de bebidas'
-                      : 'perfumaria'
-            } de ${branchData.city}!`,
-            instagram: `@${companyData.name.toLowerCase().replace(/[^a-z0-9]+/g, '')}`,
-            minOrderValue: money(type === 'perfumaria' ? 50.0 : 20.0),
-            checkoutMessage:
-              'Obrigado por escolher nossa loja! Seu pedido será preparado com muito carinho.',
-            latitude: branchData.lat,
-            longitude: branchData.lng,
           },
         });
-        console.log('🔄 Criando clientes para a filial matriz...');
-        for (const customerData of customersData) {
-          await prisma.customer.create({
+
+        if (branch) {
+          console.log(`✅ Branch "${branchName}" já existe, pulando criação...`);
+        } else {
+          console.log(`🏪 Criando branch - ${branchName}`);
+
+          const createBranchAddress = await prisma.branchAddress.create({
             data: {
-              name: customerData.name,
+              street: branchData.state,
+              number: Math.floor(Math.random() * 1000).toString(),
+              complement: '',
+              neighborhood: '',
+              city: branchData.city,
+              state: branchData.state,
+              zipCode: branchData.zipCode,
+            },
+          });
+
+          branch = await prisma.branch.create({
+            data: {
+              branchName: branchName,
+              document: isMatriz ? companyData.document : branchData.document,
+              addressId: createBranchAddress.id,
+              phone: branchData.phone,
+            email: `teste${userCounter}@anotaja.com`,
+              subdomain: null,
+              logoUrl: companyData.logo || null,
+              bannerUrl: companyData.banner || null,
+              companyId: company.id,
+              active: true,
+              primaryColor:
+                type === 'hamburgueria'
+                  ? '#FF6B35'
+                  : type === 'pizzaria'
+                    ? '#E63946'
+                    : type === 'restaurante'
+                      ? '#2A9D8F'
+                      : type === 'depositoBebidas'
+                        ? '#F77F00'
+                        : type === 'perfumaria'
+                          ? '#9B59B6'
+                          : '#3B82F6',
+              socialMedia: defaultSocialMedia,
+              description: `A melhor ${
+                type === 'hamburgueria'
+                  ? 'hamburgueria'
+                  : type === 'pizzaria'
+                    ? 'pizzaria'
+                    : type === 'restaurante'
+                      ? 'experiência gastronômica'
+                      : type === 'depositoBebidas'
+                        ? 'seleção de bebidas'
+                        : 'perfumaria'
+              } de ${branchData.city}!`,
+              instagram: `@${companyData.name.toLowerCase().replace(/[^a-z0-9]+/g, '')}`,
+              minOrderValue: money(type === 'perfumaria' ? 50.0 : 20.0),
+              checkoutMessage:
+                'Obrigado por escolher nossa loja! Seu pedido será preparado com muito carinho.',
+              latitude: branchData.lat,
+              longitude: branchData.lng,
+            },
+          });
+        }
+        // Verificar e criar clientes
+        console.log('🔄 Verificando clientes para a filial...');
+        for (const customerData of customersData) {
+          const existingCustomer = await prisma.customer.findFirst({
+            where: {
               email: customerData.email,
-              phone: customerData.phone,
               branchId: branch.id,
             },
           });
+
+          if (!existingCustomer) {
+            await prisma.customer.create({
+              data: {
+                name: customerData.name,
+                email: customerData.email,
+                phone: customerData.phone,
+                branchId: branch.id,
+              },
+            });
+          }
         }
 
         userCounter++;
         const adminPhone = `8198765${String(2000 + userCounter).padStart(4, '0')}`;
 
-        // Criar grupo Administrador com permissões do plano trial
-        console.log('👥 Criando grupo Administrador com permissões do plano TRIAL...');
-        let adminGroup;
-        if (trialPlan) {
+        // Verificar e criar grupo Administrador com permissões do plano trial para esta branch
+        console.log(`👥 Verificando grupo Administrador para ${branch.branchName}...`);
+        let adminGroup = await prisma.group.findFirst({
+          where: {
+            name: 'Administrador',
+            branchId: branch.id,
+            companyId: company.id,
+          },
+        });
+
+        if (adminGroup) {
+          console.log(`✅ Grupo Administrador já existe para ${branch.branchName}, pulando...`);
+        } else if (trialPlan) {
+          console.log(`👥 Criando grupo Administrador para ${branch.branchName}...`);
           const planFeatures = await prisma.planFeature.findMany({
             where: { planId: trialPlan.id },
             include: {
@@ -4182,6 +4250,7 @@ async function main() {
             }));
           });
 
+          // Criar grupo único para esta branch
           adminGroup = await prisma.group.create({
             data: {
               name: 'Administrador',
@@ -4195,19 +4264,32 @@ async function main() {
           });
         }
 
-        console.log('👤 Criando usuário admin da filial matriz...');
-        const adminUser = await prisma.user.create({
-          data: {
-            name: `Admin ${companyData.name}`,
-          email: `teste${userCounter}@anotaja.com`,
-            phone: adminPhone,
-            password: hashedPassword,
-            companyId: company.id,
-            branchId: branch.id, // VINCULADO À FILIAL MATRIZ
-            groupId: adminGroup?.id,
-            active: true,
+        // Verificar e criar usuário admin
+        const adminEmail = `teste${userCounter}@anotaja.com`;
+        let adminUser = await prisma.user.findFirst({
+          where: {
+            email: adminEmail,
+            branchId: branch.id,
           },
         });
+
+        if (adminUser) {
+          console.log(`✅ Usuário admin já existe para ${branch.branchName}, pulando...`);
+        } else {
+          console.log('👤 Criando usuário admin da filial...');
+          adminUser = await prisma.user.create({
+            data: {
+              name: `Admin ${companyData.name}`,
+            email: adminEmail,
+              phone: adminPhone,
+              password: hashedPassword,
+              companyId: company.id,
+              branchId: branch.id,
+              groupId: adminGroup?.id,
+              active: true,
+            },
+          });
+        }
         await seedTablesForBranch(branch.id, adminUser.id);
 
         console.log('💰 Criando métodos de pagamento para a filial matriz...');
@@ -4262,55 +4344,88 @@ async function main() {
           });
         }
 
-        // Criar entregadores para a filial matriz usando DeliveryPerson
+        // Verificar e criar entregadores para a filial
         const deliveryCount = SEED_CONFIG.deliveryPerBranch;
-        console.log('🔄 Criando entregadores para a filial matriz...');
-        for (let i = 0; i < deliveryCount; i++) {
+        console.log('🔄 Verificando/Criando entregadores para a filial...');
+        
+        // Contar quantos entregadores já existem
+        const existingDeliveryCount = await prisma.deliveryPerson.count({
+          where: { branchId: branch.id },
+        });
+
+        const deliveriesToCreate = Math.max(0, deliveryCount - existingDeliveryCount);
+        
+        for (let i = 0; i < deliveriesToCreate; i++) {
           userCounter++;
           const deliveryIndex = userCounter % deliveryNames.length;
           const deliveryPhone = `8198765${String(4000 + userCounter).padStart(4, '0')}`;
-          await prisma.deliveryPerson.create({
-            data: {
-              name: deliveryNames[deliveryIndex],
-              email: `entregador${userCounter}@${companyData.name
-                .toLowerCase()
-                .replace(/[^a-z0-9]+/g, '-')
-                .replace(/^-|-$/g, '')}.com.br`,
-              phone: deliveryPhone,
+          const deliveryEmail = `entregador${userCounter}@${companyData.name
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-|-$/g, '')}.com.br`;
+
+          // Verificar se já existe com este email
+          const existingDelivery = await prisma.deliveryPerson.findFirst({
+            where: {
+              email: deliveryEmail,
               branchId: branch.id,
-              companyId: company.id,
-              active: true,
+            },
+          });
+
+          if (!existingDelivery) {
+            await prisma.deliveryPerson.create({
+              data: {
+                name: deliveryNames[deliveryIndex],
+                email: deliveryEmail,
+                phone: deliveryPhone,
+                branchId: branch.id,
+                companyId: company.id,
+                active: true,
+              },
+            });
+          }
+        }
+
+        // Verificar e criar caixa para a filial
+        console.log('🔄 Verificando caixa para a filial...');
+        let cashRegister = await prisma.cashSession.findFirst({
+          where: {
+            branchId: branch.id,
+            status: 'CLOSING',
+          },
+          orderBy: {
+            createdAt: 'desc',
+          },
+        });
+
+        if (cashRegister) {
+          console.log(`✅ Caixa já existe para ${branch.branchName}, pulando...`);
+        } else {
+          console.log('🔄 Criando caixa para a filial...');
+          const openingAmount = Math.random() * 200;
+
+          cashRegister = await prisma.cashSession.create({
+            data: {
+              branchId: branch.id,
+              openedBy: adminUser.id,
+              openingAmount: openingAmount,
+              status: 'CLOSING',
+              notes: `Caixa aberto automaticamente pelo seed para ${branch.branchName}`,
+            },
+          });
+
+          // Criar movimentação de abertura
+          console.log('🔄 Criando movimentação de abertura para a filial...');
+          await prisma.cashMovement.create({
+            data: {
+              cashSessionId: cashRegister.id,
+              type: 'OPENING',
+              amount: openingAmount,
+              description: `Abertura de caixa - ${branch.branchName}`,
+              userId: adminUser.id,
             },
           });
         }
-
-        // Criar caixa para a filial matriz
-        const openingAmount =  Math.random() * 200;
-
-        console.log('🔄 Criando caixa para a filial matriz...');
-        const cashRegister = await prisma.cashSession.create({
-          data: {
-            branchId: branch.id,
-            openedBy: adminUser.id, // Admin abre o caixa da filial matriz
-            openingAmount: openingAmount,
-            status: 'CLOSING',
-            notes: `Caixa aberto automaticamente pelo seed para ${branch.branchName}`,
-          },
-        });
-
-        // Criar movimentação de abertura
-        console.log(
-          '🔄 Criando movimentação de abertura para a filial matriz...',
-        );
-        await prisma.cashMovement.create({
-          data: {
-            cashSessionId: cashRegister.id,
-            type: 'OPENING',
-            amount: openingAmount,
-            description: `Abertura de caixa - ${branch.branchName}`,
-            userId: adminUser.id,
-          },
-        });
 
         const companyCode = normalize(companyData.name);
         const branchCode = isMatriz ? 'MATRIZ' : `FILIAL${index}`;
