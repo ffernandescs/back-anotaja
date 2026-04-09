@@ -159,4 +159,18 @@ export class BranchesController {
   ) {
     return this.branchesService.exportCatalog(body.sourceBranchId, req.user.userId);
   }
+
+  @Get(':id/general-config')
+  getGeneralConfig(@Param('id') id: string, @Req() req: RequestWithUser) {
+    return this.branchesService.getGeneralConfig(id, req.user.userId);
+  }
+
+  @Patch(':id/general-config')
+  updateGeneralConfig(
+    @Param('id') id: string,
+    @Body() data: { enableServiceFee?: boolean; serviceFeePercentage?: number },
+    @Req() req: RequestWithUser,
+  ) {
+    return this.branchesService.updateGeneralConfig(id, data, req.user.userId);
+  }
 }

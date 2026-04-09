@@ -1148,4 +1148,68 @@ export class BranchesService {
 
     return result;
   }
+
+  async getGeneralConfig(branchId: string, userId: string) {
+    // Verificar se o usuário tem acesso à branch
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) throw new NotFoundException('Usuário não encontrado');
+    if (user.branchId !== branchId)
+      throw new ForbiddenException('Você não tem acesso a esta filial');
+
+    // Buscar ou criar GeneralConfig
+    let generalConfig = await prisma.generalConfig.findUnique({
+      where: { branchId },
+    });
+
+    if (!generalConfig) {
+      // Criar com valores padrão se não existir
+      generalConfig = await prisma.generalConfig.create({
+        data: {
+          branchId,
+          enableServiceFee: false,
+          serviceFeePercentage: 10,
+        },
+      });
+    }
+
+    return generalConfig;
+  }
+
+  async updateGeneralConfig(
+    branchId: string,
+    data: { enableServiceFee?: boolean; serviceFeePercentage?: number },
+    userId: string,
+  ) {
+    // Verificar se o usuário tem acesso à branch
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) throw new NotFoundException('Usuário não encontrado');
+    if (user.branchId !== branchId)
+      throw new ForbiddenException('Você não tem acesso a esta filial');
+
+    // Validar porcentagem
+    if (data.serviceFeePercentage !== undefined) {
+      if (data.serviceFeePercentage < 0 || data.serviceFeePercentage > 100) {
+        throw new BadRequestException('A porcentagem deve estar entre 0 e 100');
+      }
+    }
+
+    // Atualizar ou criar GeneralConfig
+    const generalConfig = await prisma.generalConfig.upsert({
+      where: { branchId },
+      update: data,
+      create: {
+        branchId,
+        enableServiceFee: data.enableServiceFee ?? false,
+        serviceFeePercentage: data.serviceFeePercentage ?? 10,
+      },
+    });
+
+    return generalConfig;
+  }
 }

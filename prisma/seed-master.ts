@@ -237,9 +237,10 @@ async function seed() {
     ['settings_profile', 'Perfil da Empresa', 'settings_management', '/admin/administration/settings/profile', 1],
     ['settings_hours', 'Horários', 'settings_management', '/admin/administration/settings/hours', 2],
     ['settings_payment', 'Forma de Pagamento', 'settings_management', '/admin/administration/settings/payment', 3],
-    ['settings_announcements', 'Avisos', 'settings_management', '/admin/administration/settings/announcements', 4],
-    ['settings_subscription', 'Assinatura', 'settings_management', '/admin/administration/settings/payments', 5],
-    ['settings_printer', 'Impressoras', 'settings_management', '/admin/administration/settings/printer', 6],
+    ['settings_service_fee', 'Taxa de Serviço', 'settings_management', '/admin/administration/settings/service-fee', 4],
+    ['settings_announcements', 'Avisos', 'settings_management', '/admin/administration/settings/announcements', 5],
+    ['settings_subscription', 'Assinatura', 'settings_management', '/admin/administration/settings/payments', 6],
+    ['settings_printer', 'Impressoras', 'settings_management', '/admin/administration/settings/printer', 7],
   ];
 
   for (const [key, name, parentKey, href, displayOrder] of subFeatures) {
