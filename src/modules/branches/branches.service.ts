@@ -564,53 +564,79 @@ export class BranchesService {
     }
 
     return prisma.$transaction(async (tx) => {
-      let addressId = ''
-      if (updateBranchDto.street || updateBranchDto.number) {
-        // Primeiro, remove a referência do addressId da Branch
-        await tx.branch.update({
-          where: { id: branchId },
-          data: { addressId: null }
-        });
+      let addressId: string | null = null;
+      
+      // Só processar endereço se campos relevantes foram explicitamente fornecidos
+      const hasAddressData = updateBranchDto.street !== undefined || 
+                            updateBranchDto.number !== undefined ||
+                            updateBranchDto.city !== undefined ||
+                            updateBranchDto.state !== undefined ||
+                            updateBranchDto.zipCode !== undefined;
+      
+      if (hasAddressData) {
+        if (updateBranchDto.street || updateBranchDto.number) {
+          // Primeiro, remove a referência do addressId da Branch
+          await tx.branch.update({
+            where: { id: branchId },
+            data: { addressId: null }
+          });
 
-        // Agora pode remover o endereço existente
-        await tx.branchAddress.deleteMany({
-          where: { branchId }
-        });
+          // Agora pode remover o endereço existente
+          await tx.branchAddress.deleteMany({
+            where: { branchId }
+          });
 
-        // Cria um novo endereço
-        const newAddress = await tx.branchAddress.create({
-          data: {
-            street: updateBranchDto.street || '',
-            number: updateBranchDto.number || '',
-            complement: updateBranchDto.complement || '',
-            neighborhood: updateBranchDto.neighborhood || '',
-            city: updateBranchDto.city || '',
-            state: updateBranchDto.state || '',
-            zipCode: updateBranchDto.zipCode || '',
-            branchId
+          // Cria um novo endereço
+          const newAddress = await tx.branchAddress.create({
+            data: {
+              street: updateBranchDto.street || '',
+              number: updateBranchDto.number || '',
+              complement: updateBranchDto.complement || '',
+              neighborhood: updateBranchDto.neighborhood || '',
+              city: updateBranchDto.city || '',
+              state: updateBranchDto.state || '',
+              zipCode: updateBranchDto.zipCode || '',
+              branchId
+            }
+          });
+
+          if(newAddress.id) {
+            addressId = newAddress.id
           }
-        });
+        } else {
+          // Se campos de endereço foram fornecidos mas estão vazios, remove o endereço
+          await tx.branch.update({
+            where: { id: branchId },
+            data: { addressId: null }
+          });
 
-        if(newAddress.id) {
-          addressId = newAddress.id
+          await tx.branchAddress.deleteMany({
+            where: { branchId }
+          });
         }
       }
-      // Primeiro, atualiza os dados da filial
+      // Se não há dados de endereço fornecidos, não mexe no endereço existente
+      
+      // Atualiza os dados da filial (só se fornecidos)
+      const finalUpdateData: any = {};
+      
+      if (updateBranchDto.branchName !== undefined) finalUpdateData.branchName = updateBranchDto.branchName;
+      if (updateBranchDto.logoUrl !== undefined) finalUpdateData.logoUrl = updateBranchDto.logoUrl;
+      if (updateBranchDto.bannerUrl !== undefined) finalUpdateData.bannerUrl = updateBranchDto.bannerUrl;
+      if (updateBranchDto.phone !== undefined) finalUpdateData.phone = updateBranchDto.phone;
+      if (updateBranchDto.primaryColor !== undefined) finalUpdateData.primaryColor = updateBranchDto.primaryColor;
+      if (updateBranchDto.description !== undefined) finalUpdateData.description = updateBranchDto.description;
+      if (updateBranchDto.instagram !== undefined) finalUpdateData.instagram = updateBranchDto.instagram;
+      if (updateBranchDto.minOrderValue !== undefined) finalUpdateData.minOrderValue = updateBranchDto.minOrderValue;
+      if (updateBranchDto.checkoutMessage !== undefined) finalUpdateData.checkoutMessage = updateBranchDto.checkoutMessage;
+      if (updateBranchDto.latitude !== undefined) finalUpdateData.latitude = updateBranchDto.latitude;
+      if (updateBranchDto.longitude !== undefined) finalUpdateData.longitude = updateBranchDto.longitude;
+      if (hasAddressData) finalUpdateData.addressId = addressId; // Só atualiza addressId se houve alteração
+      
       await tx.branch.update({
         where: { id: branchId },
         data: {
-          branchName: updateBranchDto.branchName,
-          logoUrl: updateBranchDto.logoUrl,
-          bannerUrl: updateBranchDto.bannerUrl,
-          addressId:addressId,
-          phone: updateBranchDto.phone,
-          primaryColor: updateBranchDto.primaryColor,
-          description: updateBranchDto.description,
-          instagram: updateBranchDto.instagram,
-          minOrderValue: updateBranchDto.minOrderValue,
-          checkoutMessage: updateBranchDto.checkoutMessage,
-          latitude: updateBranchDto.latitude,
-          longitude: updateBranchDto.longitude,
+          ...finalUpdateData,
           paymentMethods: updateBranchDto.paymentMethods ? {
             set: updateBranchDto.paymentMethods.map((paymentMethod) => ({
               id: paymentMethod.id,
@@ -728,47 +754,81 @@ export class BranchesService {
       });
 
       // Tratar endereço separadamente (mesma lógica do updateCurrent)
-      let addressId = ''
-      if (updateBranchDto.street || updateBranchDto.number) {
-        // Primeiro, remove a referência do addressId da Branch
-        await tx.branch.update({
-          where: { id },
-          data: { addressId: null }
-        });
+      let addressId: string | null = null;
+      
+      // Só processar endereço se campos relevantes foram explicitamente fornecidos
+      const hasAddressData = updateBranchDto.street !== undefined || 
+                            updateBranchDto.number !== undefined ||
+                            updateBranchDto.city !== undefined ||
+                            updateBranchDto.state !== undefined ||
+                            updateBranchDto.zipCode !== undefined;
+      
+      if (hasAddressData) {
+        if (updateBranchDto.street || updateBranchDto.number) {
+          // Primeiro, remove a referência do addressId da Branch
+          await tx.branch.update({
+            where: { id },
+            data: { addressId: null }
+          });
 
-        // Agora pode remover o endereço existente
-        await tx.branchAddress.deleteMany({
-          where: { branchId: id }
-        });
+          // Agora pode remover o endereço existente
+          await tx.branchAddress.deleteMany({
+            where: { branchId: id }
+          });
 
-        // Cria um novo endereço
-        const newAddress = await tx.branchAddress.create({
-          data: {
-            street: updateBranchDto.street || '',
-            number: updateBranchDto.number || '',
-            complement: updateBranchDto.complement || '',
-            neighborhood: updateBranchDto.neighborhood || '',
-            city: updateBranchDto.city || '',
-            state: updateBranchDto.state || '',
-            zipCode: updateBranchDto.zipCode || '',
-            lat: lat ? Math.round(lat * 1000000) : undefined,
-            lng: lng ? Math.round(lng * 1000000) : undefined,
-            branchId: id,
+          // Cria um novo endereço
+          const newAddress = await tx.branchAddress.create({
+            data: {
+              street: updateBranchDto.street || '',
+              number: updateBranchDto.number || '',
+              complement: updateBranchDto.complement || '',
+              neighborhood: updateBranchDto.neighborhood || '',
+              city: updateBranchDto.city || '',
+              state: updateBranchDto.state || '',
+              zipCode: updateBranchDto.zipCode || '',
+              lat: lat ? Math.round(lat * 1000000) : undefined,
+              lng: lng ? Math.round(lng * 1000000) : undefined,
+              branchId: id,
+            }
+          });
+
+          if(newAddress.id) {
+            addressId = newAddress.id
           }
-        });
+        } else {
+          // Se campos de endereço foram fornecidos mas estão vazios, remove o endereço
+          await tx.branch.update({
+            where: { id },
+            data: { addressId: null }
+          });
 
-        if(newAddress.id) {
-          addressId = newAddress.id
+          await tx.branchAddress.deleteMany({
+            where: { branchId: id }
+          });
         }
       }
+      // Se não há dados de endereço fornecidos, não mexe no endereço existente
 
-      // Atualiza a branch com o novo addressId se houver
-      if(addressId) {
-        await tx.branch.update({
+      // Atualiza a branch com o addressId (só se houve alteração de endereço)
+      const finalUpdateData: any = {};
+      
+      if (updateBranchDto.branchName !== undefined) finalUpdateData.branchName = updateBranchDto.branchName;
+      if (updateBranchDto.logoUrl !== undefined) finalUpdateData.logoUrl = updateBranchDto.logoUrl;
+      if (updateBranchDto.bannerUrl !== undefined) finalUpdateData.bannerUrl = updateBranchDto.bannerUrl;
+      if (updateBranchDto.phone !== undefined) finalUpdateData.phone = updateBranchDto.phone;
+      if (updateBranchDto.primaryColor !== undefined) finalUpdateData.primaryColor = updateBranchDto.primaryColor;
+      if (updateBranchDto.description !== undefined) finalUpdateData.description = updateBranchDto.description;
+      if (updateBranchDto.instagram !== undefined) finalUpdateData.instagram = updateBranchDto.instagram;
+      if (updateBranchDto.minOrderValue !== undefined) finalUpdateData.minOrderValue = updateBranchDto.minOrderValue;
+      if (updateBranchDto.checkoutMessage !== undefined) finalUpdateData.checkoutMessage = updateBranchDto.checkoutMessage;
+      if (updateBranchDto.latitude !== undefined) finalUpdateData.latitude = updateBranchDto.latitude;
+      if (updateBranchDto.longitude !== undefined) finalUpdateData.longitude = updateBranchDto.longitude;
+      if (hasAddressData) finalUpdateData.addressId = addressId; // Só atualiza addressId se houve alteração
+      
+      await tx.branch.update({
           where: { id },
-          data: { addressId }
+          data: finalUpdateData
         });
-      }
 
       // Busca a branch atualizada com o novo endereço
       return tx.branch.findUnique({
