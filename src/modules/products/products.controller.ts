@@ -99,7 +99,6 @@ export class ProductsController {
   }
 
   @Put(':id')
-  
   updatePut(
     @Param('id') id: string,
     @Body() updateProductDto: UpdateProductDto,

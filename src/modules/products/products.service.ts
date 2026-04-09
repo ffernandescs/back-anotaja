@@ -251,7 +251,7 @@ export class ProductsService {
 
     // Tipar corretamente o objeto de atualização
 
-    return prisma.product.update({
+    const product = await prisma.product.update({
       where: { id },
       data: updateProductDto,
       include: {
@@ -273,8 +273,23 @@ export class ProductsService {
             branchName: true,
           },
         },
+        stockMovements:true
       },
     });
+
+    const currentStock = product.stockMovements.reduce((total, movement) => {
+      if (movement.type === 'ENTRADA') {
+        return total + movement.quantity;
+      } else if (movement.type === 'SAIDA') {
+        return total - movement.quantity;
+      }
+      return total;
+    }, 0);
+
+    return {
+      ...product,
+      currentStock,
+    };
   }
 
   async updateAdvancedOptions(
