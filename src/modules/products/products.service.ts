@@ -198,6 +198,7 @@ export class ProductsService {
             options: true,
           },
         },
+        stockMovements: true
       },
     });
 
@@ -205,7 +206,20 @@ export class ProductsService {
       throw new NotFoundException('Produto não encontrado');
     }
 
-    return product;
+    // Calcular estoque atual baseado nos movimentos
+    const currentStock = product.stockMovements.reduce((total, movement) => {
+      if (movement.type === 'ENTRADA') {
+        return total + movement.quantity;
+      } else if (movement.type === 'SAIDA') {
+        return total - movement.quantity;
+      }
+      return total;
+    }, 0);
+
+    return {
+      ...product,
+      currentStock,
+    };
   }
 
   async update(id: string, updateProductDto: UpdateProductDto, userId: string) {

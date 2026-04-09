@@ -200,7 +200,6 @@ async function seed() {
     // 🧾 VENDAS - Subfeatures das features de vendas
     ['orders', 'Pedidos', 'sales_attendance', '/admin/sales/orders', 1],
     ['kanban', 'Kanban', 'sales_attendance', '/admin/sales/kanban', 2],
-    ['pdv', 'PDV', 'sales_attendance', '/admin/sales/pdv', 3],
 
     ['commands', 'Comandas', 'sales_hall', '/admin/sales/commands', 1],
     ['tables', 'Mesas', 'sales_hall', '/admin/sales/tables', 2],
