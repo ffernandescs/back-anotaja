@@ -207,12 +207,11 @@ async function seed() {
     ['kds', 'KDS', 'sales_kitchen', '/admin/sales/kds', 1],
 
     // 🍔 CARDÁPIO - Subfeatures das features de cardápio
-    ['products', 'Produtos', 'menu_management', '/admin/menu/products', 1],
-    ['categories', 'Categorias', 'menu_management', '/admin/menu/categories', 2],
-    ['ingredients', 'Ingredientes', 'menu_management', '/admin/menu/ingredients', 3],
-    ['complements', 'Complementos', 'menu_management', '/admin/menu/complements', 4],
-    ['complement_options', 'Opções de Complemento', 'menu_management', '/admin/menu/complement-options', 5],
-    ['stock', 'Estoque', 'menu_management', '/admin/menu/stock', 4],
+    ['categories', 'Categorias', 'menu_management', '/admin/menu/categories', 1],
+    ['products', 'Produtos', 'menu_management', '/admin/menu/products', 2],
+    ['complements', 'Complementos', 'menu_management', '/admin/menu/complements', 3],
+    ['complement_options', 'Opções de Complemento', 'menu_management', '/admin/menu/complement-options', 4],
+    ['stock', 'Estoque', 'menu_management', '/admin/menu/stock', 5],
 
     // 🍔 OPÇÕES DE COMPLEMENTO - Subfeatures das features de opções de complemento
 
