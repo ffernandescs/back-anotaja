@@ -4220,16 +4220,21 @@ async function main() {
 
         // Verificar e criar grupo Administrador com permissões do plano trial para esta branch
         console.log(`👥 Verificando grupo Administrador para ${branch.branchName}...`);
+        
+        // Buscar grupo existente - pode ser branch-level ou company-level
         let adminGroup = await prisma.group.findFirst({
           where: {
             name: 'Administrador',
-            branchId: branch.id,
             companyId: company.id,
+            OR: [
+              { branchId: branch.id },
+              { branchId: null }, // Grupo company-level
+            ],
           },
         });
 
         if (adminGroup) {
-          console.log(`✅ Grupo Administrador já existe para ${branch.branchName}, pulando...`);
+          console.log(`✅ Grupo Administrador já existe para a empresa, reutilizando...`);
         } else if (trialPlan) {
           console.log(`👥 Criando grupo Administrador para ${branch.branchName}...`);
           const planFeatures = await prisma.planFeature.findMany({
@@ -4250,18 +4255,33 @@ async function main() {
             }));
           });
 
-          // Criar grupo único para esta branch
-          adminGroup = await prisma.group.create({
-            data: {
-              name: 'Administrador',
-              branchId: branch.id,
-              companyId: company.id,
-              description: 'Grupo com acesso total às funcionalidades do plano',
-              permissions: {
-                create: trialPermissions,
+          try {
+            // Tentar criar grupo único para esta branch
+            adminGroup = await prisma.group.create({
+              data: {
+                name: 'Administrador',
+                branchId: branch.id,
+                companyId: company.id,
+                description: 'Grupo com acesso total às funcionalidades do plano',
+                permissions: {
+                  create: trialPermissions,
+                },
               },
-            },
-          });
+            });
+          } catch (error: any) {
+            // Se falhar por constraint, buscar o grupo existente
+            if (error.code === 'P2002') {
+              console.log(`⚠️ Grupo Administrador já existe, buscando...`);
+              adminGroup = await prisma.group.findFirst({
+                where: {
+                  name: 'Administrador',
+                  companyId: company.id,
+                },
+              });
+            } else {
+              throw error;
+            }
+          }
         }
 
         // Verificar e criar usuário admin
