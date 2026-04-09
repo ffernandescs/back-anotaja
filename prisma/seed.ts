@@ -269,7 +269,9 @@ async function createCategoriesProductsAndComplements(
               where: {
                 name: optionData.name,
                 complement: {
-                  id: complement.id,
+                  some: {
+                    id: complement.id,
+                  },
                 },
                 branchId: branchId,
               },
