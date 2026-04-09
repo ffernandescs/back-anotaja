@@ -1031,12 +1031,21 @@ async createOrder(
     }
 
     // ---------------------------------------------------------------
-    // 10. Taxa de serviço
+    // 10. Taxa de serviço (configurável por branch)
     // ---------------------------------------------------------------
-    const serviceFee =
-      deliveryType === DeliveryTypeDto.DINE_IN
-        ? Math.round(subtotal * 0.1)
-        : 0;
+    let serviceFee = 0;
+    if (deliveryType === DeliveryTypeDto.DINE_IN) {
+      // Buscar configuração da branch
+      const generalConfig = await prisma.generalConfig.findUnique({
+        where: { branchId: branch.id },
+      });
+      
+      // Aplicar taxa de serviço se estiver habilitada
+      if (generalConfig?.enableServiceFee) {
+        const percentage = generalConfig.serviceFeePercentage || 10;
+        serviceFee = Math.round((subtotal * percentage) / 100);
+      }
+    }
 
     // ---------------------------------------------------------------
     // 11. Aplicar cupom (busca única, sem query dentro da transação)
