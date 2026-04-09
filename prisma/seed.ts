@@ -4058,6 +4058,7 @@ async function main() {
         const now = new Date();
         const trialEndDate = new Date(now);
         trialEndDate.setDate(trialEndDate.getDate() + (trialPlan.trialDays ?? 7));
+        trialEndDate.setHours(23, 59, 59, 999);
 
         await prisma.subscription.create({
           data: {
@@ -4066,7 +4067,7 @@ async function main() {
             status: 'ACTIVE',
             billingPeriod: trialPlan.billingPeriod,
             startDate: now,
-            endDate: trialEndDate,
+            trialEndsAt: trialEndDate,
             nextBillingDate: trialEndDate,
             notes: `Trial de ${trialPlan.trialDays ?? 7} dias - Criado automaticamente no seed`,
           },
@@ -4159,6 +4160,41 @@ async function main() {
         userCounter++;
         const adminPhone = `8198765${String(2000 + userCounter).padStart(4, '0')}`;
 
+        // Criar grupo Administrador com permissões do plano trial
+        console.log('👥 Criando grupo Administrador com permissões do plano TRIAL...');
+        let adminGroup;
+        if (trialPlan) {
+          const planFeatures = await prisma.planFeature.findMany({
+            where: { planId: trialPlan.id },
+            include: {
+              feature: true,
+            },
+          });
+
+          // Gerar permissões baseadas nas features do plano
+          const trialPermissions = planFeatures.flatMap(({ feature }) => {
+            const defaultActions = feature.defaultActions ? JSON.parse(feature.defaultActions) : ['read'];
+            
+            return defaultActions.map((action: string) => ({
+              action: action as any,
+              subject: feature.key as any,
+              inverted: false,
+            }));
+          });
+
+          adminGroup = await prisma.group.create({
+            data: {
+              name: 'Administrador',
+              branchId: branch.id,
+              companyId: company.id,
+              description: 'Grupo com acesso total às funcionalidades do plano',
+              permissions: {
+                create: trialPermissions,
+              },
+            },
+          });
+        }
+
         console.log('👤 Criando usuário admin da filial matriz...');
         const adminUser = await prisma.user.create({
           data: {
@@ -4168,6 +4204,7 @@ async function main() {
             password: hashedPassword,
             companyId: company.id,
             branchId: branch.id, // VINCULADO À FILIAL MATRIZ
+            groupId: adminGroup?.id,
             active: true,
           },
         });

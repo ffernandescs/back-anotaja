@@ -25,7 +25,6 @@
     "reset:prod": "dotenv -e environments/.env.prod -- npm run prisma:reset:prod && npm run prisma:db:push:prod && npm run seed:master:prod",
     "prisma:db:push:dev": "dotenv -e environments/.env.dev -- npx prisma db push",
     "prisma:db:push:prod": "dotenv -e environments/.env.prod -- npx prisma db push",
-    "db:seed": "tsx prisma/seed.ts",
     "seed:migrations:dev": "dotenv -e environments/.env.dev -- tsx prisma/seed.migrations.ts",
     "seed:migrations:prod": "dotenv -e environments/.env.prod -- tsx prisma/seed.migrations.ts",
     "db:seed:dev": "dotenv -e environments/.env.dev -- tsx prisma/seed.ts",
