@@ -217,9 +217,23 @@ async function createCategoriesProductsAndComplements(
 
       // APLICAR TODOS OS COMPLEMENTOS DO SEGMENTO
       if (segmentComplements.length > 0) {
-        console.log(`  🔧 Criando ${segmentComplements.length} complementos`);
+        console.log(`  🔧 Verificando ${segmentComplements.length} complementos`);
 
         for (const complementData of segmentComplements) {
+          // Verificar se o complemento já existe para este produto
+          let complement = await prisma.productComplement.findFirst({
+            where: {
+              name: complementData.name,
+              productId: product.id,
+              branchId: branchId,
+            },
+          });
+
+          if (complement) {
+            console.log(`    ✅ Complemento "${complementData.name}" já existe, pulando...`);
+            continue;
+          }
+
           // GERAR VALORES ALEATÓRIOS
           const allowRepeat = Math.random() > 0.7; // 30% de chance de permitir repetir
           const totalOptions = complementData.options.length;
@@ -234,7 +248,7 @@ async function createCategoriesProductsAndComplements(
             minOptions +
             Math.floor(Math.random() * (totalOptions - minOptions + 1));
 
-          const complement = await prisma.productComplement.create({
+          complement = await prisma.productComplement.create({
             data: {
               name: complementData.name,
               required: complementData.required,
@@ -248,7 +262,22 @@ async function createCategoriesProductsAndComplements(
           });
 
           for (const optionData of complementData.options) {
-                  const priceInCents = Math.round(Number(optionData.price) * 100);
+            const priceInCents = Math.round(Number(optionData.price) * 100);
+
+            // Verificar se a opção já existe para este complemento
+            const existingOption = await prisma.complementOption.findFirst({
+              where: {
+                name: optionData.name,
+                complement: {
+                  id: complement.id,
+                },
+                branchId: branchId,
+              },
+            });
+
+            if (existingOption) {
+              continue;
+            }
 
             await prisma.complementOption.create({
               data: {

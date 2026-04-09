@@ -165,12 +165,15 @@ async function seed() {
   for (const [key, name, group] of rootFeatures) {
     const feature = await prisma.feature.upsert({
       where: { key },
-      update: {},
+      update: {
+        defaultActions: JSON.stringify(['create', 'read', 'update', 'delete']),
+      },
       create: {
         key,
         name,
         href: key === 'dashboard' ? '/admin/dashboard' : null, // Dashboard tem href, outras não
         active: true,
+        defaultActions: JSON.stringify(['create', 'read', 'update', 'delete']),
       },
     });
 
@@ -255,6 +258,7 @@ async function seed() {
           href: href || undefined,
           displayOrder: displayOrder || 0,
           active: true,
+          defaultActions: JSON.stringify(['create', 'read', 'update', 'delete']),
         },
         create: {
           key,
@@ -262,6 +266,7 @@ async function seed() {
           href: href || undefined,
           displayOrder: displayOrder || 0,
           active: true,
+          defaultActions: JSON.stringify(['create', 'read', 'update', 'delete']),
         },
       });
       
@@ -285,6 +290,7 @@ async function seed() {
         parentId,
         displayOrder: displayOrder || 0,
         active: true,
+        defaultActions: JSON.stringify(['create', 'read', 'update', 'delete']),
       },
       create: {
         key,
@@ -293,6 +299,7 @@ async function seed() {
         parentId,
         displayOrder: displayOrder || 0,
         active: true,
+        defaultActions: JSON.stringify(['create', 'read', 'update', 'delete']),
       },
     });
 
@@ -342,7 +349,7 @@ async function seed() {
       price: 0,
       isTrial: true,
       trialDays: 7,
-      features: ['dashboard', 'orders', 'pdv'], // keys corrigidas
+      features: ['*'], // TODAS as features no trial
     },
     {
       name: 'BASIC',
