@@ -993,6 +993,12 @@ async createOrder(
     let estimatedTime: number | null = null;
 
     if (deliveryType === DeliveryTypeDto.DELIVERY) {
+      if (!addressId) {
+        throw new BadRequestException(
+          'Endereço completo é obrigatório para delivery',
+        );
+      }
+      
       const customerAddress = await prisma.customerAddress.findUnique({
         where: { id: addressId },
       });
