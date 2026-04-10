@@ -35,10 +35,14 @@ export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
   @Post()
-  @Roles('admin', 'manager', 'customer')
-  /** Criar novo pedido */
   create(@Body() createOrderDto: CreateOrderDto, @Req() req: RequestWithUser) {
     return this.ordersService.create(createOrderDto, req.user.userId);
+  }
+
+  @Post('pdv')
+  /** Criar pedido via PDV com regras da loja */
+  createPDV(@Body() createOrderDto: CreateOrderDto, @Req() req: RequestWithUser) {
+    return this.ordersService.createPDVOrder(createOrderDto, req.user.userId);
   }
 
   @Get()
@@ -52,7 +56,6 @@ export class OrdersController {
   }
 
   @Patch(':id')
-  @Roles('admin', 'manager', 'delivery')
   update(
     @Param('id') id: string,
     @Body() updateOrderDto: UpdateOrderDto,
@@ -62,7 +65,6 @@ export class OrdersController {
   }
 
   @Put(':id')
-  @Roles('admin', 'manager', 'delivery')
   updatePut(
     @Param('id') id: string,
     @Body() updateOrderDto: UpdateOrderDto,
@@ -82,7 +84,6 @@ export class OrdersController {
   }
 
   @Patch(':id/status/delivery')
-  @Roles('admin', 'manager', 'delivery')
   updateStatusByDelivery(
     @Param('id') id: string,
     @Body('status') status: OrderStatusDto,
@@ -114,7 +115,6 @@ export class OrdersController {
   }
 
   @Post('test-print')
-  @Roles('admin', 'manager')
   async testPrint(@Req() req: RequestWithUser) {
     const userId = req.user.userId;
     

@@ -4,6 +4,9 @@ import {
   IsOptional,
   IsArray,
   ValidateNested,
+  Min,
+  IsInt,
+  IsNotEmpty,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -24,8 +27,14 @@ export enum DeliveryTypeDto {
 }
 
 export class CreateOrderItemComplementOptionDto {
-  @IsString()
-  optionId!: string;
+    @IsString()
+    @IsNotEmpty()
+    optionId!: string;
+
+   @IsOptional()
+    @IsInt()
+    @Min(1)
+    quantity?: number;
 }
 
 export class CreateOrderItemAdditionDto {

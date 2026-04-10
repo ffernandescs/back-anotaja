@@ -1275,10 +1275,10 @@ async createOrder(
             const createdOrder = await tx.order.create({
               data: {
                 orderNumber,
+                status: OrderStatusDto.PENDING,
                 branchId: branch.id,
                 customerId: customer.id,
-                status: 'PENDING',
-                deliveryType: deliveryType as any,
+                deliveryType: deliveryType,
                 subtotal,
                 deliveryFee,
                 serviceFee,

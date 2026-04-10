@@ -10,7 +10,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { DeliveryTypeDto } from 'src/modules/orders/dto/create-order-item.dto';
+import { DeliveryTypeDto, OrderStatusDto } from 'src/modules/orders/dto/create-order-item.dto';
 
 class PaymentDto {
   @IsEnum([
@@ -101,10 +101,24 @@ export class OrderPaymentDto {
   @IsInt()
   @Min(0)
   amount?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  amountGiven?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  change?: number;
 }
 
 // DTO principal de criação do pedido
 export class CreateStoreOrderDto {
+  @IsOptional()
+  @IsEnum(OrderStatusDto)
+  status?: OrderStatusDto;
+
   @IsEnum(DeliveryTypeDto)
   deliveryType!: DeliveryTypeDto;
 

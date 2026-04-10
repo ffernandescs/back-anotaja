@@ -74,6 +74,14 @@ export class CustomersController {
     return this.customersService.create(dto, subdomain);
   }
 
+  @Post('admin-create')
+  async adminCreate(
+    @Body() dto: CreateCustomerDto,
+    @Req() req: RequestWithUser,
+  ) {
+    return this.customersService.adminCreate(dto, req.user.userId);
+  }
+
   @Get()
   findAll(@Req() req: RequestWithUser) {
     return this.customersService.findAll(req.user.userId);

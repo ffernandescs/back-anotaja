@@ -12,9 +12,11 @@ import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
 import { PrinterService } from '../printer/printer.service';
 import { prisma } from '../../../lib/prisma';
 import { DeliveryTypeDto, OrderStatusDto } from './dto/create-order-item.dto';
-import { OrderStatus, Prisma, CashMovementType, PaymentMethodType, DeliveryType, OrderItem } from '@prisma/client';
+import { OrderStatus, Prisma, CashMovementType, PaymentMethodType, DeliveryType, OrderItem, StockMovement } from '@prisma/client';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { money } from '../../utils/money';
+import { PaymentTypeDto } from '../store/dto/create-store-order.dto';
+import { formatCurrency } from 'src/utils/formatCurrency';
 
 @Injectable()
 export class OrdersService {
@@ -57,11 +59,104 @@ export class OrdersService {
     const productIds = createOrderDto.items.map((item) => item.productId);
     const products = await prisma.product.findMany({
       where: { id: { in: productIds } },
+      include: { complements: { include: { options: true } } },
     });
 
     if (products.length !== productIds.length) {
       throw new NotFoundException('Um ou mais produtos não foram encontrados');
     }
+
+    // Calcular subtotal dos items
+    let subtotal = 0;
+    const itemsData = createOrderDto.items.map((item) => {
+      const product = products.find((p) => p.id === item.productId);
+      if (!product) throw new NotFoundException(`Produto ${item.productId} não encontrado`);
+
+      let itemPrice = product.price;
+
+      if (item.complements?.length) {
+        for (const complement of item.complements) {
+          for (const option of complement.options || []) {
+            const complementOption = product.complements
+              .flatMap((c) => c.options)
+              .find((o) => o.id === option.optionId);
+            if (complementOption?.active) {
+              itemPrice += complementOption.price * (option.quantity || 1);
+            }
+          }
+        }
+      }
+
+      subtotal += itemPrice * item.quantity;
+
+      return {
+        productId: product.id,
+        quantity: item.quantity,
+        price: itemPrice,
+        notes: item.notes,
+        complements: item.complements,
+      };
+    });
+
+    // Calcular delivery fee se for delivery
+    let deliveryFee = 0;
+    let estimatedTime: number | null = null;
+
+    if (createOrderDto.deliveryType === DeliveryTypeDto.DELIVERY) {
+      if (!createOrderDto.addressId) {
+        throw new BadRequestException('Endereço é obrigatório para delivery');
+      }
+      deliveryFee = createOrderDto.deliveryFee || 0;
+    }
+
+    // Taxa de serviço para DINE_IN
+    let serviceFee = 0;
+    if (createOrderDto.deliveryType === DeliveryTypeDto.DINE_IN) {
+      const generalConfig = await prisma.generalConfig.findUnique({
+        where: { branchId },
+      });
+
+      if (generalConfig?.enableServiceFee) {
+        const percentage = generalConfig.serviceFeePercentage || 10;
+        serviceFee = Math.round((subtotal * percentage) / 100);
+      }
+    }
+
+    // Aplicar cupom se houver
+    let discount = 0;
+    let appliedCouponId: string | null = null;
+
+    if (createOrderDto.couponId) {
+      const coupon = await prisma.coupon.findFirst({
+        where: {
+          id: createOrderDto.couponId,
+          branchId,
+          active: true,
+          validFrom: { lte: new Date() },
+          validUntil: { gte: new Date() },
+        },
+      });
+
+      if (coupon) {
+        if (coupon.maxUses && coupon.usedCount >= coupon.maxUses) {
+          throw new BadRequestException('Cupom esgotado');
+        }
+        if (coupon.minValue && subtotal < coupon.minValue) {
+          throw new BadRequestException(
+            `Valor mínimo do pedido não atingido: R$ ${coupon.minValue.toFixed(2)}`,
+          );
+        }
+
+        discount =
+          coupon.type === 'PERCENTAGE'
+            ? Math.round((subtotal * coupon.value) / 100)
+            : coupon.value;
+        appliedCouponId = coupon.id;
+      }
+    }
+
+    // Calcular total
+    const total = subtotal + deliveryFee + serviceFee - discount;
 
     const order = await prisma.$transaction(async (tx) => {
       const lastOrder = await tx.order.findFirst({
@@ -81,36 +176,29 @@ export class OrdersService {
 
           // 💰 Arredondando sempre
           paidAmount: money(0),
-          total: money(createOrderDto.total),
-          subtotal: money(createOrderDto.subtotal),
-          deliveryFee: money(createOrderDto.deliveryFee || 0),
-          serviceFee: money(createOrderDto.serviceFee || 0),
-          discount: money(createOrderDto.discount || 0),
+          total: money(total),
+          subtotal: money(subtotal),
+          deliveryFee: money(deliveryFee),
+          serviceFee: money(serviceFee),
+          discount: money(discount),
 
           notes: createOrderDto.notes || null,
           customerId: createOrderDto.customerId || null,
           customerAddressId: createOrderDto.addressId || null,
           branchId,
           userId: userId,
-          couponId: createOrderDto.couponId || null,
+          couponId: appliedCouponId || null,
           tableNumber: createOrderDto.tableNumber || null,
           tableId: createOrderDto.tableId || null,
 
           items: {
-            create: createOrderDto.items.map((item) => ({
+            create: itemsData.map((item) => ({
               productId: item.productId,
               quantity: item.quantity,
-              price: money(item.price), // <--- arredondando o price do item
+              price: money(item.price),
               notes: item.notes || null,
               preparationStatus: 'PENDING',
               dispatchStatus: 'PENDING',
-              additions: item.additions
-                ? {
-                    create: item.additions.map((addition) => ({
-                      additionId: addition.additionId,
-                    })),
-                  }
-                : undefined,
               complements: item.complements
                 ? {
                     create: item.complements.map((complement) => ({
@@ -220,14 +308,263 @@ export class OrdersService {
     // Emitir evento de criação via WebSocket com payload completo
     const fullCreatedOrder = await this.findOne(order.id, userId);
     await this.webSocketGateway.emitOrderUpdate(fullCreatedOrder, 'order:created');
-
-    // 🖨️ Imprimir pedido automaticamente na criação
-    console.log('🖨️ About to call printOrderOnCreate for order:', fullCreatedOrder.orderNumber);
-    console.log('🖨️ Branch data:', JSON.stringify(branch, null, 2));
-    console.log('🖨️ PrinterService exists:', !!this.printerService);
-    
     await this.printerService.printOrderOnCreate(fullCreatedOrder, branch);
     console.log('🖨️ printOrderOnCreate completed');
+
+    return order;
+  }
+
+  async createPDVOrder(createOrderDto: CreateOrderDto, userId: string) {
+    // Verificar se o usuário existe e tem acesso à filial
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { branch: true, company: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    if (!user.branchId) {
+      throw new ForbiddenException('Usuário não está associado a uma filial');
+    }
+
+    const branchId = user.branchId;
+
+    // Validar cliente
+    if (!createOrderDto.customerId) {
+      throw new BadRequestException('Cliente é obrigatório para criar pedido no PDV');
+    }
+
+    const customer = await prisma.customer.findUnique({
+      where: { id: createOrderDto.customerId },
+    });
+
+    if (!customer) {
+      throw new NotFoundException('Cliente não encontrado');
+    }
+
+    // Buscar produtos e complementos
+    const productIds = createOrderDto.items.map((item) => item.productId);
+    const products = await prisma.product.findMany({
+      where: { id: { in: productIds } },
+      include: {
+        complements: { include: { options: true } },
+      },
+    });
+
+    if (products.length !== productIds.length) {
+      throw new NotFoundException('Um ou mais produtos não foram encontrados');
+    }
+
+    const productMap = new Map(products.map((p) => [p.id, p]));
+
+    // Calcular subtotal
+    let subtotal = 0;
+    const itemsData = createOrderDto.items.map((item) => {
+      const product = productMap.get(item.productId);
+      if (!product || !product.active) {
+        throw new NotFoundException(`Produto ${item.productId} não encontrado`);
+      }
+
+      let itemPrice = product.price;
+
+      if (item.complements?.length) {
+        for (const complement of item.complements) {
+          for (const option of complement.options || []) {
+            const complementOption = product.complements
+              .flatMap((c) => c.options)
+              .find((o) => o.id === option.optionId);
+            if (complementOption?.active) {
+              itemPrice += complementOption.price * (option.quantity || 1);
+            }
+          }
+        }
+      }
+
+      subtotal += itemPrice * item.quantity;
+
+      return {
+        productId: product.id,
+        quantity: item.quantity,
+        price: itemPrice,
+        notes: item.notes,
+        complements: item.complements,
+      };
+    });
+
+    // Calcular delivery fee se for delivery
+    let deliveryFee = 0;
+    let estimatedTime: number | null = null;
+
+    if (createOrderDto.deliveryType === DeliveryTypeDto.DELIVERY) {
+      if (!createOrderDto.addressId) {
+        throw new BadRequestException('Endereço é obrigatório para delivery');
+      }
+      // Para PDV, delivery fee pode ser 0 ou calculado
+      deliveryFee = createOrderDto.deliveryFee || 0;
+    }
+
+    // Taxa de serviço para DINE_IN
+    let serviceFee = 0;
+    if (createOrderDto.deliveryType === DeliveryTypeDto.DINE_IN) {
+      const generalConfig = await prisma.generalConfig.findUnique({
+        where: { branchId },
+      });
+
+      if (generalConfig?.enableServiceFee) {
+        const percentage = generalConfig.serviceFeePercentage || 10;
+        serviceFee = Math.round((subtotal * percentage) / 100);
+      }
+    }
+
+    // Aplicar cupom se houver
+    let discount = 0;
+    let appliedCouponId: string | null = null;
+
+    if (createOrderDto.couponId) {
+      const coupon = await prisma.coupon.findFirst({
+        where: {
+          id: createOrderDto.couponId,
+          branchId,
+          active: true,
+          validFrom: { lte: new Date() },
+          validUntil: { gte: new Date() },
+        },
+      });
+
+      if (coupon) {
+        if (coupon.maxUses && coupon.usedCount >= coupon.maxUses) {
+          throw new BadRequestException('Cupom esgotado');
+        }
+        if (coupon.minValue && subtotal < coupon.minValue) {
+          throw new BadRequestException(
+            `Valor mínimo do pedido não atingido: R$ ${coupon.minValue.toFixed(2)}`,
+          );
+        }
+
+        discount =
+          coupon.type === 'PERCENTAGE'
+            ? Math.round((subtotal * coupon.value) / 100)
+            : coupon.value;
+        appliedCouponId = coupon.id;
+      }
+    }
+
+    // Calcular total
+    const total = subtotal + deliveryFee + serviceFee - discount;
+
+    // Validar métodos de pagamento
+    if (!createOrderDto.payments?.length) {
+      throw new BadRequestException('Ao menos uma forma de pagamento é obrigatória');
+    }
+
+    // Validar total dos pagamentos
+    const totalPaid = createOrderDto.payments.reduce((sum, p) => sum + (p.amount || 0), 0);
+
+    if (Math.abs(totalPaid - total) > 1) {
+      throw new BadRequestException(
+        `O total dos pagamentos (${formatCurrency(totalPaid)}) deve ser igual ao total do pedido (${formatCurrency(total)})`,
+      );
+    }
+
+    const order = await prisma.$transaction(async (tx) => {
+      const lastOrder = await tx.order.findFirst({
+        where: { branchId },
+        orderBy: { orderNumber: 'desc' },
+        select: { orderNumber: true },
+      });
+
+      const orderNumber = lastOrder?.orderNumber ? lastOrder.orderNumber + 1 : 1;
+
+      const created = await tx.order.create({
+        data: {
+          orderNumber,
+          status: OrderStatusDto.PENDING,
+          branchId,
+          customerId: createOrderDto.customerId,
+          deliveryType: createOrderDto.deliveryType,
+          subtotal: money(subtotal),
+          deliveryFee: money(deliveryFee),
+          serviceFee: money(serviceFee),
+          discount: money(discount),
+          total: money(total),
+          estimatedTime,
+          couponId: appliedCouponId,
+          customerAddressId: createOrderDto.addressId || null,
+          notes: createOrderDto.notes || null,
+          userId: userId,
+          tableNumber: createOrderDto.tableNumber || null,
+          tableId: createOrderDto.tableId || null,
+          items: {
+            create: itemsData.map((item) => ({
+              productId: item.productId,
+              quantity: item.quantity,
+              price: money(item.price),
+              notes: item.notes,
+              preparationStatus: 'PENDING',
+              dispatchStatus: 'PENDING',
+              complements: item.complements?.length
+                ? {
+                    create: item.complements.map((comp) => ({
+                      complementId: comp.complementId,
+                      options: {
+                        create: comp.options?.map((opt) => ({
+                          optionId: opt.optionId,
+                          quantity: opt.quantity || 1,
+                        })) || [],
+                      },
+                    })),
+                  }
+                : undefined,
+            })),
+          },
+          payments: {
+            create: createOrderDto.payments.map((p) => {
+              const calculatedChange =
+                p.amountGiven && p.amountGiven > (p.amount || 0)
+                  ? p.amountGiven - (p.amount || 0)
+                  : p.change || 0;
+              return {
+                type: p.type,
+                amount: money(p.amount || 0),
+                paymentMethodId: p.paymentMethodId,
+                change: calculatedChange,
+                amountGiven: p.amountGiven || 0,
+                status: 'PENDING',
+              };
+            }),
+          },
+        },
+      });
+
+      // Atualizar cupom se houver
+      if (appliedCouponId) {
+        await tx.coupon.update({
+          where: { id: appliedCouponId },
+          data: { usedCount: { increment: 1 } },
+        });
+      }
+
+      // Atualizar mesa se houver
+      if (created.tableId) {
+        await tx.table.update({
+          where: { id: created.tableId },
+          data: { status: 'OPEN' },
+        });
+      }
+
+      return created;
+    });
+
+    // Buscar pedido completo
+    const fullOrder = await this.findOne(order.id, userId);
+
+    // Emitir WebSocket com flag fromPDV para não disparar notificações no NotificationBell
+    await this.webSocketGateway.emitOrderUpdate({ ...fullOrder, fromPDV: true }, 'order:created');
+
+    // Imprimir pedido
+    await this.printerService.printOrderOnCreate(fullOrder, user.branch);
 
     return order;
   }
@@ -385,6 +722,7 @@ export class OrdersService {
             amount: true,
             change: true,
             createdAt: true,
+            amountGiven:true,
           },
           orderBy: { createdAt: 'desc' },
         },
@@ -517,6 +855,7 @@ export class OrdersService {
             amount: true,
             change: true,
             createdAt: true,
+            amountGiven:true
           },
           orderBy: {
             createdAt: 'desc',
@@ -560,16 +899,83 @@ export class OrdersService {
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, group: true },
+      select: { id: true, group: true, branchId: true },
     });
 
     if (!user) {
       throw new NotFoundException('Usuário não encontrado');
     }
 
+    const branchId = user.branchId;
 
     // 🚫 Não permitir update direto de items
-    const { items, ...payload } = dto;
+    const { items, payments, ...payload } = dto;
+
+    // Calcular totais se items forem fornecidos
+    let calculatedSubtotal = payload.subtotal || existingOrder.subtotal;
+    let calculatedDeliveryFee = existingOrder.deliveryFee || 0;
+    let calculatedServiceFee = payload.serviceFee || existingOrder.serviceFee || 0;
+    let calculatedDiscount = existingOrder.discount || 0;
+    let calculatedTotal = payload.total || existingOrder.total;
+
+    if (items && items.length > 0) {
+      // Buscar produtos para calcular subtotal
+      const productIds = items.map((item) => item.productId);
+      const products = await prisma.product.findMany({
+        where: { id: { in: productIds } },
+        include: {
+          complements: { include: { options: true } },
+        },
+      });
+
+      const productMap = new Map(products.map((p) => [p.id, p]));
+
+      // Calcular subtotal
+      calculatedSubtotal = 0;
+      for (const item of items) {
+        const product = productMap.get(item.productId);
+        if (!product || !product.active) {
+          throw new NotFoundException(`Produto ${item.productId} não encontrado`);
+        }
+
+        let itemPrice = product.price;
+
+        if (item.complements?.length) {
+          for (const complement of item.complements) {
+            for (const option of complement.options || []) {
+              const complementOption = product.complements
+                .flatMap((c) => c.options)
+                .find((o) => o.id === option.optionId);
+              if (complementOption?.active) {
+                itemPrice += complementOption.price * (option.quantity || 1);
+              }
+            }
+          }
+        }
+
+        calculatedSubtotal += itemPrice * item.quantity;
+      }
+
+      // Calcular delivery fee se for delivery
+      if (payload.deliveryType === DeliveryTypeDto.DELIVERY) {
+        calculatedDeliveryFee = payload.deliveryFee || 0;
+      }
+
+      // Calcular service fee se for DINE_IN
+      if (payload.deliveryType === DeliveryTypeDto.DINE_IN && branchId) {
+        const generalConfig = await prisma.generalConfig.findUnique({
+          where: { branchId },
+        });
+
+        if (generalConfig?.enableServiceFee) {
+          const percentage = generalConfig.serviceFeePercentage || 10;
+          calculatedServiceFee = Math.round((calculatedSubtotal * percentage) / 100);
+        }
+      }
+
+      // Calcular total
+      calculatedTotal = calculatedSubtotal + calculatedDeliveryFee + calculatedServiceFee - calculatedDiscount;
+    }
 
     if (items) {
       await this.updateItems(id, items, userId);
@@ -596,39 +1002,75 @@ export class OrdersService {
       }
     }
 
-    const updatedOrder = await prisma.order.update({
-      where: { id },
-      data: {
-        total: money(payload.total || 0),
-        subtotal: money(payload.subtotal || 0),
-        serviceFee: money(payload.serviceFee || 0),
-        customerId: payload.customerId || null,
-      },
-      include: {
-        branch: {
-          select: {
-            id: true,
-            branchName: true,
-          },
-        },
-        items: {
-          include: {
-            product: {
-              select: {
-                id: true,
-                name: true,
-              },
+    const updatedOrder = await prisma.$transaction(async (tx) => {
+
+      if (payments) {
+        // Delete existing payments
+        await tx.orderPayment.deleteMany({
+          where: { orderId: id },
+        });
+
+        // Create new payments
+        for (const payment of payments) {
+          const calculatedChange =
+            payment.amountGiven && payment.amountGiven > (payment.amount || 0)
+              ? payment.amountGiven - (payment.amount || 0)
+              : payment.change || 0;
+          await tx.orderPayment.create({
+            data: {
+              type: payment.type,
+              amount: money(payment.amount || 0),
+              paymentMethodId: payment.paymentMethodId,
+              change: calculatedChange,
+              amountGiven: payment.amountGiven || null,
+              status: 'PENDING',
+              orderId: id,
             },
-            complements: {
-              include: {
-                options: true,
-              },
-            },
-            additions: true,
-          },
+          });
+        }
+      }
+      
+      const order = await tx.order.update({
+        where: { id },
+        data: {
+          total: money(calculatedTotal),
+          subtotal: money(calculatedSubtotal),
+          serviceFee: money(calculatedServiceFee),
+          deliveryFee: money(calculatedDeliveryFee),
+          customerId: payload.customerId || null,
+          deliveryType: payload.deliveryType || existingOrder.deliveryType,
         },
-        payments: true,
-      },
+        include: {
+          branch: {
+            select: {
+              id: true,
+              branchName: true,
+            },
+          },
+          items: {
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+              complements: {
+                include: {
+                  options: true,
+                },
+              },
+              additions: true,
+            },
+          },
+          payments: true,
+        },
+      });
+
+      // Update payments if provided
+      
+
+      return order;
     });
 
     // 🔔 WebSocket

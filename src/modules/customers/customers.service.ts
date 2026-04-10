@@ -60,6 +60,38 @@ export class CustomersService {
     return { token, customer };
   }
 
+  async adminCreate(dto: CreateCustomerDto, userId: string) {
+    const { name, phone, email, addresses } = dto;
+
+    // Busca a branch do usuário autenticado
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { branchId: true },
+    });
+
+    if (!user || !user.branchId) {
+      throw new NotFoundException('Usuário ou filial não encontrada');
+    }
+
+    // Verifica se o telefone já existe na mesma filial
+    const existing = await prisma.customer.findUnique({
+      where: { phone_branchId: { phone, branchId: user.branchId } },
+    });
+    if (existing) throw new ConflictException('Telefone já cadastrado');
+
+    const customer = await prisma.customer.create({
+      data: {
+        name,
+        phone,
+        email,
+        branchId: user.branchId,
+      },
+      include: { addresses: true },
+    });
+
+    return customer;
+  }
+
   async createAddressCustomer(
     dto: CreateCustomerAddressDto,
     customerId: string,

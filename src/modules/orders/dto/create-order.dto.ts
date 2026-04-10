@@ -6,6 +6,7 @@ import {
   IsArray,
   ValidateNested,
   Min,
+  IsInt,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import {
@@ -13,11 +14,17 @@ import {
   DeliveryTypeDto,
   OrderStatusDto,
 } from './create-order-item.dto';
+import { OrderPaymentDto } from 'src/modules/store/dto/create-store-order.dto';
 
 export class CreateOrderDto {
   @IsOptional()
   @IsEnum(OrderStatusDto)
   status?: OrderStatusDto;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  change?: number;
 
   @IsEnum(DeliveryTypeDto)
   deliveryType!: DeliveryTypeDto;
@@ -26,13 +33,15 @@ export class CreateOrderDto {
   @IsString()
   paymentMethod?: string;
 
+  @IsOptional()
   @IsNumber()
   @Min(0)
-  total!: number;
+  total?: number;
 
+  @IsOptional()
   @IsNumber()
   @Min(0)
-  subtotal!: number;
+  subtotal?: number;
 
   @IsOptional()
   @IsNumber()
@@ -72,6 +81,11 @@ export class CreateOrderDto {
   @IsOptional()
   @IsString()
   tableId?: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => OrderPaymentDto)
+  payments!: OrderPaymentDto[];
 
   @IsArray()
   @ValidateNested({ each: true })

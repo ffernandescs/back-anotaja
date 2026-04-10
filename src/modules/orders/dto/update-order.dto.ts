@@ -8,6 +8,8 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { OrderStatusDto } from './create-order-item.dto';
+import { DeliveryTypeDto } from './create-order-item.dto';
+import { OrderPaymentDto } from 'src/modules/store/dto/create-store-order.dto';
 
 export class UpdateOrderItemComplementOptionDto {
   @IsString()
@@ -15,6 +17,10 @@ export class UpdateOrderItemComplementOptionDto {
 
   @IsNumber()
   price!: number;
+
+  @IsOptional()
+  @IsNumber()
+  quantity?: number;
 }
 
 export class UpdateOrderItemComplementDto {
@@ -60,6 +66,18 @@ export class UpdateOrderDto {
   @IsOptional()
   @IsString()
   customerId?: string;
+
+  @IsOptional()
+  @IsEnum(DeliveryTypeDto)
+  deliveryType?: DeliveryTypeDto;
+
+  @IsOptional()
+  @IsArray()
+  payments?: OrderPaymentDto[];
+
+  @IsOptional()
+  @IsNumber()
+  deliveryFee?: number;
 
   @IsOptional()
   @IsNumber()
