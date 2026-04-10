@@ -522,23 +522,9 @@ export class SubscriptionService {
       },
     });
 
-    // Atualizar grupos com as features do novo plano APENAS se não estiver em trial
-    if (updatedSubscription && updatedSubscription.plan) {
-      const now = new Date();
-      const isTrialActive = updatedSubscription.trialEndsAt && updatedSubscription.trialEndsAt > now;
-      
-      console.log(`🔍 verifyPayment - Verificação de trial:`);
-      console.log(`  - trialEndsAt: ${updatedSubscription.trialEndsAt?.toLocaleString() || 'N/A'}`);
-      console.log(`  - now: ${now.toLocaleString()}`);
-      console.log(`  - isTrialActive: ${isTrialActive}`);
-      
-      if (!isTrialActive) {
-        console.log(`✅ Permissões atualizadas (sem trial)`);
-        await this.updateCompanyGroupsFeatures(companyId, updatedSubscription.plan);
-      } else {
-        console.log(`⏸️ Permissões NÃO atualizadas - empresa ainda está em trial até ${updatedSubscription.trialEndsAt?.toLocaleDateString('pt-BR')}`);
-      } 
-    }
+    // ❌ NÃO atualizar permissões aqui - o webhook já processa a mudança de plano
+    // O webhook é a fonte da verdade para atualização de permissões
+    console.log(`🔍 verifyPayment - Apenas buscando dados, permissões NÃO atualizadas (webhook cuida disso)`);
 
     await prisma.company.update({
       where: { id: companyId },
