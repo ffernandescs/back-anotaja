@@ -506,11 +506,11 @@ export class SubscriptionService {
       ? new Date(new Date((stripeSubscription as any).current_period_end * 1000).toUTCString())
       : null;
 
-    // Atualizar subscription com dados do Stripe
+    // Atualizar subscription com dados do Stripe (NÃO atualizar planId - webhook cuida disso)
     const updatedSubscription = await prisma.subscription.update({
       where: { companyId },
       data: {
-        planId: plan.id, // Atualizar para novo plano
+        // planId: plan.id, // ❌ NÃO atualizar planId aqui - webhook cuida disso
         stripeSubscriptionId: subscriptionId,
         trialEndsAt, // ✅ Usar trial_end do Stripe como fonte da verdade
         nextBillingDate, // ✅ Usar current_period_end do Stripe

@@ -104,13 +104,24 @@ export class StripeWebhookController {
 
       this.logger.log(`✅ Processando checkout para planId: ${planId}`);
 
-      // Salvar no banco
+      const now = new Date();
+
+      // 🔄 Verificar se deve atualizar planId e permissões
+      // Se estiver em trial, NÃO atualizar planId nem permissões
+      const shouldUpdatePlan = !trialEndsAt || trialEndsAt <= now;
+      
+      this.logger.log(`🔍 Verificação de trial:`);
+      this.logger.log(`  - trialEndsAt: ${trialEndsAt?.toLocaleString() || 'N/A'}`);
+      this.logger.log(`  - now: ${now.toLocaleString()}`);
+      this.logger.log(`  - shouldUpdatePlan: ${shouldUpdatePlan}`);
+      
+      // Salvar no banco (só atualiza planId se não estiver em trial)
       const subscriptionRecord = await prisma.subscription.upsert({
         where: { companyId },
         update: {
           status: 'ACTIVE',
           stripeSubscriptionId: subscriptionId,
-          planId, // ← Atualiza para o novo plano
+          ...(shouldUpdatePlan ? { planId } : {}), // ❌ NÃO atualiza planId durante trial
           startDate, // Data que a assinatura foi criada
           trialEndsAt, // ✅ Sincronizar trial_end do Stripe
           nextBillingDate, // Próxima data de cobrança (trial + período do plano)
@@ -133,8 +144,6 @@ export class StripeWebhookController {
             : `Plano ativado. Próxima cobrança em ${nextBillingDate?.toLocaleDateString('pt-BR')}`,
         },
       });
-
-      const now = new Date();
 
       // Criar registro de invoice apenas se não estiver em trial e houver valor
       const subscriptionWithTrial = await prisma.subscription.findUnique({
@@ -164,18 +173,11 @@ export class StripeWebhookController {
       );
 
       // 🔄 Atualizar permissões APENAS se não estiver em trial
-      // Se estiver em trial, manter as permissões do plano atual até o trial terminar
-      this.logger.log(`🔍 Verificação de trial:`);
-      this.logger.log(`  - trialEndsAt: ${trialEndsAt?.toLocaleString() || 'N/A'}`);
-      this.logger.log(`  - now: ${now.toLocaleString()}`);
-      this.logger.log(`  - trialEndsAt <= now: ${trialEndsAt ? trialEndsAt <= now : 'N/A'}`);
-      this.logger.log(`  - subscription.status: ${subscription.status}`);
-      
-      if (!trialEndsAt || trialEndsAt <= now) {
+      if (shouldUpdatePlan) {
         await this.updateGroupPermissionsForNewPlan(companyId, planId);
         this.logger.log(`✅ Permissões atualizadas para o plano ${planId} (sem trial ativo)`);
       } else {
-        this.logger.log(`⏸️ Permissões NÃO atualizadas - empresa ainda está em trial até ${trialEndsAt.toLocaleDateString('pt-BR')}`);
+        this.logger.log(`⏸️ Permissões NÃO atualizadas - empresa ainda está em trial até ${trialEndsAt?.toLocaleDateString('pt-BR')}`);
       }
     }
 
