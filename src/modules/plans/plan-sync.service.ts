@@ -34,11 +34,17 @@ export class PlanSyncService {
         throw new Error(`Plano ${planId} não encontrado`);
       }
 
-      // 2. Buscar todas as subscriptions ativas deste plano
+      // 2. Buscar todas as subscriptions ativas deste plano que NÃO estão em trial
+      const now = new Date();
       const activeSubscriptions = await prisma.subscription.findMany({
         where: {
           planId: planId,
           status: 'ACTIVE',
+          // Apenas subscriptions que NÃO estão em trial
+          OR: [
+            { trialEndsAt: null },
+            { trialEndsAt: { lte: now } },
+          ],
         },
         include: {
           company: {
@@ -162,10 +168,16 @@ export class PlanSyncService {
 
     try {
       // Buscar subscription ativa da empresa
+      const now = new Date();
       const subscription = await prisma.subscription.findFirst({
         where: {
           companyId,
           status: 'ACTIVE',
+          // Apenas subscriptions que NÃO estão em trial
+          OR: [
+            { trialEndsAt: null },
+            { trialEndsAt: { lte: now } },
+          ],
         },
         include: {
           plan: {
@@ -181,7 +193,7 @@ export class PlanSyncService {
       });
 
       if (!subscription) {
-        this.logger.log(`✅ Nenhuma subscription ativa encontrada para a empresa ${companyId}`);
+        this.logger.log(`✅ Nenhuma subscription ativa encontrada para a empresa ${companyId} (ou está em trial)`);
         return;
       }
 
@@ -223,13 +235,21 @@ export class PlanSyncService {
 
     try {
       // Buscar informações da branch
+      const now = new Date();
       const branch = await prisma.branch.findUnique({
         where: { id: branchId },
         include: {
           company: {
             include: {
               subscription: {
-                where: { status: 'ACTIVE' },
+                where: {
+                  status: 'ACTIVE',
+                  // Apenas subscriptions que NÃO estão em trial
+                  OR: [
+                    { trialEndsAt: null },
+                    { trialEndsAt: { lte: now } },
+                  ],
+                },
                 include: {
                   plan: {
                     include: {
@@ -254,7 +274,7 @@ export class PlanSyncService {
 
       const activeSubscription = branch.company.subscription;
       if (!activeSubscription) {
-        this.logger.log(`✅ Nenhuma subscription ativa encontrada para a branch ${branchId}`);
+        this.logger.log(`✅ Nenhuma subscription ativa encontrada para a branch ${branchId} (ou está em trial)`);
         return;
       }
 
