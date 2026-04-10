@@ -527,8 +527,16 @@ export class SubscriptionService {
       const now = new Date();
       const isTrialActive = updatedSubscription.trialEndsAt && updatedSubscription.trialEndsAt > now;
       
+      console.log(`🔍 verifyPayment - Verificação de trial:`);
+      console.log(`  - trialEndsAt: ${updatedSubscription.trialEndsAt?.toLocaleString() || 'N/A'}`);
+      console.log(`  - now: ${now.toLocaleString()}`);
+      console.log(`  - isTrialActive: ${isTrialActive}`);
+      
       if (!isTrialActive) {
+        console.log(`✅ Permissões atualizadas (sem trial)`);
         await this.updateCompanyGroupsFeatures(companyId, updatedSubscription.plan);
+      } else {
+        console.log(`⏸️ Permissões NÃO atualizadas - empresa ainda está em trial até ${updatedSubscription.trialEndsAt?.toLocaleDateString('pt-BR')}`);
       } 
     }
 
