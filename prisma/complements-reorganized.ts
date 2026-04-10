@@ -1,7 +1,7 @@
 // ✅ ESTRUTURA REORGANIZADA DE COMPLEMENTOS POR CATEGORIA
 // Copie este conteúdo e substitua a const complementsData no seed.ts (linha ~3317)
 
-import { BusinessSegment } from './seed';
+import { BusinessSegment, ComplementsBySegment } from './seed';
 
 const complementsData: ComplementsBySegment = {
   // ========== HAMBURGUERIA ==========

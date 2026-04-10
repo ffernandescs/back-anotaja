@@ -121,7 +121,7 @@ export type BusinessSegment =
 type ProductsByCategory = Record<string, ProductSeed[]>;
 type ComplementsByCategory = Record<string, ComplementSeed[]>;
 type ProductsByCompanyType = Record<BusinessSegmentType, ProductsByCategory>;
-type ComplementsBySegment = Record<string, ComplementsByCategory>; // ✅ Mudado para por categoria
+export type ComplementsBySegment = Record<string, ComplementsByCategory>; // ✅ Mudado para por categoria
 
 // Função auxiliar para obter as categorias de um segmento
 function getCategoriesForSegment(segment: BusinessSegmentType): CategorySeed[] {
