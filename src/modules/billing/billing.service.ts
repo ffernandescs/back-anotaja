@@ -64,9 +64,11 @@ export class BillingService {
           company.subscription.stripeSubscriptionId
         );
 
-        // Se está ativa ou em trial, fazer upgrade direto
+        // Se está ativa ou em trial, SEMPRE criar novo checkout para mudança de plano
+        // O webhook processará a mudança e atualizará permissões apenas quando trial terminar
         if (stripeSubscription.status === 'active' || stripeSubscription.status === 'trialing') {
-          return this.updateSubscriptionPlan(company.subscription.stripeSubscriptionId, plan, company.id);
+          console.log(`Subscription já existe (${stripeSubscription.status}), criando novo checkout para mudança de plano`);
+          // Continua para criar checkout session
         }
 
         // Se está cancelada, suspensa ou incompleta, criar nova subscription via checkout
@@ -121,8 +123,8 @@ export class BillingService {
           quantity: 1,
         },
       ],
-      success_url: `${process.env.FRONTEND_URL}/admin/billing/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.FRONTEND_URL}/admin/billing/cancel`,
+      success_url: `${process.env.FRONTEND_URL}/billing/success/{CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.FRONTEND_URL}/billing/error/{CHECKOUT_SESSION_ID}`,
       metadata: {
         companyId: company.id,
         planId: plan.id,
@@ -240,8 +242,21 @@ export class BillingService {
         } 
       }
 
-      // 5. Atualizar permissões dos grupos para o novo plano
-      await this.updateGroupPermissionsForNewPlan(companyId, newPlan.id);
+      // 5. Atualizar permissões dos grupos para o novo plano APENAS se não estiver em trial
+      const subscriptionWithTrial = await prisma.subscription.findUnique({
+        where: { companyId },
+        select: { trialEndsAt: true }
+      });
+      
+      const now = new Date();
+      const isTrialActive = subscriptionWithTrial?.trialEndsAt && subscriptionWithTrial.trialEndsAt > now;
+      
+      if (!isTrialActive) {
+        await this.updateGroupPermissionsForNewPlan(companyId, newPlan.id);
+        console.log(`Permissões atualizadas para o plano ${newPlan.id} (sem trial ativo)`);
+      } else {
+        console.log(`Permissões NÃO atualizadas - empresa ainda está em trial até ${subscriptionWithTrial?.trialEndsAt?.toLocaleDateString('pt-BR')}`);
+      }
 
       return {
         success: true,

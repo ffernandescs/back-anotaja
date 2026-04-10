@@ -18,6 +18,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { BranchScheduleItemDto } from './dto/create-branch-schedule.dto';
 import { UpdateBranchScheduleDto } from './dto/update-branch-schedule.dto';
+import { Public } from 'src/common/decorators/public.decorator';
 
 interface RequestWithUser extends Request {
   user: {
@@ -31,20 +32,27 @@ interface RequestWithUser extends Request {
 export class BranchesController {
   constructor(private readonly branchesService: BranchesService) {}
 
-  @Get('nearby')
-  async findNearby(
-    @Query('cep') cep: string,
-    @Query('radius') radius?: string,
-  ) {
-    const radiusInMeters = radius ? parseInt(radius, 10) : 3000;
-    return this.branchesService.findNearbyBranches(cep, radiusInMeters);
-  }
-
   @UseGuards(JwtAuthGuard, RolesGuard)
 
   @Get('check-subdomain')
   async checkSubdomainAvailability(@Query('subdomain') subdomain: string) {
     return this.branchesService.checkSubdomainAvailability(subdomain);
+  }
+
+  @Public()
+  @Get('nearby')
+  async findNearbyBranches(
+    @Query('zipCode') zipCode: string,
+    @Query('radius') radius?: string,
+  ) {
+    let radiusKm = 3; // Padrão 3km
+    if (radius) {
+      const radiusValue = parseFloat(radius);
+      // Se for > 100, assume que está em metros e converte para km
+      // Se for <= 100, assume que já está em km
+      radiusKm = radiusValue > 100 ? radiusValue / 1000 : radiusValue;
+    }
+    return this.branchesService.findBranchesByZipCode(zipCode, radiusKm);
   }
 
   @Get()

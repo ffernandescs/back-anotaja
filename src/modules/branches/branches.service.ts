@@ -1178,6 +1178,91 @@ export class BranchesService {
     return generalConfig;
   }
 
+  /**
+   * Busca branches por CEP com raio de 3km (endpoint público)
+   */
+  async findBranchesByZipCode(zipCode: string, radiusKm: number = 3) {
+    // Converter CEP para coordenadas
+    const coordinates = await this.geocodingService.getCoordinatesFromZipCode(zipCode);
+    
+    if (!coordinates) {
+      throw new BadRequestException('CEP não encontrado ou inválido');
+    }
+
+    // Buscar todas as branches com coordenadas
+    const branches = await prisma.branch.findMany({
+      where: {
+        latitude: { not: null },
+        longitude: { not: null },
+        active: true,
+        subdomain: { not: null }, // Apenas branches com subdomínio
+      },
+      include: {
+        address: {
+          select: {
+            street: true,
+            number: true,
+            complement: true,
+            neighborhood: true,
+            city: true,
+            state: true,
+            zipCode: true,
+          },
+        },
+        openingHours: {
+          select: {
+            day: true,
+            open: true,
+            close: true,
+          },
+          orderBy: {
+            day: 'asc',
+          },
+        },
+      },
+    });
+
+    // Filtrar branches dentro do raio especificado
+    const nearbyBranches = branches
+      .filter((branch) => {
+        if (!branch.latitude || !branch.longitude) return false;
+        
+        const distance = this.geocodingService.calculateDistance(
+          coordinates.lat,
+          coordinates.lng,
+          branch.latitude,
+          branch.longitude,
+        );
+        
+        return distance <= radiusKm;
+      })
+      .map((branch) => {
+        const distance = this.geocodingService.calculateDistance(
+          coordinates.lat,
+          coordinates.lng,
+          branch.latitude!,
+          branch.longitude!,
+        );
+        
+        return {
+          id: branch.id,
+          branchName: branch.branchName,
+          subdomain: branch.subdomain,
+          phone: branch.phone,
+          logoUrl: branch.logoUrl,
+          description: branch.description,
+          address: branch.address,
+          openingHours: branch.openingHours || [],
+          rating: 0, // Valor padrão (não existe no modelo)
+          ratingsCount: 0, // Valor padrão (não existe no modelo)
+          distance: Math.round(distance * 100) / 100, // Arredonda para 2 casas decimais
+        };
+      })
+      .sort((a, b) => a.distance - b.distance); // Ordenar por distância
+
+    return nearbyBranches;
+  }
+
   async updateGeneralConfig(
     branchId: string,
     data: { enableServiceFee?: boolean; serviceFeePercentage?: number },

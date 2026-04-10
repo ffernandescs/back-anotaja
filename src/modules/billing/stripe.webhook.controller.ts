@@ -134,13 +134,14 @@ export class StripeWebhookController {
         },
       });
 
+      const now = new Date();
+
       // Criar registro de invoice apenas se não estiver em trial e houver valor
       const subscriptionWithTrial = await prisma.subscription.findUnique({
         where: { companyId },
         select: { trialEndsAt: true }
       });
       
-      const now = new Date();
       const isTrialActive = subscriptionWithTrial?.trialEndsAt && subscriptionWithTrial.trialEndsAt > now;
       
       if (!isTrialActive && unitAmount && unitAmount > 0) {
@@ -164,11 +165,17 @@ export class StripeWebhookController {
 
       // 🔄 Atualizar permissões APENAS se não estiver em trial
       // Se estiver em trial, manter as permissões do plano atual até o trial terminar
-      if (!trialEndsAt || trialEndsAt <= new Date()) {
+      this.logger.log(`🔍 Verificação de trial:`);
+      this.logger.log(`  - trialEndsAt: ${trialEndsAt?.toLocaleString() || 'N/A'}`);
+      this.logger.log(`  - now: ${now.toLocaleString()}`);
+      this.logger.log(`  - trialEndsAt <= now: ${trialEndsAt ? trialEndsAt <= now : 'N/A'}`);
+      this.logger.log(`  - subscription.status: ${subscription.status}`);
+      
+      if (!trialEndsAt || trialEndsAt <= now) {
         await this.updateGroupPermissionsForNewPlan(companyId, planId);
-        this.logger.log(`Permissões atualizadas para o plano ${planId} (sem trial ativo)`);
+        this.logger.log(`✅ Permissões atualizadas para o plano ${planId} (sem trial ativo)`);
       } else {
-        this.logger.log(`Permissões NÃO atualizadas - empresa ainda está em trial até ${trialEndsAt.toLocaleDateString('pt-BR')}`);
+        this.logger.log(`⏸️ Permissões NÃO atualizadas - empresa ainda está em trial até ${trialEndsAt.toLocaleDateString('pt-BR')}`);
       }
     }
 

@@ -157,12 +157,14 @@ async function seed() {
     
     // Administração - agora são features dentro do grupo Administração
     ['admin_access', 'Acesso', 'Administração'],
+    ['signatures', 'Minha assinatura', 'Administração'],
     ['settings_management', 'Configurações', 'Administração'],
   ];
 
   const featureMap = new Map<string, string>();
 
-  for (const [key, name, group] of rootFeatures) {
+  for (const featureData of rootFeatures) {
+    const [key, name, group, href] = featureData;
     const feature = await prisma.feature.upsert({
       where: { key },
       update: {
@@ -171,7 +173,7 @@ async function seed() {
       create: {
         key,
         name,
-        href: key === 'dashboard' ? '/admin/dashboard' : null, // Dashboard tem href, outras não
+        href: href || (key === 'dashboard' ? '/admin/dashboard' : null), // Usa href se fornecido, senão apenas dashboard tem href
         active: true,
         defaultActions: JSON.stringify(['create', 'read', 'update', 'delete']),
       },
@@ -230,6 +232,10 @@ async function seed() {
     ['users', 'Usuários', 'admin_access', '/admin/users', 1],
     ['branches', 'Filiais', 'admin_access', '/admin/administration/branches', 2],
     ['groups', 'Grupos', 'admin_access', '/admin/administration/groups', 3],
+
+    // ⚙️ ADMINISTRAÇÃO - Assinaturas
+    ['settings_plans', 'Planos', 'signatures', '/admin/administration/settings/subscription', 1],
+
 
     // ⚙️ CONFIGURAÇÕES - Subfeatures das features de configurações
     ['settings_profile', 'Perfil da Empresa', 'settings_management', '/admin/administration/settings/profile', 1],

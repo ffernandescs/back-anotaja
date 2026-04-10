@@ -121,7 +121,7 @@ export type BusinessSegment =
 type ProductsByCategory = Record<string, ProductSeed[]>;
 type ComplementsByCategory = Record<string, ComplementSeed[]>;
 type ProductsByCompanyType = Record<BusinessSegmentType, ProductsByCategory>;
-type ComplementsBySegment = Record<BusinessSegment, ComplementSeed[]>;
+type ComplementsBySegment = Record<string, ComplementsByCategory>; // ✅ Mudado para por categoria
 
 // Função auxiliar para obter as categorias de um segmento
 function getCategoriesForSegment(segment: BusinessSegmentType): CategorySeed[] {
@@ -139,12 +139,67 @@ function getProductsForCategory(
   return segmentProducts[categorySlug] || [];
 }
 
-// Função auxiliar para obter complementos de uma categoria
+// Mapeamento de slugs de categorias para chaves de complementos
+const categorySlugToComplementKey: Record<string, string> = {
+  // Hamburgueria
+  'hamburgueres': 'hamburgers',
+  'hamburgueres-premium': 'hamburgers',
+  'hamburgueres-artesanais': 'hamburgers',
+  'hamburgueres-veganos': 'hamburgers',
+  'acompanhamentos': 'acompanhamentos',
+  'bebidas': 'bebidas',
+  'sobremesas': 'sobremesas',
+  
+  // Pizzaria
+  'pizzas-salgadas': 'pizzas',
+  'pizzas-doces': 'pizzas',
+  'pizzas-premium': 'pizzas',
+  'pizzas-especiais': 'pizzas',
+  'calzones': 'calzones',
+  
+  // Restaurante
+  'pratos-principais': 'pratosPrincipais',
+  'comida-regional': 'pratosPrincipais',
+  'entradas': 'pratosPrincipais',
+  'peixes-frutos-mar': 'pratosPrincipais',
+  'carnes': 'pratosPrincipais',
+  'massas': 'pratosPrincipais',
+  'saladas': 'pratosPrincipais',
+  
+  // Depósito de Bebidas
+  'cervejas': 'cervejas',
+  'cervejas-especiais': 'cervejas',
+  'vinhos': 'cervejas',
+  'destilados': 'cervejas',
+  'refrigerantes': 'cervejas',
+  'energeticos': 'cervejas',
+  'sucos': 'cervejas',
+  
+  // Perfumaria
+  'perfumes-femininos': 'perfumes',
+  'perfumes-masculinos': 'perfumes',
+  'cosmeticos': 'perfumes',
+  'cuidados-pele': 'perfumes',
+  'maquiagem': 'perfumes',
+  
+  // Canozes
+  'caldos-nordestinos': 'canecas',
+  'canjas': 'canecas',
+  'caldos-frutos-mar': 'canecas',
+};
 
-function getComplementsForSegment(
+// Função auxiliar para obter complementos de uma categoria específica
+function getComplementsForCategory(
   segment: BusinessSegmentType,
+  categorySlug: string,
 ): ComplementSeed[] {
-  return complementsData[segment] || [];
+  const segmentComplements = complementsData[segment];
+  if (!segmentComplements) return [];
+  
+  // Mapear o slug da categoria para a chave de complemento
+  const complementKey = categorySlugToComplementKey[categorySlug] || categorySlug;
+  
+  return segmentComplements[complementKey] || [];
 }
 async function createCategoriesProductsAndComplements(
   segment: BusinessSegmentType,
@@ -166,9 +221,6 @@ async function createCategoriesProductsAndComplements(
   const categories = getCategoriesForSegment(segment);
   const createdCategories: any[] = [];
 
-  // PEGAR TODOS OS COMPLEMENTOS DO SEGMENTO UMA VEZ
-  const segmentComplements = getComplementsForSegment(segment);
-
   for (const categoryData of categories) {
     console.log(`🔄 Criando categoria: ${categoryData.name}`);
 
@@ -188,6 +240,9 @@ async function createCategoriesProductsAndComplements(
     console.log(
       `📦 Criando ${products.length} produtos para ${categoryData.name}`,
     );
+
+    // ✅ PEGAR COMPLEMENTOS ESPECÍFICOS DESTA CATEGORIA
+    const categoryComplements = getComplementsForCategory(segment, categoryData.slug);
 
     for (const productData of products) {
       console.log(`  🔄 Criando produto: ${productData.name}`);
@@ -215,11 +270,16 @@ async function createCategoriesProductsAndComplements(
         },
       });
 
-      // APLICAR TODOS OS COMPLEMENTOS DO SEGMENTO
-      if (segmentComplements.length > 0) {
-        console.log(`  🔧 Verificando ${segmentComplements.length} complementos`);
+      // ✅ APLICAR COMPLEMENTOS ESPECÍFICOS DA CATEGORIA (MÁXIMO 4 POR PRODUTO)
+      if (categoryComplements.length > 0) {
+        // Escolher aleatoriamente entre 1 e 4 complementos
+        const maxComplementsForProduct = Math.floor(Math.random() * 4) + 1; // 1 a 4
+        const shuffledComplements = [...categoryComplements].sort(() => Math.random() - 0.5);
+        const selectedComplements = shuffledComplements.slice(0, maxComplementsForProduct);
+        
+        console.log(`  🔧 Aplicando ${selectedComplements.length} de ${categoryComplements.length} complementos disponíveis para ${productData.name}`);
 
-        for (const complementData of segmentComplements) {
+        for (const complementData of selectedComplements) {
           // Verificar se o complemento já existe para este produto
           let complement = await prisma.productComplement.findFirst({
             where: {
@@ -3311,23 +3371,25 @@ const productsData: ProductsByCompanyType = {
   },
 };
 
-const complementsData: ComplementsBySegment = {
+const complementsData = {
   // ========== HAMBURGUERIA ==========
-  [BusinessSegment.HAMBURGUERIA]: [
-    {
-      name: 'Tamanho do Pão',
-      required: true,
-      allowRepeat: false,
-      minOptions: 1,
-      maxOptions: 1,
-      options: [
-        { name: 'Pão Tradicional', price: 0 },
-        { name: 'Pão Australiano', price: 2.0 },
-        { name: 'Pão Brioche', price: 3.0 },
-        { name: 'Pão Integral', price: 2.5 },
-      ],
-    },
-    {
+  [BusinessSegment.HAMBURGUERIA]: {
+    // Complementos para Hambúrgueres
+    hamburgers: [
+      {
+        name: 'Tamanho do Pão',
+        required: true,
+        allowRepeat: false,
+        minOptions: 1,
+        maxOptions: 1,
+        options: [
+          { name: 'Pão Tradicional', price: 0 },
+          { name: 'Pão Australiano', price: 2.0 },
+          { name: 'Pão Brioche', price: 3.0 },
+          { name: 'Pão Integral', price: 2.5 },
+        ],
+      },
+      {
       name: 'Ponto da Carne',
       required: true,
       allowRepeat: false,
@@ -3455,11 +3517,14 @@ const complementsData: ComplementsBySegment = {
       ],
     },
   ],
+  },
 
   // ========== PIZZARIA ==========
-  [BusinessSegment.PIZZARIA]: [
-    {
-      name: 'Tamanho',
+  [BusinessSegment.PIZZARIA]: {
+    // Complementos para Pizzas
+    pizzas: [
+      {
+        name: 'Tamanho',
       required: true,
       allowRepeat: false,
       minOptions: 1,
@@ -3581,10 +3646,28 @@ const complementsData: ComplementsBySegment = {
         { name: '2L', price: 6.0 },
       ],
     },
-  ],
+    ],
+
+    // Complementos para Calzones
+    calzones: [
+      {
+        name: 'Tamanho',
+        required: true,
+        allowRepeat: false,
+        minOptions: 1,
+        maxOptions: 1,
+        options: [
+          { name: 'Individual', price: 0 },
+          { name: 'Grande', price: 8.0 },
+        ],
+      },
+    ],
+  },
 
   // ========== RESTAURANTE ==========
-  [BusinessSegment.RESTAURANTE]: [
+  [BusinessSegment.RESTAURANTE]: {
+    // Complementos para Pratos Principais
+    pratosPrincipais: [
     {
       name: 'Acompanhamentos',
       required: true,
@@ -3726,12 +3809,15 @@ const complementsData: ComplementsBySegment = {
         { name: 'Sem Gelo', price: 0 },
       ],
     },
-  ],
+    ],
+  },
 
   // ========== DEPÓSITO DE BEBIDAS ==========
-  [BusinessSegment.DEPOSITO_BEBIDAS]: [
-    {
-      name: 'Temperatura',
+  [BusinessSegment.DEPOSITO_BEBIDAS]: {
+    // Complementos para todas as bebidas
+    cervejas: [
+      {
+        name: 'Temperatura',
       required: true,
       allowRepeat: false,
       minOptions: 1,
@@ -3789,12 +3875,15 @@ const complementsData: ComplementsBySegment = {
         { name: '10kg', price: 18.0 },
       ],
     },
-  ],
+    ],
+  },
 
   // ========== PERFUMARIA ==========
-  [BusinessSegment.PERFUMARIA]: [
-    {
-      name: 'Tamanho',
+  [BusinessSegment.PERFUMARIA]: {
+    // Complementos para perfumes
+    perfumes: [
+      {
+        name: 'Tamanho',
       required: true,
       allowRepeat: false,
       minOptions: 1,
@@ -3889,12 +3978,15 @@ const complementsData: ComplementsBySegment = {
         { name: 'Tom Escuro', price: 0 },
       ],
     },
-  ],
+    ],
+  },
 
   // ========== CANOZES ==========
-  [BusinessSegment.CANOZES]: [
-    {
-      name: 'Tamanho',
+  [BusinessSegment.CANOZES]: {
+    // Complementos para canecas/caldos
+    canecas: [
+      {
+        name: 'Tamanho',
       required: true,
       allowRepeat: false,
       minOptions: 1,
@@ -4002,8 +4094,9 @@ const complementsData: ComplementsBySegment = {
       ],
     },
   ],
+  },
 };
-// Complementos e opções por tipo de produto
+
 // Nomes de entregadores
 const deliveryNames = [
   'João Silva',
@@ -4021,7 +4114,8 @@ const deliveryNames = [
   'Felipe Carvalho',
   'Amanda Dias',
   'Bruno Araújo',
-];
+]
+
 function normalize(text: string) {
   return text
     .normalize('NFD')
