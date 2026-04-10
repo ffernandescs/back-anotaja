@@ -8,6 +8,7 @@ import {
   Delete,
   Query,
   UseGuards,
+  Request,
 } from '@nestjs/common';
 import { CouponsService } from './coupons.service';
 import { CreateCouponDto } from './dto/create-coupon.dto';
@@ -29,10 +30,13 @@ export class CouponsController {
   findAll(
     @Query('branchId') branchId?: string,
     @Query('active') active?: string,
+    @Request() req?: any,
   ) {
     const isActive =
       active === 'true' ? true : active === 'false' ? false : undefined;
-    return this.couponsService.findAll(branchId, isActive);
+    // Se branchId não for passado na query, usar do usuário autenticado
+    const userBranchId = branchId || req?.user?.branchId;
+    return this.couponsService.findAll(userBranchId, isActive);
   }
 
   @Get(':id')

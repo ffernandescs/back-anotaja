@@ -888,7 +888,7 @@ async createOrder(
       deliveryType,
       customerId,
       customerPhone,
-      couponCode,
+      couponId,
       items,
       addressId,
       payments,
@@ -1051,12 +1051,12 @@ async createOrder(
     // 11. Aplicar cupom (busca única, sem query dentro da transação)
     // ---------------------------------------------------------------
     let discount = 0;
-    let couponId: string | null = null;
+    let appliedCouponId: string | null = null;
 
-    if (couponCode) {
+    if (couponId) {
       const coupon = await prisma.coupon.findFirst({
         where: {
-          code: couponCode,
+          id: couponId,
           branchId: branch.id,
           active: true,
           validFrom: { lte: new Date() },
@@ -1076,7 +1076,7 @@ async createOrder(
           coupon.type === 'PERCENTAGE'
             ? Math.round((subtotal * coupon.value) / 100)
             : coupon.value;
-        couponId = coupon.id;
+        appliedCouponId = coupon.id;
         // coupon.update vai para dentro da transação
       }
     }
@@ -1269,7 +1269,7 @@ async createOrder(
                 discount,
                 total,
                 estimatedTime,
-                couponId,
+                couponId: appliedCouponId,
                 customerAddressId: addressId,
                 items: {
                   create: itemsData.map((item) => ({
@@ -1305,9 +1305,9 @@ async createOrder(
             });
 
             // --- atualizar cupom (se houver) ---
-            if (couponId) {
+            if (appliedCouponId) {
               await tx.coupon.update({
-                where: { id: couponId },
+                where: { id: appliedCouponId },
                 data: { usedCount: { increment: 1 } },
               });
             }
@@ -1447,6 +1447,7 @@ async createOrder(
         deliveryFee: fullOrder.deliveryFee,
         serviceFee: fullOrder.serviceFee,
         discount: fullOrder.discount,
+        couponType: fullOrder.coupon?.type as 'PERCENTAGE' | 'FIXED' | 'FREE_DELIVERY' | undefined,
         estimatedTime: fullOrder.estimatedTime,
         createdAt: fullOrder.createdAt.toISOString(),
         customer: {
@@ -2119,6 +2120,7 @@ async createOrder(
         coupon: {
           select: {
             code: true,
+            type: true,
           },
         },
       },
@@ -2128,7 +2130,13 @@ async createOrder(
       throw new NotFoundException('Pedido não encontrado');
     }
 
-    return order;
+    // Adicionar couponType ao objeto order para facilitar o uso no frontend
+    const orderWithCouponType = {
+      ...order,
+      couponType: order.coupon?.type as 'PERCENTAGE' | 'FIXED' | 'FREE_DELIVERY' | undefined,
+    };
+
+    return orderWithCouponType;
   }
 
   /**

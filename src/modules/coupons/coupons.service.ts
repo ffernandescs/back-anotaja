@@ -459,11 +459,15 @@ export class CouponsService {
   }) {
     const { code, branchId, customerId, deliveryType, paymentMethodId, productIds, subtotal } = data;
 
-    // Buscar cupom
+    // Buscar cupom filtrando por branchId
     const coupon = await prisma.coupon.findFirst({
       where: {
         code: code.toUpperCase(),
         active: true,
+        OR: [
+          { branchId: branchId }, // Cupom específico da filial
+          { branches: { some: { branchId } } }, // Cupom compartilhado com a filial
+        ],
       },
       include: {
         paymentMethods: {
@@ -491,14 +495,6 @@ export class CouponsService {
 
     if (!coupon) {
       throw new BadRequestException('Cupom não encontrado ou inativo');
-    }
-
-    // Validar filiais
-    if (coupon.branches && coupon.branches.length > 0) {
-      const validBranch = coupon.branches.some(cb => cb.branchId === branchId);
-      if (!validBranch) {
-        throw new BadRequestException('Cupom não válido para esta filial');
-      }
     }
 
     // Validar período de datas

@@ -151,4 +151,14 @@ export class OrdersController {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   }
+
+  @Post('generate-random-orders')
+  async generateRandomOrders(
+    @Query('count') count: string = '400',
+    @Req() req: RequestWithUser,
+  ) {
+    const userId = req.user.userId;
+    const orderCount = parseInt(count, 10) || 400;
+    return this.ordersService.generateRandomOrders(userId, orderCount);
+  }
 }

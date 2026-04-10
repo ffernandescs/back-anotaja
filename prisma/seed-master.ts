@@ -94,6 +94,7 @@ async function seed() {
     'Financeiro',
     'Relatórios',
     'Clientes',
+    'Desempenho',
     'Administração',
   ];
 
@@ -154,7 +155,10 @@ async function seed() {
     
     // Clientes - agora são features dentro do grupo Clientes
     ['customers', 'Clientes', 'Clientes'],
-    
+
+    // Desempenho - agora são features dentro do grupo Desempenho
+    ['performance_reports', 'Relatórios', 'Desempenho'],
+
     // Administração - agora são features dentro do grupo Administração
     ['admin_access', 'Acesso', 'Administração'],
     ['signatures', 'Minha assinatura', 'Administração'],
@@ -245,6 +249,10 @@ async function seed() {
     ['settings_announcements', 'Avisos', 'settings_management', '/admin/administration/settings/announcements', 5],
     ['settings_subscription', 'Assinatura', 'settings_management', '/admin/administration/settings/payments', 6],
     ['settings_printer', 'Impressoras', 'settings_management', '/admin/administration/settings/printer', 7],
+
+    // 📊 DESEMPENHO - Subfeatures das features de desempenho
+    ['customers', 'Clientes', 'performance_reports', '/admin/performance/clientes', 1],
+    ['sales_analysis', 'Vendas', 'performance_reports', '/admin/performance/vendas', 2],
   ];
 
   for (const [key, name, parentKey, href, displayOrder] of subFeatures) {

@@ -12,7 +12,7 @@ import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
 import { PrinterService } from '../printer/printer.service';
 import { prisma } from '../../../lib/prisma';
 import { DeliveryTypeDto, OrderStatusDto } from './dto/create-order-item.dto';
-import { OrderStatus, Prisma, CashMovementType, PaymentMethodType } from '@prisma/client';
+import { OrderStatus, Prisma, CashMovementType, PaymentMethodType, DeliveryType, OrderItem } from '@prisma/client';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { money } from '../../utils/money';
 
@@ -398,7 +398,13 @@ export class OrdersService {
       },
     });
 
-    return new PaginatedResponseDto(data, total, page, limit);
+    // Adicionar couponType a cada order para facilitar o uso no frontend
+    const dataWithCouponType = data.map((order: any) => ({
+      ...order,
+      couponType: order.coupon?.type as 'PERCENTAGE' | 'FIXED' | 'FREE_DELIVERY' | undefined,
+    }));
+
+    return new PaginatedResponseDto(dataWithCouponType, total, page, limit);
   }
 
   async findOne(id: string, userId: string) {
@@ -540,7 +546,13 @@ export class OrdersService {
       throw new NotFoundException('Pedido não encontrado');
     }
 
-    return order;
+    // Adicionar couponType ao objeto order para facilitar o uso no frontend
+    const orderWithCouponType = {
+      ...order,
+      couponType: order.coupon?.type as 'PERCENTAGE' | 'FIXED' | 'FREE_DELIVERY' | undefined,
+    };
+
+    return orderWithCouponType;
   }
 
   async update(id: string, dto: UpdateOrderDto, userId: string) {
@@ -1172,5 +1184,213 @@ export class OrdersService {
   async testPrint(order: any, branch: any): Promise<void> {
     console.log('🖨️ testPrint called - PrinterService exists:', !!this.printerService);
     await this.printerService.printOrder(order, branch);
+  }
+
+  async generateRandomOrders(userId: string, count: number = 100) {
+    // Verificar se o usuário existe e tem acesso à filial
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { branch: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    if (!user.branchId) {
+      throw new ForbiddenException('Usuário não está associado a uma filial');
+    }
+
+    const branchId = user.branchId;
+
+    // Buscar clientes da branch
+    const customers = await prisma.customer.findMany({
+      where: { branchId },
+    });
+
+    if (customers.length === 0) {
+      throw new BadRequestException('Nenhum cliente encontrado na filial');
+    }
+
+    // Buscar produtos ativos da branch
+    const products = await prisma.product.findMany({
+      where: { 
+        branchId,
+        active: true,
+      },
+    });
+
+    if (products.length === 0) {
+      throw new BadRequestException('Nenhum produto encontrado na filial');
+    }
+
+    // Buscar métodos de pagamento da branch
+    const branchPaymentMethods = await prisma.branchPaymentMethod.findMany({
+      where: { branchId },
+      include: { paymentMethod: true },
+    });
+
+    if (branchPaymentMethods.length === 0) {
+      throw new BadRequestException('Nenhum método de pagamento encontrado na filial');
+    }
+
+    const paymentMethods = branchPaymentMethods.map(bpm => bpm.paymentMethod);
+
+    // Tipo para itens do pedido
+    interface OrderItemInput {
+      productId: string;
+      quantity: number;
+      price: number;
+      notes?: string;
+    }
+
+    // Obter o último orderNumber
+    const lastOrder = await prisma.order.findFirst({
+      where: { branchId },
+      orderBy: { orderNumber: 'desc' },
+      select: { orderNumber: true },
+    });
+
+    let currentOrderNumber = lastOrder?.orderNumber ? lastOrder.orderNumber + 1 : 1;
+
+    // Opções para sorteio
+    const deliveryTypes: DeliveryType[] = ['PICKUP', 'DELIVERY', 'DINE_IN'];
+    const statuses: OrderStatus[] = ['PENDING', 'CONFIRMED', 'PREPARING', 'READY', 'DELIVERING', 'DELIVERED'];
+    const paymentStatuses = ['PENDING', 'PAID'];
+
+    // Gerar pedidos aleatórios em lotes de 50 para evitar timeout
+    console.log(`Iniciando geração de ${count} pedidos aleatórios...`);
+    const batchSize = 50;
+    const createdOrders: any[] = [];
+
+    for (let batch = 0; batch < Math.ceil(count / batchSize); batch++) {
+      const startIdx = batch * batchSize;
+      const endIdx = Math.min(startIdx + batchSize, count);
+      const batchCount = endIdx - startIdx;
+
+      console.log(`Processando lote ${batch + 1}/${Math.ceil(count / batchSize)} (${startIdx + 1} a ${endIdx})...`);
+
+      const batchOrders = await prisma.$transaction(
+        async (tx) => {
+          const orders: any[] = [];
+
+          for (let i = startIdx; i < endIdx; i++) {
+            console.log(`Criando pedido ${i + 1}/${count}...`);
+            // Sortear cliente (20% chance de não ter cliente)
+            const customer = Math.random() > 0.2
+              ? customers[Math.floor(Math.random() * customers.length)]
+              : null;
+
+            // Sortear deliveryType
+            const deliveryType = deliveryTypes[Math.floor(Math.random() * deliveryTypes.length)];
+
+            // Sortear 1-5 produtos
+            const numProducts = Math.floor(Math.random() * 5) + 1;
+            const selectedProducts: OrderItemInput[] = [];
+            const shuffledProducts = [...products].sort(() => Math.random() - 0.5);
+
+            for (let j = 0; j < numProducts; j++) {
+              const product = shuffledProducts[j];
+              const quantity = Math.floor(Math.random() * 5) + 1; // 1-5
+              selectedProducts.push({
+                productId: product.id,
+                quantity,
+                price: product.price,
+                notes: undefined,
+              });
+            }
+
+            // Calcular total e subtotal
+            const subtotal = selectedProducts.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+            const deliveryFee = deliveryType === 'DELIVERY' ? Math.floor(Math.random() * 1000) + 500 : 0; // 5-15 reais se delivery
+            const serviceFee = deliveryType === 'DINE_IN' ? Math.floor(subtotal * 0.1) : 0; // 10% se dine-in
+            const discount = Math.random() > 0.7 ? Math.floor(Math.random() * 500) : 0; // 30% chance de desconto
+            const total = subtotal + deliveryFee + serviceFee - discount;
+
+            // Sortear data do pedido (últimos 90 dias)
+            const daysAgo = Math.floor(Math.random() * 90);
+            const createdAt = new Date();
+            createdAt.setDate(createdAt.getDate() - daysAgo);
+            createdAt.setHours(Math.floor(Math.random() * 24), Math.floor(Math.random() * 60), Math.floor(Math.random() * 60));
+
+            // Sortear status (80% chance de ser entregue)
+            const status = Math.random() > 0.2
+              ? 'DELIVERED'
+              : statuses[Math.floor(Math.random() * statuses.length)];
+
+            // Sortear paymentStatus
+            const paymentStatus = status === 'DELIVERED' ? 'PAID' : paymentStatuses[Math.floor(Math.random() * paymentStatuses.length)];
+
+            // Sortear paymentMethod
+            const paymentMethod = paymentMethods[Math.floor(Math.random() * paymentMethods.length)];
+
+            // Criar pedido seguindo o padrão do método create
+            const order = await tx.order.create({
+              data: {
+                orderNumber: currentOrderNumber,
+                status: status as OrderStatus,
+                deliveryType: deliveryType,
+                paymentStatus,
+                paidAmount: paymentStatus === 'PAID' ? total : 0,
+                total: money(total),
+                subtotal: money(subtotal),
+                deliveryFee: money(deliveryFee),
+                serviceFee: money(serviceFee),
+                discount: money(discount),
+                customerId: customer?.id || null,
+                branchId,
+                userId: userId,
+                createdAt,
+                items: {
+                  create: selectedProducts.map((item) => ({
+                    productId: item.productId,
+                    quantity: item.quantity,
+                    price: money(item.price),
+                    notes: item.notes || null,
+                    preparationStatus: 'PENDING',
+                    dispatchStatus: 'PENDING',
+                  })),
+                },
+              },
+            });
+            console.log(`Pedido ${i + 1}/${count} criado com ID: ${order.id}`);
+
+            // Criar pagamento se o pedido estiver pago
+            if (paymentStatus === 'PAID') {
+              await tx.orderPayment.create({
+                data: {
+                  orderId: order.id,
+                  type: paymentMethod.type as PaymentMethodType,
+                  amount: total,
+                  status: 'PAID',
+                  paymentMethodId: paymentMethod.id,
+                  change: paymentMethod.type === 'CASH' ? Math.floor(Math.random() * 500) : 0,
+                },
+              });
+            }
+
+            orders.push(order);
+            currentOrderNumber++;
+          }
+
+          return orders;
+        },
+        { timeout: 30000 } // 30 segundos por lote
+      );
+
+      createdOrders.push(...batchOrders);
+      console.log(`Lote ${batch + 1} concluído. Total criados: ${createdOrders.length}`);
+    }
+
+    for(const item of createdOrders) {
+       const fullCreatedOrder = await this.findOne(item.id, userId);
+    await this.webSocketGateway.emitOrderUpdate(fullCreatedOrder, 'order:created');
+
+    }
+
+    return {
+      message: `Gerados ${count} pedidos aleatórios com sucesso`,
+      orders: createdOrders.length,
+    };
   }
 }

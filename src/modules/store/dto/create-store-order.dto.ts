@@ -122,7 +122,7 @@ export class CreateStoreOrderDto {
 
   @IsOptional()
   @IsString()
-  couponCode?: string;
+  couponId?: string;
 
   // Items do pedido
   @IsArray()

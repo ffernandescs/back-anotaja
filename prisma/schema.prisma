@@ -542,6 +542,7 @@ model Branch {
   printerSectors         PrinterSectorConfig[]
   printConfigs           PrintConfig[]
   generalConfig          GeneralConfig?
+  pageViews              PageView[]
 }
 
 model BranchSchedule {
@@ -1621,7 +1622,7 @@ model PrintConfig {
 model GeneralConfig {
   id                        String    @id @default(cuid())
   branchId                  String
-  
+
   // Configurações de impressão
   showItemNumber            Boolean   @default(true)
   showComplementPrice       Boolean   @default(true)
@@ -1630,24 +1631,24 @@ model GeneralConfig {
   multiplyOptionsByQuantity Boolean   @default(false)
   printCancellationReceipt  Boolean   @default(false)
   printRatingQRCode         Boolean   @default(true)
-  
+
   // Configurações de mensagem
   standardRouteMessage      String?   // Mensagem para via padrão delivery, retirada e no local
   tableClosingMessage       String?   // Mensagem da via de fechamento de mesa ou comanda
   standardRouteQRCode       String?   // QR Code na mensagem da via padrão delivery, retirada e no local
   tableClosingQRCode        String?   // QR Code na mensagem da via de fechamento de mesa ou comanda
-  
+
   // Configurações de taxa de serviço
   enableServiceFee          Boolean   @default(false) // Se a taxa de serviço está habilitada
   serviceFeePercentage      Int       @default(10)    // Porcentagem da taxa de serviço (padrão 10%)
-  
+
   // Informações do Estabelecimento (mantidos para compatibilidade)
   companyName               String?
   cnpj                      String?
   address                   String?
   phone                     String?
   email                     String?
-  
+
   // Configurações legacy (mantidos para compatibilidade)
   showTaxInfo               Boolean   @default(true)
   showCustomerInfo          Boolean   @default(true)
@@ -1664,7 +1665,7 @@ model GeneralConfig {
   showFiscalInfo            Boolean   @default(true)
   showOrderNumber           Boolean   @default(true)
   showTableNumber           Boolean   @default(true)
-  
+
   createdAt                 DateTime  @default(now())
   updatedAt                 DateTime  @updatedAt
 
@@ -1672,4 +1673,32 @@ model GeneralConfig {
 
   @@unique([branchId])
   @@map("general_configs")
+}
+
+// Tracking de visitas ao catálogo/loja online
+model PageView {
+  id          String   @id @default(cuid())
+  branchId    String
+  // Identificador único do visitante (cookie/localStorage)
+  visitorId   String?
+  // Página visitada (homepage, product, category, etc.)
+  page        String
+  // URL completa da página
+  url         String?
+  // User Agent do navegador
+  userAgent   String?
+  // Referer (de onde veio)
+  referer     String?
+  // Se o visitante fez pedido após visitar (para cálculo de conversão)
+  converted   Boolean  @default(false)
+  // ID do pedido se converteu
+  orderId     String?
+  createdAt   DateTime @default(now())
+
+  branch      Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId, createdAt])
+  @@index([visitorId])
+  @@index([page])
+  @@map("page_views")
 }

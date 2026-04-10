@@ -53,6 +53,8 @@ import { PrintConfigsModule } from './modules/print-configs/print-configs.module
 import { SignModule } from './modules/sign/sign.module';
 import { QZTrayModule } from './modules/qz-tray/qz-tray.module';
 import { GeneralConfigModule } from './modules/general-config/general-config.module';
+import { PerformanceModule } from './modules/performance/performance.module';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
 
 @Module({
   imports: [
@@ -109,7 +111,9 @@ import { GeneralConfigModule } from './modules/general-config/general-config.mod
     PrintConfigsModule,
     SignModule,
     QZTrayModule,
-    GeneralConfigModule
+    GeneralConfigModule,
+    PerformanceModule,
+    AnalyticsModule,
   ],
   providers: [
     {
