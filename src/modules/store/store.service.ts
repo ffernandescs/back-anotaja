@@ -212,6 +212,11 @@ export class StoreService {
       date: item.date ? item.date.toISOString() : null,
     }));
 
+    // Buscar configurações gerais da filial
+    const generalConfig = await prisma.generalConfig.findUnique({
+      where: { branchId: branch.id },
+    });
+
     // ================================
     // Estoque atual (produtos e opções)
     // ================================
@@ -282,6 +287,17 @@ export class StoreService {
         ratingsCount: branch.ratingsCount,
         productsCount: branch._count.products,
         categoriesCount: branch._count.categories,
+        generalConfig: generalConfig
+          ? {
+              enableDelivery: generalConfig.enableDelivery,
+              enableDineIn: generalConfig.enableDineIn,
+              enablePickup: generalConfig.enablePickup,
+            }
+          : {
+              enableDelivery: true,
+              enableDineIn: true,
+              enablePickup: true,
+            },
       },
       subscription: subscription ? {
         status: subscription.status,

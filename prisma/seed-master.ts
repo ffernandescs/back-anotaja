@@ -160,8 +160,8 @@ async function seed() {
     ['performance_reports', 'Relatórios', 'Desempenho'],
 
     // Administração - agora são features dentro do grupo Administração
-    ['admin_access', 'Acesso', 'Administração'],
-    ['signatures', 'Minha assinatura', 'Administração'],
+    ['settings', 'Configurações', 'Administração', '/admin/administration/settings'],
+    ['my_company', 'Minha empresa', 'Administração'],
     ['settings_management', 'Configurações', 'Administração'],
   ];
 
@@ -237,18 +237,14 @@ async function seed() {
     ['branches', 'Filiais', 'admin_access', '/admin/administration/branches', 2],
     ['groups', 'Grupos', 'admin_access', '/admin/administration/groups', 3],
 
-    // ⚙️ ADMINISTRAÇÃO - Assinaturas
-    ['settings_plans', 'Planos', 'signatures', '/admin/administration/settings/subscription', 1],
-
 
     // ⚙️ CONFIGURAÇÕES - Subfeatures das features de configurações
-    ['settings_profile', 'Perfil da Empresa', 'settings_management', '/admin/administration/settings/profile', 1],
-    ['settings_hours', 'Horários', 'settings_management', '/admin/administration/settings/hours', 2],
-    ['settings_payment', 'Forma de Pagamento', 'settings_management', '/admin/administration/settings/payment', 3],
-    ['settings_service_fee', 'Taxa de Serviço', 'settings_management', '/admin/administration/settings/service-fee', 4],
-    ['settings_announcements', 'Avisos', 'settings_management', '/admin/administration/settings/announcements', 5],
-    ['settings_subscription', 'Assinatura', 'settings_management', '/admin/administration/settings/payments', 6],
-    ['settings_printer', 'Impressoras', 'settings_management', '/admin/administration/settings/printer', 7],
+     ['settings_profile', 'Perfil da Empresa', 'my_company', '/admin/administration/settings/profile', 1],
+     ['settings_hours', 'Horários', 'my_company', '/admin/administration/settings/hours', 2],
+     ['settings_service_fee', 'Taxa de Serviço', 'my_company', '/admin/administration/settings/service-fee', 3],
+     ['settings_announcements', 'Avisos', 'my_company', '/admin/administration/settings/announcements', 4],
+     ['settings_subscription', 'Assinatura', 'my_company', '/admin/administration/settings/payments', 5],
+     ['settings_plans', 'Planos', 'my_company', '/admin/administration/settings/subscription', 6],
 
     // 📊 DESEMPENHO - Subfeatures das features de desempenho
     ['customers', 'Clientes', 'performance_reports', '/admin/performance/clientes', 1],

@@ -464,6 +464,7 @@ export class BranchesService {
         address: true,
         paymentMethods: true,
         openingHours: true,
+        generalConfig: true,
         company: {
           select: {
             id: true,
@@ -632,7 +633,19 @@ export class BranchesService {
       if (updateBranchDto.latitude !== undefined) finalUpdateData.latitude = updateBranchDto.latitude;
       if (updateBranchDto.longitude !== undefined) finalUpdateData.longitude = updateBranchDto.longitude;
       if (hasAddressData) finalUpdateData.addressId = addressId; // Só atualiza addressId se houve alteração
-      
+
+      // Processar generalConfig se fornecido
+      if (updateBranchDto.generalConfig) {
+        await tx.generalConfig.upsert({
+          where: { branchId },
+          update: updateBranchDto.generalConfig,
+          create: {
+            branchId,
+            ...updateBranchDto.generalConfig,
+          },
+        });
+      }
+
       await tx.branch.update({
         where: { id: branchId },
         data: {
@@ -646,7 +659,7 @@ export class BranchesService {
       });
 
       // Depois, trata o endereço separadamente
-      
+
 
       // Busca a branch atualizada com o novo endereço
       return tx.branch.findUnique({
@@ -1265,7 +1278,25 @@ export class BranchesService {
 
   async updateGeneralConfig(
     branchId: string,
-    data: { enableServiceFee?: boolean; serviceFeePercentage?: number },
+    data: {
+      enableServiceFee?: boolean;
+      serviceFeePercentage?: number;
+      enableDelivery?: boolean;
+      enableDineIn?: boolean;
+      enablePickup?: boolean;
+      sendOrdersByWhatsApp?: boolean;
+      showPromotionsScreen?: boolean;
+      showMenuFooter?: boolean;
+      verifyNewCustomerPhone?: boolean;
+      hideOrderStatus?: boolean;
+      hideStoreAddress?: boolean;
+      simplifiedAddressInput?: boolean;
+      referencePointRequired?: boolean;
+      showCategoriesScreen?: boolean;
+      hideFreightCalculation?: boolean;
+      autoCompleteOrders?: boolean;
+      tableCount?: number;
+    },
     userId: string,
   ) {
     // Verificar se o usuário tem acesso à branch
@@ -1292,6 +1323,21 @@ export class BranchesService {
         branchId,
         enableServiceFee: data.enableServiceFee ?? false,
         serviceFeePercentage: data.serviceFeePercentage ?? 10,
+        enableDelivery: data.enableDelivery ?? true,
+        enableDineIn: data.enableDineIn ?? true,
+        enablePickup: data.enablePickup ?? true,
+        sendOrdersByWhatsApp: data.sendOrdersByWhatsApp ?? false,
+        showPromotionsScreen: data.showPromotionsScreen ?? false,
+        showMenuFooter: data.showMenuFooter ?? true,
+        verifyNewCustomerPhone: data.verifyNewCustomerPhone ?? false,
+        hideOrderStatus: data.hideOrderStatus ?? false,
+        hideStoreAddress: data.hideStoreAddress ?? false,
+        simplifiedAddressInput: data.simplifiedAddressInput ?? false,
+        referencePointRequired: data.referencePointRequired ?? false,
+        showCategoriesScreen: data.showCategoriesScreen ?? true,
+        hideFreightCalculation: data.hideFreightCalculation ?? false,
+        autoCompleteOrders: data.autoCompleteOrders ?? false,
+        tableCount: data.tableCount ?? 10,
       },
     });
 

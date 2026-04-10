@@ -55,6 +55,7 @@ import { QZTrayModule } from './modules/qz-tray/qz-tray.module';
 import { GeneralConfigModule } from './modules/general-config/general-config.module';
 import { PerformanceModule } from './modules/performance/performance.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { IntegrationsModule } from './modules/integrations/integrations.module';
 
 @Module({
   imports: [
@@ -114,6 +115,7 @@ import { AnalyticsModule } from './modules/analytics/analytics.module';
     GeneralConfigModule,
     PerformanceModule,
     AnalyticsModule,
+    IntegrationsModule,
   ],
   providers: [
     {

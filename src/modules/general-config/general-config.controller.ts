@@ -25,7 +25,6 @@ export class GeneralConfigController {
           showComplementName: true,
           useLargerFontForProduction: true,
           multiplyOptionsByQuantity: false,
-          printCompanyLogo: true,
           printCancellationReceipt: false,
           printRatingQRCode: true,
           
@@ -34,6 +33,15 @@ export class GeneralConfigController {
           tableClosingMessage: '',
           standardRouteQRCode: '',
           tableClosingQRCode: '',
+
+          // Configurações de taxa de serviço
+          enableServiceFee: false,
+          serviceFeePercentage: 10,
+
+          // Configurações de tipos de pedido
+          enableDelivery: true,
+          enableDineIn: true,
+          enablePickup: true,
         };
       }
       

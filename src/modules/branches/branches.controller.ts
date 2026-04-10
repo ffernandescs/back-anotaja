@@ -69,6 +69,11 @@ export class BranchesController {
     return this.branchesService.findAll(req.user.userId);
   }
 
+  @Get('current')
+  findCurrent(@Req() req: RequestWithUser) {
+    return this.branchesService.findCurrent(req.user.userId);
+  }
+
   @Post()
   create(
     @Body() createBranchDto: CreateBranchDto,
@@ -176,7 +181,25 @@ export class BranchesController {
   @Patch(':id/general-config')
   updateGeneralConfig(
     @Param('id') id: string,
-    @Body() data: { enableServiceFee?: boolean; serviceFeePercentage?: number },
+    @Body() data: {
+      enableServiceFee?: boolean;
+      serviceFeePercentage?: number;
+      enableDelivery?: boolean;
+      enableDineIn?: boolean;
+      enablePickup?: boolean;
+      sendOrdersByWhatsApp?: boolean;
+      showPromotionsScreen?: boolean;
+      showMenuFooter?: boolean;
+      verifyNewCustomerPhone?: boolean;
+      hideOrderStatus?: boolean;
+      hideStoreAddress?: boolean;
+      simplifiedAddressInput?: boolean;
+      referencePointRequired?: boolean;
+      showCategoriesScreen?: boolean;
+      hideFreightCalculation?: boolean;
+      autoCompleteOrders?: boolean;
+      tableCount?: number;
+    },
     @Req() req: RequestWithUser,
   ) {
     return this.branchesService.updateGeneralConfig(id, data, req.user.userId);

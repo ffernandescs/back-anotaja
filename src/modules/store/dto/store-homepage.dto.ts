@@ -45,6 +45,11 @@ export class StoreHomepageDto {
     ratingsCount?: number;
     productsCount: number;
     categoriesCount: number;
+    generalConfig?: {
+      enableDelivery?: boolean;
+      enableDineIn?: boolean;
+      enablePickup?: boolean;
+    };
   };
   subscription?: {
     status: string;

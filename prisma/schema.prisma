@@ -543,6 +543,8 @@ model Branch {
   printConfigs           PrintConfig[]
   generalConfig          GeneralConfig?
   pageViews              PageView[]
+  marketingIntegrationConfig MarketingIntegrationConfig?
+  paymentGatewayConfigs  PaymentGatewayConfig[]
 }
 
 model BranchSchedule {
@@ -1642,6 +1644,27 @@ model GeneralConfig {
   enableServiceFee          Boolean   @default(false) // Se a taxa de serviço está habilitada
   serviceFeePercentage      Int       @default(10)    // Porcentagem da taxa de serviço (padrão 10%)
 
+  // Configurações de gestão de mesas
+  tableCount                Int       @default(10)    // Quantidade de mesas do estabelecimento
+
+  // Configurações de tipos de pedido
+  enableDelivery            Boolean   @default(true)  // Habilita pedidos de entrega
+  enableDineIn              Boolean   @default(true)  // Habilita pedidos para comer no local
+  enablePickup              Boolean   @default(true)  // Habilita pedidos para retirar no local
+
+  // Configurações gerais do cardápio
+  sendOrdersByWhatsApp      Boolean   @default(false) // Enviar pedidos pelo WhatsApp
+  showPromotionsScreen      Boolean   @default(false) // Mostrar tela de promoções ao iniciar cardápio
+  showMenuFooter            Boolean   @default(true)  // Mostrar rodapé do cardápio
+  verifyNewCustomerPhone    Boolean   @default(false) // Verificar o telefone dos novos clientes
+  hideOrderStatus           Boolean   @default(false) // Não mostrar status do pedido no cardápio
+  hideStoreAddress          Boolean   @default(false) // Esconder endereço do estabelecimento no cardápio
+  simplifiedAddressInput    Boolean   @default(false) // Entrada de endereço simplificada
+  referencePointRequired    Boolean   @default(false) // Ponto de referência obrigatório no endereço do cliente
+  showCategoriesScreen      Boolean   @default(true)  // Mostrar tela de categorias no site
+  hideFreightCalculation    Boolean   @default(false) // Esconder opção de calcular frete no início do catálogo
+  autoCompleteOrders        Boolean   @default(false) // Finalizar pedidos automaticamente após 24 horas
+
   // Informações do Estabelecimento (mantidos para compatibilidade)
   companyName               String?
   cnpj                      String?
@@ -1701,4 +1724,57 @@ model PageView {
   @@index([visitorId])
   @@index([page])
   @@map("page_views")
+}
+
+// Configurações de integrações de marketing (Facebook Pixel, Google Tag Manager, Google Analytics)
+model MarketingIntegrationConfig {
+  id                        String    @id @default(cuid())
+  branchId                  String    @unique
+
+  // Facebook Pixel
+  facebookPixelEnabled      Boolean   @default(false)
+  facebookPixelId           String?
+
+  // Google Tag Manager
+  gtmEnabled                Boolean   @default(false)
+  gtmContainerId            String?
+
+  // Google Analytics
+  googleAnalyticsEnabled     Boolean   @default(false)
+  googleAnalyticsTrackingId String?
+
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  branch                    Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@map("marketing_integration_configs")
+}
+
+// Configurações de gateways de pagamento
+model PaymentGatewayConfig {
+  id                        String    @id @default(cuid())
+  branchId                  String
+
+  // Tipo de gateway (CIELO, PAGSEGURO, MERCADO_PAGO, GERENIANET, STRIPE, PIX)
+  gatewayType               String
+
+  // Se o gateway está habilitado
+  enabled                   Boolean   @default(false)
+
+  // Credenciais
+  apiKey                    String?
+  secretKey                 String?
+  merchantId                String?
+
+  // Configurações adicionais (JSON)
+  config                    String?
+
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  branch                    Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([branchId, gatewayType])
+  @@map("payment_gateway_configs")
 }
