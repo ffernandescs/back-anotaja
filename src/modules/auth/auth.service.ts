@@ -329,7 +329,8 @@ export class AuthService {
               }
             },
             address:true,
-            generalConfig: true
+            generalConfig: true,
+            openingHours: true,
           }
         },
         permissions: true,
