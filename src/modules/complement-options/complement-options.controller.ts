@@ -27,14 +27,13 @@ interface RequestWithUser extends Request {
 }
 
 @Controller('complement-options')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard)
 export class ComplementOptionsController {
   constructor(
     private readonly complementOptionsService: ComplementOptionsService,
   ) {}
 
   @Post()
-  
   create(
     @Body() createComplementOptionDto: CreateComplementOptionDto,
     @Req() req: RequestWithUser,
@@ -64,7 +63,6 @@ export class ComplementOptionsController {
   }
 
   @Patch(':id')
-  
   update(
     @Param('id') id: string,
     @Body() updateComplementOptionDto: UpdateComplementOptionDto,
@@ -78,7 +76,6 @@ export class ComplementOptionsController {
   }
 
   @Put(':id')
-  
   updatePut(
     @Param('id') id: string,
     @Body() updateComplementOptionDto: UpdateComplementOptionDto,
@@ -92,7 +89,6 @@ export class ComplementOptionsController {
   }
 
   @Delete(':id')
-  
   remove(@Param('id') id: string, @Req() req: RequestWithUser) {
     return this.complementOptionsService.remove(id, req.user.userId);
   }

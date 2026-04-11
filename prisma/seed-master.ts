@@ -126,43 +126,43 @@ async function seed() {
     groups.find((g) => g.title === title)?.id;
 
   // ======================================================
-  // FEATURES (NÍVEL 2 - agora são as features principais dentro dos grupos)
+  // FEATURES (NÍVEL 2 - features principais dentro dos grupos)
   // ======================================================
   const rootFeatures = [
-    ['dashboard', 'Dashboard', 'Dashboard'],
+    ['dashboard', 'Dashboard', 'Dashboard', '/admin/dashboard'],
     
-    // Vendas - agora são features dentro do grupo Vendas
-    ['sales_attendance', 'Atendimento', 'Vendas'],
-    ['sales_hall', 'Salão', 'Vendas'],
-    ['sales_kitchen', 'Cozinha', 'Vendas'],
+    // Vendas - features dentro do grupo Vendas
+    ['pdv', 'PDV', 'Vendas', '/admin/pdv'],
+    ['salon', 'Salão', 'Vendas', '/admin/salon'],
+    ['kitchen', 'Cozinha', 'Vendas', '/admin/kitchen'],
     
-    // Cardápio - agora são features dentro do grupo Cardápio
-    ['menu_management', 'Gestão', 'Cardápio'],
+    // Cardápio - features dentro do grupo Cardápio
+    ['menu', 'Cardápio', 'Cardápio', '/admin/menu'],
     
-    // Delivery - agora são features dentro do grupo Delivery
-    ['delivery_orders_group', 'Pedidos', 'Delivery'],
-    ['delivery_management', 'Gestão de Delivery', 'Delivery'],
+    // Delivery - features dentro do grupo Delivery
+    ['delivery_orders', 'Pedidos de Delivery', 'Delivery', '/admin/delivery/orders'],
+    ['delivery_management', 'Gestão de Delivery', 'Delivery', '/admin/delivery/management'],
     
-    // Operação - agora são features dentro do grupo Operação
-    ['operations', 'Operação', 'Operação'],
+    // Operação - features dentro do grupo Operação
+    ['operations', 'Operação', 'Operação', '/admin/operations'],
     
-    // Financeiro - agora são features dentro do grupo Financeiro
-    ['financial_cash', 'Caixa', 'Financeiro'],
-    ['financial_management', 'Gestão Financeira', 'Financeiro'],
+    // Financeiro - features dentro do grupo Financeiro
+    ['cash', 'Caixa', 'Financeiro', '/admin/financial/cash'],
+    ['financial', 'Gestão Financeira', 'Financeiro', '/admin/financial'],
     
-    // Relatórios - agora são features dentro do grupo Relatórios
-    ['reports', 'Relatórios', 'Relatórios'],
+    // Relatórios - features dentro do grupo Relatórios
+    ['reports', 'Relatórios', 'Relatórios', '/admin/reports'],
     
-    // Clientes - agora são features dentro do grupo Clientes
-    ['customers', 'Clientes', 'Clientes'],
+    // Clientes - features dentro do grupo Clientes
+    ['customers', 'Clientes', 'Clientes', '/admin/customers'],
 
-    // Desempenho - agora são features dentro do grupo Desempenho
-    ['performance_reports', 'Relatórios', 'Desempenho'],
+    // Desempenho - features dentro do grupo Desempenho
+    ['performance', 'Desempenho', 'Desempenho', '/admin/performance'],
 
-    // Administração - agora são features dentro do grupo Administração
-    ['settings', 'Configurações', 'Administração', '/admin/administration/settings'],
-    ['my_company', 'Minha empresa', 'Administração'],
-    ['settings_management', 'Configurações', 'Administração'],
+    // Administração - features dentro do grupo Administração
+    ['administration', 'Administração', 'Administração', '/admin/administration'],
+    ['configuracoes', 'Configurações', 'Administração', '/admin/administration/settings'],
+    ['my_company', 'Minha Empresa', 'Administração', '/admin/administration/my-company'],
   ];
 
   const featureMap = new Map<string, string>();
@@ -200,58 +200,51 @@ async function seed() {
   console.log('✅ Features principais criadas');
 
   // ======================================================
-  // SUBFEATURES (NÍVEL 3 - agora são subfeatures das features)
+  // SUBFEATURES (NÍVEL 3 - subfeatures das features)
   // Formato: [key, name, parentKey, href, displayOrder]
   const subFeatures: [string, string, string | null, string | null, number][] = [
     // 🧾 VENDAS - Subfeatures das features de vendas
-    ['orders', 'Pedidos', 'sales_attendance', '/admin/sales/orders', 1],
-    ['kanban', 'Kanban', 'sales_attendance', '/admin/sales/kanban', 2],
+    ['orders', 'Pedidos', 'pdv', '/admin/sales/orders', 1],
+    ['kanban', 'Kanban', 'pdv', '/admin/sales/kanban', 2],
 
-    ['commands', 'Comandas', 'sales_hall', '/admin/sales/commands', 1],
-    ['tables', 'Mesas', 'sales_hall', '/admin/sales/tables', 2],
+    ['commands', 'Comandas', 'salon', '/admin/sales/commands', 1],
+    ['tables', 'Mesas', 'salon', '/admin/sales/tables', 2],
 
-    ['kds', 'KDS', 'sales_kitchen', '/admin/sales/kds', 1],
+    ['kds', 'KDS', 'kitchen', '/admin/sales/kds', 1],
 
-    // 🍔 CARDÁPIO - Subfeatures das features de cardápio
-    ['categories', 'Categorias', 'menu_management', '/admin/menu/categories', 1],
-    ['products', 'Produtos', 'menu_management', '/admin/menu/products', 2],
-    ['complements', 'Complementos', 'menu_management', '/admin/menu/complements', 3],
-    ['complement_options', 'Opções de Complemento', 'menu_management', '/admin/menu/complement-options', 4],
-    ['stock', 'Estoque', 'menu_management', '/admin/menu/stock', 5],
-
-    // 🍔 OPÇÕES DE COMPLEMENTO - Subfeatures das features de opções de complemento
+    // 🍔 CARDÁPIO - Subfeatures da feature de cardápio
+    ['categories', 'Categorias', 'menu', '/admin/menu/categories', 1],
+    ['products', 'Produtos', 'menu', '/admin/menu/products', 2],
+    ['complements', 'Complementos', 'menu', '/admin/menu/complements', 3],
+    ['complement_options', 'Opções de Complemento', 'menu', '/admin/menu/complement-options', 4],
+    ['stock', 'Estoque', 'menu', '/admin/menu/stock', 5],
 
     // 🚚 DELIVERY - Subfeatures das features de delivery
-    ['delivery_areas', 'Áreas de Entrega', 'delivery_orders_group', '/admin/delivery/areas', 1],
-    ['delivery_persons', 'Entregadores', 'delivery_orders_group', '/admin/delivery/persons', 2],
-    ['delivery_routes', 'Rotas de Entrega', 'delivery_orders_group', '/admin/delivery/routes', 3],
-    ['delivery_assignments', 'Atribuições', 'delivery_orders_group', '/admin/delivery/assignments', 4],
+    ['delivery_areas', 'Áreas de Entrega', 'delivery_orders', '/admin/delivery/areas', 1],
+    ['delivery_persons', 'Entregadores', 'delivery_orders', '/admin/delivery/persons', 2],
+    ['delivery_routes', 'Rotas de Entrega', 'delivery_orders', '/admin/delivery/routes', 3],
+    ['delivery_assignments', 'Atribuições', 'delivery_orders', '/admin/delivery/assignments', 4],
 
     // 💰 FINANCEIRO - Subfeatures das features de financeiro
-    ['cash', 'Caixa', 'financial_cash', '/admin/financial/cash', 1],
-    ['payment_methods', 'Métodos de Pagamento', 'financial_management', '/admin/financial/methods', 2],
-    ['coupons', 'Cupons', 'financial_management', '/admin/financial/coupons', 3],
+    ['payment_methods', 'Métodos de Pagamento', 'financial', '/admin/financial/methods', 1],
+    ['coupons', 'Cupons', 'financial', '/admin/financial/coupons', 2],
 
-    // ⚙️ ADMINISTRAÇÃO - Subfeatures das features de admin
-    ['users', 'Usuários', 'admin_access', '/admin/users', 1],
-    ['branches', 'Filiais', 'admin_access', '/admin/administration/branches', 2],
-    ['groups', 'Grupos', 'admin_access', '/admin/administration/groups', 3],
+    // ⚙️ ADMINISTRAÇÃO - Subfeatures da feature de administração
+    ['users', 'Usuários', 'administration', '/admin/users', 1],
+    ['branches', 'Filiais', 'administration', '/admin/administration/branches', 2],
+    ['groups', 'Grupos', 'administration', '/admin/administration/groups', 3],
 
+    // 🏢 MINHA EMPRESA - Subfeatures da feature Minha Empresa
+    ['settings_profile', 'Perfil da Empresa', 'my_company', '/admin/administration/settings/profile', 1],
+    ['settings_hours', 'Horários', 'my_company', '/admin/administration/settings/hours', 2],
+    ['settings_service_fee', 'Taxa de Serviço', 'my_company', '/admin/administration/settings/service-fee', 3],
+    ['settings_announcements', 'Avisos', 'my_company', '/admin/administration/settings/announcements', 4],
+    ['settings_subscription', 'Assinatura', 'my_company', '/admin/administration/settings/payments', 5],
+    ['settings_plans', 'Planos', 'my_company', '/admin/administration/settings/subscription', 6],
 
-    // ⚙️ CONFIGURAÇÕES - Subfeatures das features de configurações
-     ['settings_profile', 'Perfil da Empresa', 'my_company', '/admin/administration/settings/profile', 1],
-     ['settings_hours', 'Horários', 'my_company', '/admin/administration/settings/hours', 2],
-     ['settings_service_fee', 'Taxa de Serviço', 'my_company', '/admin/administration/settings/service-fee', 3],
-     ['settings_announcements', 'Avisos', 'my_company', '/admin/administration/settings/announcements', 4],
-     ['settings_subscription', 'Assinatura', 'my_company', '/admin/administration/settings/payments', 5],
-     ['settings_plans', 'Planos', 'my_company', '/admin/administration/settings/subscription', 6],
-
-    // 📊 DESEMPENHO - Subfeatures das features de desempenho
-    ['customers', 'Clientes', 'performance_reports', '/admin/performance/clientes', 1],
-    ['sales_analysis', 'Vendas', 'performance_reports', '/admin/performance/vendas', 2],
-
-    // 👥 CLIENTES - Subfeatures das features de clientes
-    ['list', 'Listagem', 'customers', '/admin/customers', 1],
+    // 📊 DESEMPENHO - Subfeatures da feature de desempenho
+    ['performance_customers', 'Clientes', 'performance', '/admin/performance/clientes', 1],
+    ['sales_analysis', 'Vendas', 'performance', '/admin/performance/vendas', 2],
   ];
 
   for (const [key, name, parentKey, href, displayOrder] of subFeatures) {

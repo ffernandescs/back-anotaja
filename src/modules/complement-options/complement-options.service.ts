@@ -133,7 +133,7 @@ export class ComplementOptionsService {
   async findOne(
     id: string,
     userId: string,
-  ): Promise<ComplementOption & { complement?: ProductComplement }> {
+  ): Promise<ComplementOption > {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       include: { branch: true },
@@ -144,7 +144,7 @@ export class ComplementOptionsService {
       throw new ForbiddenException('Usuário não está associado a uma filial');
 
     const option = await prisma.complementOption.findUnique({
-      where: { id },
+      where: { id, branchId:user.branchId },
       include: {
         complement: {
           include: {
@@ -154,15 +154,13 @@ export class ComplementOptionsService {
       },
     });
 
+    console.log(option,'option')
+
     if (!option) throw new NotFoundException('Opção não encontrada');
-    if (option.complement)
-      throw new ForbiddenException('A opção não pertence à sua filial');
+    
 
     // mapear complement para o tipo correto
-    return {
-      ...option,
-      complement: option.complement,
-    };
+    return option;
   }
 
   async update(

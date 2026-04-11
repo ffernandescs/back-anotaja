@@ -1376,13 +1376,20 @@ async createOrder(
                   })),
                 },
                 payments: {
-                  create: payments.map((p) => ({
-                    type: p.type,
-                    amount: total,
-                    paymentMethodId: p.paymentMethodId,
-                    change: p.type === PaymentTypeDto.CASH ? change || 0 : 0,
-                    status: 'PENDING',
-                  })),
+                  create: payments.map((p) => {
+                    const amount = p.amount || 0;
+                    const amountGiven = p.amountGiven || (p.type === PaymentTypeDto.CASH ? amount : null);
+                    const calculatedChange = p.type === PaymentTypeDto.CASH && amountGiven && amountGiven > amount ? amountGiven - amount : 0;
+
+                    return {
+                      type: p.type,
+                      amount,
+                      amountGiven,
+                      paymentMethodId: p.paymentMethodId,
+                      change: calculatedChange,
+                      status: 'PENDING',
+                    };
+                  }),
                 },
               },
             });
@@ -3062,15 +3069,19 @@ async createOrder(
               create: (item as any).additions?.map((a: any) => ({ additionId: a })) || [],
             },
             complements: {
-              create: item.complements?.map((comp: any) => ({
-                complementId: comp.complementId,
-                options: {
-                  create: comp.options?.map((opt: any) => ({
-                    optionId: opt.optionId,
-                    price: opt.price,
-                  })) || [],
-                },
-              })) || [],
+              create: item.complements
+                ?.filter((comp: any) => comp.complement?.id)
+                .map((comp: any) => ({
+                  complementId: comp.complement.id,
+                  options: {
+                    create: comp.options
+                      ?.filter((opt: any) => opt.option?.id)
+                      .map((opt: any) => ({
+                        optionId: opt.option.id,
+                        quantity: opt.quantity || 1,
+                      })) || [],
+                  },
+                })) || [],
             },
           },
         });
@@ -3078,14 +3089,18 @@ async createOrder(
 
       // Criar pagamentos do pedido usando o DTO original
       for (const payment of updateOrderDto.payments) {
+        const amount = payment.amount || 0;
+        const amountGiven = payment.amountGiven || (payment.type === PaymentTypeDto.CASH ? amount : null);
+        const calculatedChange = payment.type === PaymentTypeDto.CASH && amountGiven && amountGiven > amount ? amountGiven - amount : 0;
+
         await tx.orderPayment.create({
           data: {
             orderId,
             type: payment.type,
-            amount: payment.amount || 0,
+            amount,
             paymentMethodId: payment.paymentMethodId,
-            change: payment.type === 'CASH' && payment.amountGiven && payment.amountGiven > (payment.amount || 0) ? payment.amountGiven - (payment.amount || 0) : 0,
-            amountGiven: payment.amountGiven,
+            change: calculatedChange,
+            amountGiven,
             status: 'PENDING',
           },
         });
@@ -3125,7 +3140,12 @@ async createOrder(
               },
               complements: {
                 include: {
-                  options: true,
+                  complement:true,
+                  options: {
+                    include: {
+                      option:true,
+                    }
+                  },
                 },
               },
               additions: true,
