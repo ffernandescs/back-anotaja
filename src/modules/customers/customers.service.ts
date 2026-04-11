@@ -454,7 +454,7 @@ export class CustomersService {
     // Valida acesso
     const customer = await this.findOne(customerId, userId);
 
-    // Busca orders com items e payments em paralelo
+    // Busca orders com items, payments e coupon em paralelo
     const [orders, addresses] = await Promise.all([
       prisma.order.findMany({
         where: { customerId },
@@ -466,6 +466,7 @@ export class CustomersService {
           },
           payments: true,
           customerAddress: true,
+          coupon: { select: { id: true, code: true, type: true, value: true } },
         },
         orderBy: { createdAt: 'desc' },
       }),
@@ -530,6 +531,27 @@ export class CustomersService {
       },
       {} as Record<string, number>,
     );
+
+    // Métricas de cupom
+    const ordersWithCoupon = orders.filter((o) => o.couponId);
+    const totalCouponsUsed = ordersWithCoupon.length;
+    const couponBreakdown: Record<string, number> = {};
+    let totalDiscountFromCoupons = 0;
+
+    for (const order of ordersWithCoupon) {
+      if (order.coupon) {
+        couponBreakdown[order.coupon.code] = (couponBreakdown[order.coupon.code] || 0) + 1;
+        // Calcular desconto aproximado baseado no tipo e valor do cupom
+        if (order.coupon.type === 'PERCENTAGE') {
+          totalDiscountFromCoupons += Math.round((order.total * order.coupon.value) / 100);
+        } else if (order.coupon.type === 'FIXED') {
+          totalDiscountFromCoupons += order.coupon.value;
+        }
+      }
+    }
+
+    // Cupom mais usado
+    const mostUsedCoupon = Object.entries(couponBreakdown).sort(([, a], [, b]) => b - a)[0];
 
     // Top produtos (por quantidade)
     const productMap = new Map<string, { id: string; name: string; image: string | null; quantity: number; totalSpent: number }>();
@@ -624,6 +646,9 @@ export class CustomersService {
         lastOrderDate,
         preferredHour: preferredHour ? { hour: +preferredHour[0], count: preferredHour[1] } : null,
         preferredDay: preferredDay ? { day: dayNames[+preferredDay[0]], count: preferredDay[1] } : null,
+        totalCouponsUsed,
+        totalDiscountFromCoupons,
+        mostUsedCoupon: mostUsedCoupon ? { code: mostUsedCoupon[0], count: mostUsedCoupon[1] } : null,
       },
       breakdowns: {
         deliveryType: deliveryTypeBreakdown,
