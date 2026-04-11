@@ -898,17 +898,19 @@ export class StoreService {
     });
 
     if (openingHours.length > 0) {
-      const now = new Date();
+      // Usar timezone do Brasil para comparação correta de horários
+      const now = new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' });
+      const nowDate = new Date(now);
       const daysOfWeek = [
         'sunday','monday','tuesday','wednesday','thursday','friday','saturday',
       ];
-      const currentDay = daysOfWeek[now.getDay()];
+      const currentDay = daysOfWeek[nowDate.getDay()];
 
       const todaySchedule =
         openingHours.find(
           (h) =>
             h.date &&
-            new Date(h.date).toDateString() === now.toDateString(),
+            new Date(h.date).toDateString() === nowDate.toDateString(),
         ) || openingHours.find((h) => h.day === currentDay);
 
       if (todaySchedule) {
@@ -918,7 +920,7 @@ export class StoreService {
           );
         }
 
-        const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+        const currentTime = `${nowDate.getHours().toString().padStart(2, '0')}:${nowDate.getMinutes().toString().padStart(2, '0')}`;
 
         if (
           currentTime < todaySchedule.open ||
@@ -2969,12 +2971,14 @@ async createOrder(
     });
 
     if (openingHours.length > 0) {
-      const now = new Date();
+      // Usar timezone do Brasil para comparação correta de horários
+      const now = new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' });
+      const nowDate = new Date(now);
       const daysOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-      const currentDay = daysOfWeek[now.getDay()];
+      const currentDay = daysOfWeek[nowDate.getDay()];
 
       const todaySchedule =
-        openingHours.find((h) => h.date && new Date(h.date).toDateString() === now.toDateString()) ||
+        openingHours.find((h) => h.date && new Date(h.date).toDateString() === nowDate.toDateString()) ||
         openingHours.find((h) => h.day === currentDay);
 
       if (todaySchedule) {
@@ -2982,7 +2986,7 @@ async createOrder(
           throw new BadRequestException('Loja fechada. Não é possível realizar pedidos no momento.');
         }
 
-        const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+        const currentTime = `${nowDate.getHours().toString().padStart(2, '0')}:${nowDate.getMinutes().toString().padStart(2, '0')}`;
 
         if (currentTime < todaySchedule.open || currentTime > todaySchedule.close) {
           throw new BadRequestException(
