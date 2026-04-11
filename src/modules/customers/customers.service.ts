@@ -97,7 +97,7 @@ export class CustomersService {
     customerId: string,
   ) {
     const customer = await prisma.customer.findUnique({
-      where: { id: dto.customerId },
+      where: { id: customerId },
       select: { id: true, branchId: true },
     });
 
