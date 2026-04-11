@@ -1081,6 +1081,10 @@ export class StoreService {
     // Se discount foi fornecido manualmente, usar esse valor
     if (manualDiscount !== undefined) {
       discount = manualDiscount;
+      // Manter a associação do cupom mesmo com desconto manual
+      if (couponId) {
+        appliedCouponId = couponId;
+      }
     } else if (couponId) {
       const coupon = await prisma.coupon.findFirst({
         where: {

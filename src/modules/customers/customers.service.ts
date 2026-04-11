@@ -13,6 +13,8 @@ import { JwtService } from '@nestjs/jwt';
 import { CreateCustomerAddressDto } from './dto/create-customer-address.dto';
 import { GeocodingService } from '../geocoding/geocoding.service';
 import { StoreService } from '../store/store.service';
+import { QueryCustomersDto } from './dto/query-customers.dto';
+import { PaginatedResponseDto } from '../../common/dto/paginated-response.dto';
 
 @Injectable()
 export class CustomersService {
@@ -291,7 +293,7 @@ export class CustomersService {
     });
   }
 
-  async findAll(userId: string) {
+  async findAll(userId: string, query?: QueryCustomersDto) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
     });
@@ -304,15 +306,43 @@ export class CustomersService {
       throw new ForbiddenException('Usuário não está associado a uma filial');
     }
 
-    return prisma.customer.findMany({
-      where: { branchId: user.branchId },
-      include: {
-        addresses: {
-          orderBy: { isDefault: 'desc' },
+    const page = query?.page ?? 1;
+    const limit = query?.limit;
+    const hasLimit = limit !== undefined;
+    const sortOrder = query?.sortOrder ?? 'desc';
+    const search = query?.search;
+
+    // Campos permitidos para ordenação
+    const allowedSortFields = ['name', 'phone', 'email', 'createdAt', 'updatedAt'];
+    const orderField = query?.sortBy && allowedSortFields.includes(query.sortBy)
+      ? query.sortBy
+      : 'createdAt';
+
+    // Filtro de busca
+    const where: any = { branchId: user.branchId };
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { phone: { contains: search } },
+        { email: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [data, total] = await Promise.all([
+      prisma.customer.findMany({
+        where,
+        include: {
+          addresses: { orderBy: { isDefault: 'desc' } },
+          _count: { select: { orders: true } },
         },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+        orderBy: { [orderField]: sortOrder },
+        ...(hasLimit && { skip: (page - 1) * limit }),
+        ...(hasLimit && { take: limit }),
+      }),
+      prisma.customer.count({ where }),
+    ]);
+
+    return new PaginatedResponseDto(data, total, page, limit ?? total);
   }
 
   async findAllCustomerAddresses(customerId: string) {
@@ -321,9 +351,18 @@ export class CustomersService {
     });
   }
 
-  async findOne(id: string, branchId: string) {
+  async findOne(id: string, userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { branchId: true },
+    });
+
+    if (!user || !user.branchId) {
+      throw new ForbiddenException('Usuário não está associado a uma filial');
+    }
+
     const customer = await prisma.customer.findFirst({
-      where: { id, branchId },
+      where: { id, branchId: user.branchId },
       include: { addresses: true },
     });
 
@@ -335,7 +374,7 @@ export class CustomersService {
   }
 
   async update(id: string, dto: UpdateCustomerDto, userId: string) {
-    const user = await this.findOne(id, userId);
+    const customer = await this.findOne(id, userId);
 
     return prisma.customer.update({
       where: { id },
@@ -343,14 +382,14 @@ export class CustomersService {
         name: dto.name,
         phone: dto.phone,
         email: dto.email,
-        branchId: user.branchId,
+        branchId: customer.branchId,
       },
       include: { addresses: true },
     });
   }
 
-  async remove(id: string, branchId: string) {
-    await this.findOne(id, branchId);
+  async remove(id: string, userId: string) {
+    await this.findOne(id, userId);
 
     return prisma.customer.delete({
       where: { id },
@@ -411,12 +450,198 @@ export class CustomersService {
     });
   }
 
+  async getCustomerMetrics(customerId: string, userId: string) {
+    // Valida acesso
+    const customer = await this.findOne(customerId, userId);
+
+    // Busca orders com items e payments em paralelo
+    const [orders, addresses] = await Promise.all([
+      prisma.order.findMany({
+        where: { customerId },
+        include: {
+          items: {
+            include: {
+              product: { select: { id: true, name: true, image: true, price: true } },
+            },
+          },
+          payments: true,
+          customerAddress: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.customerAddress.findMany({
+        where: { customerId },
+        orderBy: { isDefault: 'desc' },
+      }),
+    ]);
+
+    const now = new Date();
+    const totalOrders = orders.length;
+    const completedOrders = orders.filter((o) => o.status === 'DELIVERED');
+    const cancelledOrders = orders.filter((o) => o.status === 'CANCELLED');
+
+    // Métricas financeiras (baseado em pedidos entregues)
+    const totalSpent = completedOrders.reduce((sum, o) => sum + o.total, 0);
+    const averageTicket = completedOrders.length > 0 ? Math.round(totalSpent / completedOrders.length) : 0;
+    const maxOrderValue = completedOrders.length > 0 ? Math.max(...completedOrders.map((o) => o.total)) : 0;
+
+    // Primeiro e último pedido
+    const firstOrderDate = orders.length > 0 ? orders[orders.length - 1].createdAt : null;
+    const lastOrderDate = orders.length > 0 ? orders[0].createdAt : null;
+
+    // Dias como cliente
+    const daysSinceFirstOrder = firstOrderDate
+      ? Math.floor((now.getTime() - new Date(firstOrderDate).getTime()) / (1000 * 60 * 60 * 24))
+      : 0;
+
+    // Dias desde último pedido
+    const daysSinceLastOrder = lastOrderDate
+      ? Math.floor((now.getTime() - new Date(lastOrderDate).getTime()) / (1000 * 60 * 60 * 24))
+      : null;
+
+    // Frequência mensal
+    const monthsAsCustomer = Math.max(1, Math.ceil(daysSinceFirstOrder / 30));
+    const ordersPerMonth = totalOrders > 0 ? +(totalOrders / monthsAsCustomer).toFixed(1) : 0;
+
+    // Breakdown por tipo de entrega
+    const deliveryTypeBreakdown = orders.reduce(
+      (acc, o) => {
+        acc[o.deliveryType] = (acc[o.deliveryType] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>,
+    );
+
+    // Breakdown por status
+    const statusBreakdown = orders.reduce(
+      (acc, o) => {
+        acc[o.status] = (acc[o.status] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>,
+    );
+
+    // Métodos de pagamento
+    const allPayments = orders.flatMap((o) => o.payments || []);
+    const paymentMethodBreakdown = allPayments.reduce(
+      (acc, p) => {
+        acc[p.type] = (acc[p.type] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>,
+    );
+
+    // Top produtos (por quantidade)
+    const productMap = new Map<string, { id: string; name: string; image: string | null; quantity: number; totalSpent: number }>();
+    for (const order of completedOrders) {
+      for (const item of order.items) {
+        const existing = productMap.get(item.productId);
+        if (existing) {
+          existing.quantity += item.quantity;
+          existing.totalSpent += item.price * item.quantity;
+        } else {
+          productMap.set(item.productId, {
+            id: item.productId,
+            name: item.product.name,
+            image: item.product.image || null,
+            quantity: item.quantity,
+            totalSpent: item.price * item.quantity,
+          });
+        }
+      }
+    }
+    const topProducts = Array.from(productMap.values())
+      .sort((a, b) => b.quantity - a.quantity)
+      .slice(0, 5);
+
+    // Pedidos por mês (últimos 6 meses)
+    const monthlyOrders: { month: string; count: number; total: number }[] = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const monthLabel = d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+      const monthOrders = orders.filter((o) => {
+        const od = new Date(o.createdAt);
+        return od.getFullYear() === d.getFullYear() && od.getMonth() === d.getMonth();
+      });
+      monthlyOrders.push({
+        month: monthLabel,
+        count: monthOrders.length,
+        total: monthOrders.reduce((s, o) => s + o.total, 0),
+      });
+    }
+
+    // Pedidos recentes (últimos 5)
+    const recentOrders = orders.slice(0, 5).map((o) => ({
+      id: o.id,
+      orderNumber: o.orderNumber,
+      status: o.status,
+      deliveryType: o.deliveryType,
+      total: o.total,
+      itemsCount: o.items.length,
+      createdAt: o.createdAt,
+    }));
+
+    // Horários preferidos
+    const hourDistribution: Record<number, number> = {};
+    for (const order of orders) {
+      const hour = new Date(order.createdAt).getHours();
+      hourDistribution[hour] = (hourDistribution[hour] || 0) + 1;
+    }
+    const preferredHour = Object.entries(hourDistribution).sort(([, a], [, b]) => b - a)[0];
+
+    // Dia da semana preferido
+    const dayNames = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+    const dayDistribution: Record<number, number> = {};
+    for (const order of orders) {
+      const day = new Date(order.createdAt).getDay();
+      dayDistribution[day] = (dayDistribution[day] || 0) + 1;
+    }
+    const preferredDay = Object.entries(dayDistribution).sort(([, a], [, b]) => b - a)[0];
+
+    return {
+      customer: {
+        id: customer.id,
+        name: customer.name,
+        phone: customer.phone,
+        email: customer.email,
+        createdAt: customer.createdAt,
+        updatedAt: customer.updatedAt,
+      },
+      addresses,
+      metrics: {
+        totalOrders,
+        completedOrders: completedOrders.length,
+        cancelledOrders: cancelledOrders.length,
+        cancellationRate: totalOrders > 0 ? +((cancelledOrders.length / totalOrders) * 100).toFixed(1) : 0,
+        totalSpent,
+        averageTicket,
+        maxOrderValue,
+        ordersPerMonth,
+        daysSinceFirstOrder,
+        daysSinceLastOrder,
+        firstOrderDate,
+        lastOrderDate,
+        preferredHour: preferredHour ? { hour: +preferredHour[0], count: preferredHour[1] } : null,
+        preferredDay: preferredDay ? { day: dayNames[+preferredDay[0]], count: preferredDay[1] } : null,
+      },
+      breakdowns: {
+        deliveryType: deliveryTypeBreakdown,
+        status: statusBreakdown,
+        paymentMethod: paymentMethodBreakdown,
+      },
+      topProducts,
+      monthlyOrders,
+      recentOrders,
+    };
+  }
+
   async setDefaultAddress(
     customerId: string,
     addressId: string,
-    branchId: string,
+    userId: string,
   ) {
-    await this.findOne(customerId, branchId);
+    await this.findOne(customerId, userId);
 
     return prisma.$transaction([
       prisma.customerAddress.updateMany({

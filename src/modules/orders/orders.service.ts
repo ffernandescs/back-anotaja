@@ -100,12 +100,28 @@ export class OrdersService {
     // Sempre usar branchId do usuário logado
     const branchId = user.branchId;
 
+    // Resolver couponCode -> couponId se necessário
+    let couponId = createOrderDto.couponId;
+    if (!couponId && createOrderDto.couponCode) {
+      const coupon = await prisma.coupon.findFirst({
+        where: {
+          code: createOrderDto.couponCode.toUpperCase(),
+          branchId,
+          active: true,
+        },
+        select: { id: true },
+      });
+      if (coupon) {
+        couponId = coupon.id;
+      }
+    }
+
     // Mapear CreateOrderDto para CreateStoreOrderDto
     const storeOrderDto: CreateStoreOrderDto = {
       deliveryType: createOrderDto.deliveryType,
       customerId: createOrderDto.customerId,
       addressId: createOrderDto.addressId,
-      couponId: createOrderDto.couponId,
+      couponId,
       items: createOrderDto.items.map((item) => ({
         productId: item.productId,
         quantity: item.quantity,
@@ -303,6 +319,7 @@ export class OrdersService {
     const dataWithCouponType = data.map((order: any) => ({
       ...order,
       couponType: order.coupon?.type as 'PERCENTAGE' | 'FIXED' | 'FREE_DELIVERY' | undefined,
+      couponCode: order.coupon?.code as string | undefined,
     }));
 
     return new PaginatedResponseDto(dataWithCouponType, total, page, limit ?? total);
@@ -452,6 +469,7 @@ export class OrdersService {
     const orderWithCouponType = {
       ...order,
       couponType: order.coupon?.type as 'PERCENTAGE' | 'FIXED' | 'FREE_DELIVERY' | undefined,
+      couponCode: order.coupon?.code as string | undefined,
     };
 
     return orderWithCouponType;

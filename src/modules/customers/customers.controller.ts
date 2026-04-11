@@ -10,6 +10,7 @@ import {
   UseGuards,
   Headers,
   Put,
+  Query,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { CustomersService } from './customers.service';
@@ -20,6 +21,7 @@ import { LoginCustomerDto } from './dto/login-customer.dto';
 import { Public } from '../../common/decorators/public.decorator';
 import { JwtCustomerAuthGuard } from '../../common/guards/jwt-customer.guard';
 import { CreateCustomerAddressDto } from './dto/create-customer-address.dto';
+import { QueryCustomersDto } from './dto/query-customers.dto';
 
 interface RequestWithUser extends Request {
   user: {
@@ -83,8 +85,8 @@ export class CustomersController {
   }
 
   @Get()
-  findAll(@Req() req: RequestWithUser) {
-    return this.customersService.findAll(req.user.userId);
+  findAll(@Query() query: QueryCustomersDto, @Req() req: RequestWithUser) {
+    return this.customersService.findAll(req.user.userId, query);
   }
 
   @Public()
@@ -110,7 +112,9 @@ export class CustomersController {
     @Body() dto: CreateCustomerAddressDto,
     @Req() req: RequestWithUser,
   ) {
-    return this.customersService.createAddressCustomer(dto, req.user.userId);
+    // dto.customerId vem do body (admin criando endereço para um cliente)
+    const customerId = dto.customerId || req.user.userId;
+    return this.customersService.createAddressCustomer(dto, customerId);
   }
 
   @Put('addresses-admin/:id')
@@ -176,6 +180,11 @@ export class CustomersController {
   @Get(':id')
   findOne(@Param('id') id: string, @Req() req: RequestWithUser) {
     return this.customersService.findOne(id, req.user.userId);
+  }
+
+  @Get(':id/metrics')
+  getMetrics(@Param('id') id: string, @Req() req: RequestWithUser) {
+    return this.customersService.getCustomerMetrics(id, req.user.userId);
   }
 
   @Patch(':id')
