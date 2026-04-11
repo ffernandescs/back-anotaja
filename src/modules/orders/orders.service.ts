@@ -17,14 +17,20 @@ import { CreatePaymentDto } from './dto/create-payment.dto';
 import { money } from '../../utils/money';
 import { PaymentTypeDto } from '../store/dto/create-store-order.dto';
 import { formatCurrency } from 'src/utils/formatCurrency';
+import { CalculateDeliveryFeeDto } from '../store/dto/calculate-delivery-fee.dto';
+import { LatLng } from '../store/types';
+import { CreateStoreOrderDto } from '../store/dto/create-store-order.dto';
+import { StoreService } from '../store/store.service';
 
+const isValidCoord = (v: unknown): v is number =>
+  typeof v === 'number' && !isNaN(v);
 @Injectable()
 export class OrdersService {
   constructor(
     private webSocketGateway: OrdersWebSocketGateway,
     private printerService: PrinterService,
+    private storeService: StoreService,
   ) {
-    console.log('🖨️ OrdersService constructor - PrinterService injected:', !!this.printerService);
   }
 
   async create(createOrderDto: CreateOrderDto, userId: string) {
@@ -45,273 +51,35 @@ export class OrdersService {
     // Sempre usar branchId do usuário logado
     const branchId = user.branchId;
 
-    // Verificar se a filial existe
-    const branch = await prisma.branch.findUnique({
-      where: { id: branchId },
-      include: { company: true },
-    });
-
-    if (!branch) {
-      throw new NotFoundException('Filial não encontrada');
-    }
-
-    // Verificar se os produtos existem
-    const productIds = createOrderDto.items.map((item) => item.productId);
-    const products = await prisma.product.findMany({
-      where: { id: { in: productIds } },
-      include: { complements: { include: { options: true } } },
-    });
-
-    if (products.length !== productIds.length) {
-      throw new NotFoundException('Um ou mais produtos não foram encontrados');
-    }
-
-    // Calcular subtotal dos items
-    let subtotal = 0;
-    const itemsData = createOrderDto.items.map((item) => {
-      const product = products.find((p) => p.id === item.productId);
-      if (!product) throw new NotFoundException(`Produto ${item.productId} não encontrado`);
-
-      let itemPrice = product.price;
-
-      if (item.complements?.length) {
-        for (const complement of item.complements) {
-          for (const option of complement.options || []) {
-            const complementOption = product.complements
-              .flatMap((c) => c.options)
-              .find((o) => o.id === option.optionId);
-            if (complementOption?.active) {
-              itemPrice += complementOption.price * (option.quantity || 1);
-            }
-          }
-        }
-      }
-
-      subtotal += itemPrice * item.quantity;
-
-      return {
-        productId: product.id,
+    // Mapear CreateOrderDto para CreateStoreOrderDto
+    const storeOrderDto: CreateStoreOrderDto = {
+      deliveryType: createOrderDto.deliveryType,
+      customerId: createOrderDto.customerId,
+      addressId: createOrderDto.addressId,
+      couponId: createOrderDto.couponId,
+      items: createOrderDto.items.map((item) => ({
+        productId: item.productId,
         quantity: item.quantity,
-        price: itemPrice,
         notes: item.notes,
-        complements: item.complements,
-      };
-    });
+        complements: item.complements?.map((comp) => ({
+          complementId: comp.complementId,
+          options: comp.options?.map((opt) => ({
+            optionId: opt.optionId,
+            quantity: opt.quantity || 1,
+          })) || [],
+        })),
+      })),
+      payments: createOrderDto.payments,
+      change: createOrderDto.change,
+      notes: createOrderDto.notes,
+      status: createOrderDto.status,
+    };
 
-    // Calcular delivery fee se for delivery
-    let deliveryFee = 0;
-    let estimatedTime: number | null = null;
+    // Chamar storeService.createOrder com branchId (sem subdomain para admin/PDV)
+    const result = await this.storeService.createOrder(storeOrderDto, undefined, branchId, true);
 
-    if (createOrderDto.deliveryType === DeliveryTypeDto.DELIVERY) {
-      if (!createOrderDto.addressId) {
-        throw new BadRequestException('Endereço é obrigatório para delivery');
-      }
-      deliveryFee = createOrderDto.deliveryFee || 0;
-    }
 
-    // Taxa de serviço para DINE_IN
-    let serviceFee = 0;
-    if (createOrderDto.deliveryType === DeliveryTypeDto.DINE_IN) {
-      const generalConfig = await prisma.generalConfig.findUnique({
-        where: { branchId },
-      });
-
-      if (generalConfig?.enableServiceFee) {
-        const percentage = generalConfig.serviceFeePercentage || 10;
-        serviceFee = Math.round((subtotal * percentage) / 100);
-      }
-    }
-
-    // Aplicar cupom se houver
-    let discount = 0;
-    let appliedCouponId: string | null = null;
-
-    if (createOrderDto.couponId) {
-      const coupon = await prisma.coupon.findFirst({
-        where: {
-          id: createOrderDto.couponId,
-          branchId,
-          active: true,
-          validFrom: { lte: new Date() },
-          validUntil: { gte: new Date() },
-        },
-      });
-
-      if (coupon) {
-        if (coupon.maxUses && coupon.usedCount >= coupon.maxUses) {
-          throw new BadRequestException('Cupom esgotado');
-        }
-        if (coupon.minValue && subtotal < coupon.minValue) {
-          throw new BadRequestException(
-            `Valor mínimo do pedido não atingido: R$ ${coupon.minValue.toFixed(2)}`,
-          );
-        }
-
-        discount =
-          coupon.type === 'PERCENTAGE'
-            ? Math.round((subtotal * coupon.value) / 100)
-            : coupon.value;
-        appliedCouponId = coupon.id;
-      }
-    }
-
-    // Calcular total
-    const total = subtotal + deliveryFee + serviceFee - discount;
-
-    const order = await prisma.$transaction(async (tx) => {
-      const lastOrder = await tx.order.findFirst({
-        where: { branchId },
-        orderBy: { orderNumber: 'desc' },
-        select: { orderNumber: true },
-      });
-
-      const orderNumber = lastOrder?.orderNumber ? lastOrder.orderNumber + 1 : 1;
-
-      const created = await tx.order.create({
-        data: {
-          orderNumber,
-          status: createOrderDto.status || OrderStatusDto.PENDING,
-          deliveryType: createOrderDto.deliveryType,
-          paymentStatus: 'PENDING',
-
-          // 💰 Arredondando sempre
-          paidAmount: money(0),
-          total: money(total),
-          subtotal: money(subtotal),
-          deliveryFee: money(deliveryFee),
-          serviceFee: money(serviceFee),
-          discount: money(discount),
-
-          notes: createOrderDto.notes || null,
-          customerId: createOrderDto.customerId || null,
-          customerAddressId: createOrderDto.addressId || null,
-          branchId,
-          userId: userId,
-          couponId: appliedCouponId || null,
-          tableNumber: createOrderDto.tableNumber || null,
-          tableId: createOrderDto.tableId || null,
-
-          items: {
-            create: itemsData.map((item) => ({
-              productId: item.productId,
-              quantity: item.quantity,
-              price: money(item.price),
-              notes: item.notes || null,
-              preparationStatus: 'PENDING',
-              dispatchStatus: 'PENDING',
-              complements: item.complements
-                ? {
-                    create: item.complements.map((complement) => ({
-                      complementId: complement.complementId,
-                      options: complement.options
-                        ? {
-                            create: complement.options.map((option) => ({
-                              optionId: option.optionId,
-                            })),
-                          }
-                        : undefined,
-                    })),
-                  }
-                : undefined,
-            })),
-          },
-        },
-        include: {
-          branch: {
-            select: {
-              id: true,
-              branchName: true,
-              address: true,
-            },
-          },
-          customer: true,
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              phone: true,
-            },
-          },
-          items: {
-            include: {
-              product: {
-                select: {
-                  id: true,
-                  name: true,
-                  price: true,
-                  image: true,
-                },
-              },
-              additions: {
-                include: {
-                  addition: {
-                    select: {
-                      id: true,
-                      name: true,
-                      price: true,
-                    },
-                  },
-                },
-              },
-              complements: {
-                include: {
-                  complement: {
-                    select: {
-                      id: true,
-                      name: true,
-                    },
-                  },
-                  options: {
-                    include: {
-                      option: {
-                        select: {
-                          id: true,
-                          name: true,
-                          price: true,
-                        },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-          coupon: {
-            select: {
-              id: true,
-              code: true,
-              type: true,
-              value: true,
-            },
-          },
-          deliveryPerson: {
-            select: {
-              id: true,
-              name: true,
-              phone: true,
-            },
-          },
-        },
-      });
-
-      if (created.tableId) {
-        await tx.table.update({
-          where: { id: created.tableId },
-          data: { status: 'OPEN' },
-        });
-      }
-
-      return created;
-    });
-
-    // Emitir evento de criação via WebSocket com payload completo
-    const fullCreatedOrder = await this.findOne(order.id, userId);
-    await this.webSocketGateway.emitOrderUpdate(fullCreatedOrder, 'order:created');
-    await this.printerService.printOrderOnCreate(fullCreatedOrder, branch);
-    console.log('🖨️ printOrderOnCreate completed');
-
-    return order;
+    return result;
   }
 
   async createPDVOrder(createOrderDto: CreateOrderDto, userId: string) {
@@ -329,244 +97,38 @@ export class OrdersService {
       throw new ForbiddenException('Usuário não está associado a uma filial');
     }
 
+    // Sempre usar branchId do usuário logado
     const branchId = user.branchId;
 
-    // Validar cliente
-    if (!createOrderDto.customerId) {
-      throw new BadRequestException('Cliente é obrigatório para criar pedido no PDV');
-    }
-
-    const customer = await prisma.customer.findUnique({
-      where: { id: createOrderDto.customerId },
-    });
-
-    if (!customer) {
-      throw new NotFoundException('Cliente não encontrado');
-    }
-
-    // Buscar produtos e complementos
-    const productIds = createOrderDto.items.map((item) => item.productId);
-    const products = await prisma.product.findMany({
-      where: { id: { in: productIds } },
-      include: {
-        complements: { include: { options: true } },
-      },
-    });
-
-    if (products.length !== productIds.length) {
-      throw new NotFoundException('Um ou mais produtos não foram encontrados');
-    }
-
-    const productMap = new Map(products.map((p) => [p.id, p]));
-
-    // Calcular subtotal
-    let subtotal = 0;
-    const itemsData = createOrderDto.items.map((item) => {
-      const product = productMap.get(item.productId);
-      if (!product || !product.active) {
-        throw new NotFoundException(`Produto ${item.productId} não encontrado`);
-      }
-
-      let itemPrice = product.price;
-
-      if (item.complements?.length) {
-        for (const complement of item.complements) {
-          for (const option of complement.options || []) {
-            const complementOption = product.complements
-              .flatMap((c) => c.options)
-              .find((o) => o.id === option.optionId);
-            if (complementOption?.active) {
-              itemPrice += complementOption.price * (option.quantity || 1);
-            }
-          }
-        }
-      }
-
-      subtotal += itemPrice * item.quantity;
-
-      return {
-        productId: product.id,
+    // Mapear CreateOrderDto para CreateStoreOrderDto
+    const storeOrderDto: CreateStoreOrderDto = {
+      deliveryType: createOrderDto.deliveryType,
+      customerId: createOrderDto.customerId,
+      addressId: createOrderDto.addressId,
+      couponId: createOrderDto.couponId,
+      items: createOrderDto.items.map((item) => ({
+        productId: item.productId,
         quantity: item.quantity,
-        price: itemPrice,
         notes: item.notes,
-        complements: item.complements,
-      };
-    });
+        complements: item.complements?.map((comp) => ({
+          complementId: comp.complementId,
+          options: comp.options?.map((opt) => ({
+            optionId: opt.optionId,
+            quantity: opt.quantity || 1,
+          })) || [],
+        })),
+      })),
+      payments: createOrderDto.payments,
+      change: createOrderDto.change,
+      notes: createOrderDto.notes,
+      status: createOrderDto.status,
+    };
 
-    // Calcular delivery fee se for delivery
-    let deliveryFee = 0;
-    let estimatedTime: number | null = null;
+    // Chamar storeService.createOrder com branchId (sem subdomain para admin/PDV)
+    const result = await this.storeService.createOrder(storeOrderDto, undefined, branchId, true);
 
-    if (createOrderDto.deliveryType === DeliveryTypeDto.DELIVERY) {
-      if (!createOrderDto.addressId) {
-        throw new BadRequestException('Endereço é obrigatório para delivery');
-      }
-      // Para PDV, delivery fee pode ser 0 ou calculado
-      deliveryFee = createOrderDto.deliveryFee || 0;
-    }
 
-    // Taxa de serviço para DINE_IN
-    let serviceFee = 0;
-    if (createOrderDto.deliveryType === DeliveryTypeDto.DINE_IN) {
-      const generalConfig = await prisma.generalConfig.findUnique({
-        where: { branchId },
-      });
-
-      if (generalConfig?.enableServiceFee) {
-        const percentage = generalConfig.serviceFeePercentage || 10;
-        serviceFee = Math.round((subtotal * percentage) / 100);
-      }
-    }
-
-    // Aplicar cupom se houver
-    let discount = 0;
-    let appliedCouponId: string | null = null;
-
-    if (createOrderDto.couponId) {
-      const coupon = await prisma.coupon.findFirst({
-        where: {
-          id: createOrderDto.couponId,
-          branchId,
-          active: true,
-          validFrom: { lte: new Date() },
-          validUntil: { gte: new Date() },
-        },
-      });
-
-      if (coupon) {
-        if (coupon.maxUses && coupon.usedCount >= coupon.maxUses) {
-          throw new BadRequestException('Cupom esgotado');
-        }
-        if (coupon.minValue && subtotal < coupon.minValue) {
-          throw new BadRequestException(
-            `Valor mínimo do pedido não atingido: R$ ${coupon.minValue.toFixed(2)}`,
-          );
-        }
-
-        discount =
-          coupon.type === 'PERCENTAGE'
-            ? Math.round((subtotal * coupon.value) / 100)
-            : coupon.value;
-        appliedCouponId = coupon.id;
-      }
-    }
-
-    // Calcular total
-    const total = subtotal + deliveryFee + serviceFee - discount;
-
-    // Validar métodos de pagamento
-    if (!createOrderDto.payments?.length) {
-      throw new BadRequestException('Ao menos uma forma de pagamento é obrigatória');
-    }
-
-    // Validar total dos pagamentos
-    const totalPaid = createOrderDto.payments.reduce((sum, p) => sum + (p.amount || 0), 0);
-
-    if (Math.abs(totalPaid - total) > 1) {
-      throw new BadRequestException(
-        `O total dos pagamentos (${formatCurrency(totalPaid)}) deve ser igual ao total do pedido (${formatCurrency(total)})`,
-      );
-    }
-
-    const order = await prisma.$transaction(async (tx) => {
-      const lastOrder = await tx.order.findFirst({
-        where: { branchId },
-        orderBy: { orderNumber: 'desc' },
-        select: { orderNumber: true },
-      });
-
-      const orderNumber = lastOrder?.orderNumber ? lastOrder.orderNumber + 1 : 1;
-
-      const created = await tx.order.create({
-        data: {
-          orderNumber,
-          status: OrderStatusDto.PENDING,
-          branchId,
-          customerId: createOrderDto.customerId,
-          deliveryType: createOrderDto.deliveryType,
-          subtotal: money(subtotal),
-          deliveryFee: money(deliveryFee),
-          serviceFee: money(serviceFee),
-          discount: money(discount),
-          total: money(total),
-          estimatedTime,
-          couponId: appliedCouponId,
-          customerAddressId: createOrderDto.addressId || null,
-          notes: createOrderDto.notes || null,
-          userId: userId,
-          tableNumber: createOrderDto.tableNumber || null,
-          tableId: createOrderDto.tableId || null,
-          items: {
-            create: itemsData.map((item) => ({
-              productId: item.productId,
-              quantity: item.quantity,
-              price: money(item.price),
-              notes: item.notes,
-              preparationStatus: 'PENDING',
-              dispatchStatus: 'PENDING',
-              complements: item.complements?.length
-                ? {
-                    create: item.complements.map((comp) => ({
-                      complementId: comp.complementId,
-                      options: {
-                        create: comp.options?.map((opt) => ({
-                          optionId: opt.optionId,
-                          quantity: opt.quantity || 1,
-                        })) || [],
-                      },
-                    })),
-                  }
-                : undefined,
-            })),
-          },
-          payments: {
-            create: createOrderDto.payments.map((p) => {
-              const calculatedChange =
-                p.amountGiven && p.amountGiven > (p.amount || 0)
-                  ? p.amountGiven - (p.amount || 0)
-                  : p.change || 0;
-              return {
-                type: p.type,
-                amount: money(p.amount || 0),
-                paymentMethodId: p.paymentMethodId,
-                change: calculatedChange,
-                amountGiven: p.amountGiven || 0,
-                status: 'PENDING',
-              };
-            }),
-          },
-        },
-      });
-
-      // Atualizar cupom se houver
-      if (appliedCouponId) {
-        await tx.coupon.update({
-          where: { id: appliedCouponId },
-          data: { usedCount: { increment: 1 } },
-        });
-      }
-
-      // Atualizar mesa se houver
-      if (created.tableId) {
-        await tx.table.update({
-          where: { id: created.tableId },
-          data: { status: 'OPEN' },
-        });
-      }
-
-      return created;
-    });
-
-    // Buscar pedido completo
-    const fullOrder = await this.findOne(order.id, userId);
-
-    // Emitir WebSocket com flag fromPDV para não disparar notificações no NotificationBell
-    await this.webSocketGateway.emitOrderUpdate({ ...fullOrder, fromPDV: true }, 'order:created');
-
-    // Imprimir pedido
-    await this.printerService.printOrderOnCreate(fullOrder, user.branch);
-
-    return order;
+    return result;
   }
 
   async findAll(
@@ -894,9 +456,251 @@ export class OrdersService {
     return orderWithCouponType;
   }
 
-  async update(id: string, dto: UpdateOrderDto, userId: string) {
-    const existingOrder = await this.findOne(id, userId);
+  
+  async calculateDeliveryFee(
+      calculateFeeDto: CalculateDeliveryFeeDto,
+      branchId?: string,
+    ) {
+      let branch = await prisma.branch.findUnique({where: {id:branchId}});
+  
+      if (!branch) {
+        throw new NotFoundException('Loja não encontrada');
+      }
+  
+      const {
+        zipCode,
+        address,
+        city,
+        state,
+        lat: providedLat,
+        lng: providedLng,
+        subtotal = 0,
+      } = calculateFeeDto;
+  
+      // ===============================
+      // 1️⃣ NORMALIZAR COORDENADAS
+      // ===============================
+      let finalLat = isValidCoord(providedLat) ? providedLat : undefined;
+      let finalLng = isValidCoord(providedLng) ? providedLng : undefined;
+  
+      // ===============================
+      // 2️⃣ GEOCODING (SE NECESSÁRIO)
+      // ===============================
+      if (!isValidCoord(finalLat) || !isValidCoord(finalLng)) {
+        if (!address || !city || !state) {
+          return {
+            available: false,
+            deliveryFee: 0,
+            message: 'Endereço incompleto para localizar no mapa',
+          };
+        }
+  
+        try {
+          const query = `${address}, ${city}, ${state}, ${zipCode ?? ''}, Brasil`
+            .replace(/\s+/g, ' ')
+            .trim();
+  
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+              query,
+            )}&limit=1`,
+            { headers: { 'User-Agent': 'AnotaJa/1.0' } },
+          );
+  
+          if (!res.ok) throw new Error('Geocoding failed');
+  
+          const data = (await res.json()) as Array<{
+            lat: string;
+            lon: string;
+          }>;
+  
+          if (data.length === 0) {
+            return {
+              available: false,
+              deliveryFee: 0,
+              message: 'Endereço não localizado no mapa',
+            };
+          }
+  
+          finalLat = parseFloat(data[0].lat);
+          finalLng = parseFloat(data[0].lon);
+        } catch (err) {
+          return {
+            available: false,
+            deliveryFee: 0,
+            message: 'Erro ao localizar endereço',
+          };
+        }
+      }
+  
+      // 🔥 GARANTIA FINAL
+      if (!isValidCoord(finalLat) || !isValidCoord(finalLng)) {
+        return {
+          available: false,
+          deliveryFee: 0,
+          message: 'Coordenadas inválidas',
+        };
+      }
+  
+      const point = { lat: finalLat, lng: finalLng };
+  
+      // ===============================
+      // 3️⃣ BUSCAR CONFIGURAÇÕES
+      // level MENOR = maior prioridade
+      // ===============================
+      let [areas, routes, exclusions] = await Promise.all([
+        prisma.deliveryArea.findMany({
+          where: { branchId: branch.id, active: true },
+          orderBy: { level: 'asc' },
+        }),
+        prisma.deliveryRoute.findMany({
+          where: { branchId: branch.id, active: true },
+          orderBy: { level: 'asc' },
+        }),
+        prisma.deliveryExclusionArea.findMany({
+          where: { branchId: branch.id, active: true },
+        }),
+      ]);
+  
+      // ===============================
+      // 4️⃣ FUNÇÕES GEOGRÁFICAS
+      // ===============================
+      const haversine = (a: LatLng, b: LatLng) => {
+        const R = 6371000;
+        const toRad = (v: number) => (v * Math.PI) / 180;
+        const dLat = toRad(b.lat - a.lat);
+        const dLng = toRad(b.lng - a.lng);
+  
+        const h =
+          Math.sin(dLat / 2) ** 2 +
+          Math.cos(toRad(a.lat)) *
+            Math.cos(toRad(b.lat)) *
+            Math.sin(dLng / 2) ** 2;
+  
+        return 2 * R * Math.asin(Math.sqrt(h));
+      };
+  
+      const isPointInPolygon = (p: LatLng, poly: LatLng[]) => {
+        let inside = false;
+        for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+          const xi = poly[i].lng;
+          const yi = poly[i].lat;
+          const xj = poly[j].lng;
+          const yj = poly[j].lat;
+  
+          const intersect =
+            yi > p.lat !== yj > p.lat &&
+            p.lng < ((xj - xi) * (p.lat - yi)) / (yj - yi) + xi;
+  
+          if (intersect) inside = !inside;
+        }
+        return inside;
+      };
+  
+      // ===============================
+      // 5️⃣ EXCLUSÕES
+      // ===============================
+      for (const ex of exclusions) {
+        if (ex.type === 'CIRCLE' && ex.centerLat && ex.centerLng && ex.radius) {
+          if (
+            haversine(point, {
+              lat: ex.centerLat,
+              lng: ex.centerLng,
+            }) <= ex.radius
+          ) {
+            return {
+              available: false,
+              deliveryFee: 0,
+              message: 'Entrega não disponível nesta área',
+            };
+          }
+        }
+  
+        if (ex.type === 'POLYGON' && ex.polygon) {
+          const poly = JSON.parse(ex.polygon) as LatLng[];
+          if (isPointInPolygon(point, poly)) {
+            return {
+              available: false,
+              deliveryFee: 0,
+              message: 'Entrega não disponível nesta área',
+            };
+          }
+        }
+      }
+  
+      // ===============================
+      // 6️⃣ ROTAS (PRIMEIRO MATCH GANHA)
+      // ===============================
+      const matchedRoute = routes.find((route) => {
+        try {
+          const coords = JSON.parse(route.coordinates) as LatLng[];
+          return coords.some(
+            (_, i) => i < coords.length - 1 && haversine(point, coords[i]) <= 200,
+          );
+        } catch {
+          return false;
+        }
+      });
+  
+      // ===============================
+      // 7️⃣ ÁREAS (SE NÃO PEGAR ROTA)
+      // ===============================
+      const matchedArea =
+        !matchedRoute &&
+        areas.find((area) => {
+          if (
+            area.type === 'CIRCLE' &&
+            area.centerLat &&
+            area.centerLng &&
+            area.radius
+          ) {
+            return (
+              haversine(point, {
+                lat: area.centerLat,
+                lng: area.centerLng,
+              }) <= area.radius
+            );
+          }
+  
+          if (area.type === 'POLYGON' && area.polygon) {
+            const poly = JSON.parse(area.polygon) as LatLng[];
+            return isPointInPolygon(point, poly);
+          }
+  
+          return false;
+        });
+  
+      const matched = matchedRoute || matchedArea;
+  
+      if (!matched) {
+  
+        return {
+          available: false,
+          deliveryFee: 0,
+          message: 'Endereço fora da área de entrega',
+        };
+      }
+  
+      // ===============================
+      // 8️⃣ PEDIDO MÍNIMO (APENAS INFORMATIVO)
+      // ===============================
+      // Nota: Não bloqueia a seleção do endereço, apenas informa o valor mínimo
+      // A validação real do pedido mínimo acontece no createOrder
+  
+      // ===============================
+      // 9️⃣ SUCESSO - SEMPRE DISPONÍVEL SE DENTRO DA ÁREA
+      // ===============================
+      return {
+        available: true,
+        deliveryFee: matched.deliveryFee,
+        estimatedTime: matched.estimatedTime,
+        areaName: matched.name,
+        areaLevel: matched.level,
+        type: matchedRoute ? 'route' : 'area',
+      };
+    }
 
+  async update(id: string, dto: UpdateOrderDto, userId: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, group: true, branchId: true },
@@ -906,184 +710,39 @@ export class OrdersService {
       throw new NotFoundException('Usuário não encontrado');
     }
 
-    const branchId = user.branchId;
-
-    // 🚫 Não permitir update direto de items
-    const { items, payments, ...payload } = dto;
-
-    // Calcular totais se items forem fornecidos
-    let calculatedSubtotal = payload.subtotal || existingOrder.subtotal;
-    let calculatedDeliveryFee = existingOrder.deliveryFee || 0;
-    let calculatedServiceFee = payload.serviceFee || existingOrder.serviceFee || 0;
-    let calculatedDiscount = existingOrder.discount || 0;
-    let calculatedTotal = payload.total || existingOrder.total;
-
-    if (items && items.length > 0) {
-      // Buscar produtos para calcular subtotal
-      const productIds = items.map((item) => item.productId);
-      const products = await prisma.product.findMany({
-        where: { id: { in: productIds } },
-        include: {
-          complements: { include: { options: true } },
-        },
-      });
-
-      const productMap = new Map(products.map((p) => [p.id, p]));
-
-      // Calcular subtotal
-      calculatedSubtotal = 0;
-      for (const item of items) {
-        const product = productMap.get(item.productId);
-        if (!product || !product.active) {
-          throw new NotFoundException(`Produto ${item.productId} não encontrado`);
-        }
-
-        let itemPrice = product.price;
-
-        if (item.complements?.length) {
-          for (const complement of item.complements) {
-            for (const option of complement.options || []) {
-              const complementOption = product.complements
-                .flatMap((c) => c.options)
-                .find((o) => o.id === option.optionId);
-              if (complementOption?.active) {
-                itemPrice += complementOption.price * (option.quantity || 1);
-              }
-            }
-          }
-        }
-
-        calculatedSubtotal += itemPrice * item.quantity;
-      }
-
-      // Calcular delivery fee se for delivery
-      if (payload.deliveryType === DeliveryTypeDto.DELIVERY) {
-        calculatedDeliveryFee = payload.deliveryFee || 0;
-      }
-
-      // Calcular service fee se for DINE_IN
-      if (payload.deliveryType === DeliveryTypeDto.DINE_IN && branchId) {
-        const generalConfig = await prisma.generalConfig.findUnique({
-          where: { branchId },
-        });
-
-        if (generalConfig?.enableServiceFee) {
-          const percentage = generalConfig.serviceFeePercentage || 10;
-          calculatedServiceFee = Math.round((calculatedSubtotal * percentage) / 100);
-        }
-      }
-
-      // Calcular total
-      calculatedTotal = calculatedSubtotal + calculatedDeliveryFee + calculatedServiceFee - calculatedDiscount;
+    if (!user.branchId) {
+      throw new ForbiddenException('Usuário não está associado a uma filial');
     }
 
-    if (items) {
-      await this.updateItems(id, items, userId);
-    }
+    // Mapear UpdateOrderDto para CreateStoreOrderDto
+    const storeOrderDto: CreateStoreOrderDto = {
+      deliveryType: dto.deliveryType || DeliveryTypeDto.PICKUP,
+      customerId: dto.customerId,
+      addressId: dto.addressId,
+      couponId: dto.couponId,
+      items: dto.items?.map((item) => ({
+        productId: item.productId,
+        quantity: item.quantity,
+        notes: '',
+        complements: item.complements?.map((comp) => ({
+          complementId: comp.complementId,
+          options: comp.options?.map((opt) => ({
+            optionId: opt.optionId,
+            quantity: opt.quantity || 1,
+          })) || [],
+        })),
+      })) || [],
+      payments: dto.payments || [],
+      change: 0,
+      notes: '',
+      status: dto.status,
+      discount: dto.discount ?? 0,
+    };
 
-    // 🧠 Montagem dinâmica do update
-    const data = Object.entries(payload).reduce(
-      (acc, [key, value]) => {
-        if (value !== undefined) acc[key] = value;
-        return acc;
-      },
-      {} as Record<string, any>,
-    );
+    // Chamar storeService.updateOrder com branchId
+    const result = await this.storeService.updateOrder(id, storeOrderDto, undefined, user.branchId);
 
-    // 🛑 Regras de negócio
-    if (
-      existingOrder.status === 'CANCELLED' ||
-      existingOrder.status === 'DELIVERED'
-    ) {
-      if ('paymentMethod' in data) {
-        throw new BadRequestException(
-          'Não é possível alterar forma de pagamento em pedidos finalizados ou cancelados',
-        );
-      }
-    }
-
-    const updatedOrder = await prisma.$transaction(async (tx) => {
-
-      if (payments) {
-        // Delete existing payments
-        await tx.orderPayment.deleteMany({
-          where: { orderId: id },
-        });
-
-        // Create new payments
-        for (const payment of payments) {
-          const calculatedChange =
-            payment.amountGiven && payment.amountGiven > (payment.amount || 0)
-              ? payment.amountGiven - (payment.amount || 0)
-              : payment.change || 0;
-          await tx.orderPayment.create({
-            data: {
-              type: payment.type,
-              amount: money(payment.amount || 0),
-              paymentMethodId: payment.paymentMethodId,
-              change: calculatedChange,
-              amountGiven: payment.amountGiven || null,
-              status: 'PENDING',
-              orderId: id,
-            },
-          });
-        }
-      }
-      
-      const order = await tx.order.update({
-        where: { id },
-        data: {
-          total: money(calculatedTotal),
-          subtotal: money(calculatedSubtotal),
-          serviceFee: money(calculatedServiceFee),
-          deliveryFee: money(calculatedDeliveryFee),
-          customerId: payload.customerId || null,
-          deliveryType: payload.deliveryType || existingOrder.deliveryType,
-        },
-        include: {
-          branch: {
-            select: {
-              id: true,
-              branchName: true,
-            },
-          },
-          items: {
-            include: {
-              product: {
-                select: {
-                  id: true,
-                  name: true,
-                },
-              },
-              complements: {
-                include: {
-                  options: true,
-                },
-              },
-              additions: true,
-            },
-          },
-          payments: true,
-        },
-      });
-
-      // Update payments if provided
-      
-
-      return order;
-    });
-
-    // 🔔 WebSocket
-    this.webSocketGateway.emitOrderUpdate(
-      {
-        id: updatedOrder.id,
-        status: updatedOrder.status,
-        branchId: updatedOrder.branchId,
-      },
-      'order:updated',
-    );
-
-    return updatedOrder;
+    return result;
   }
 
   async updateItems(
@@ -1624,7 +1283,6 @@ export class OrdersService {
   }
 
   async testPrint(order: any, branch: any): Promise<void> {
-    console.log('🖨️ testPrint called - PrinterService exists:', !!this.printerService);
     await this.printerService.printOrder(order, branch);
   }
 
@@ -1701,7 +1359,6 @@ export class OrdersService {
     const paymentStatuses = ['PENDING', 'PAID'];
 
     // Gerar pedidos aleatórios em lotes de 50 para evitar timeout
-    console.log(`Iniciando geração de ${count} pedidos aleatórios...`);
     const batchSize = 50;
     const createdOrders: any[] = [];
 
@@ -1710,14 +1367,11 @@ export class OrdersService {
       const endIdx = Math.min(startIdx + batchSize, count);
       const batchCount = endIdx - startIdx;
 
-      console.log(`Processando lote ${batch + 1}/${Math.ceil(count / batchSize)} (${startIdx + 1} a ${endIdx})...`);
-
       const batchOrders = await prisma.$transaction(
         async (tx) => {
           const orders: any[] = [];
 
           for (let i = startIdx; i < endIdx; i++) {
-            console.log(`Criando pedido ${i + 1}/${count}...`);
             // Sortear cliente (20% chance de não ter cliente)
             const customer = Math.random() > 0.2
               ? customers[Math.floor(Math.random() * customers.length)]
@@ -1795,7 +1449,6 @@ export class OrdersService {
                 },
               },
             });
-            console.log(`Pedido ${i + 1}/${count} criado com ID: ${order.id}`);
 
             // Criar pagamento se o pedido estiver pago
             if (paymentStatus === 'PAID') {
@@ -1821,7 +1474,6 @@ export class OrdersService {
       );
 
       createdOrders.push(...batchOrders);
-      console.log(`Lote ${batch + 1} concluído. Total criados: ${createdOrders.length}`);
     }
 
     for(const item of createdOrders) {

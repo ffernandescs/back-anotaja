@@ -97,7 +97,7 @@ export class CustomersService {
     customerId: string,
   ) {
     const customer = await prisma.customer.findUnique({
-      where: { id: customerId },
+      where: { id: dto.customerId },
       select: { id: true, branchId: true },
     });
 
@@ -196,21 +196,19 @@ export class CustomersService {
   async updateAddressCustomer(
     addressId: string,
     dto: CreateCustomerAddressDto,
-    customerId: string,
+    userId: string,
   ) {
-    const customer = await prisma.customer.findUnique({
-      where: { id: customerId },
-      select: { id: true, branchId: true },
+    const user = await prisma.user.findUnique({
+      where: { id: userId, },
     });
 
-    if (!customer) {
-      throw new NotFoundException('Cliente não encontrado');
+    if (!userId) {
+      throw new NotFoundException('Usuario não encontrado');
     }
 
     const address = await prisma.customerAddress.findFirst({
       where: {
         id: addressId,
-        customerId: customer.id,
       },
     });
 
@@ -257,7 +255,7 @@ export class CustomersService {
         subtotal: 0,
       },
       undefined,
-      customer.branchId,
+      user?.branchId ??'',
     );
 
     if (!coverage.available) {
@@ -271,7 +269,7 @@ export class CustomersService {
       if (dto.isDefault) {
         await tx.customerAddress.updateMany({
           where: {
-            branchId: customer.branchId,
+            branchId: user?.branchId ?? '',
             isDefault: true,
             NOT: { id: addressId },
           },
@@ -283,6 +281,9 @@ export class CustomersService {
 
       return tx.customerAddress.update({
         where: { id: addressId },
+        include: {
+          customer: true,
+        },
         data: {
           ...dto,
         },

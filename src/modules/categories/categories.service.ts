@@ -63,6 +63,33 @@ export class CategoriesService {
     return category;
   }
 
+  /**
+   * Helper function to calculate current stock for products
+   */
+  private async calculateStockForProducts(productIds: string[], branchId: string): Promise<Record<string, number>> {
+    const stockMovements = await prisma.stockMovement.findMany({
+      where: {
+        branchId,
+        productId: { in: productIds },
+      },
+      select: {
+        productId: true,
+        quantity: true,
+        type: true,
+      },
+    });
+
+    const stockByProduct: Record<string, number> = {};
+    stockMovements.forEach((movement) => {
+      if (!movement.productId) return;
+      const currentStock = stockByProduct[movement.productId] || 0;
+      const movementQty = movement.type === 'ENTRADA' ? movement.quantity : -movement.quantity;
+      stockByProduct[movement.productId] = Math.max(0, currentStock + movementQty);
+    });
+
+    return stockByProduct;
+  }
+
   async findAll(userId: string, active?: boolean | string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -91,12 +118,26 @@ export class CategoriesService {
       where.active = isActive;
     }
 
-    return prisma.category.findMany({
+    const categories = await prisma.category.findMany({
       where,
       orderBy: { createdAt: 'desc' },
       include: {
         products: {
-          include: {
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            price: true,
+            promotionalPrice: true,
+            promotionalPeriodType: true,
+            promotionalStartDate: true,
+            promotionalEndDate: true,
+            promotionalDays: true,
+            image: true,
+            featured: true,
+            active: true,
+            stockControlEnabled: true,
+            minStock: true,
             complements: {
               include: {
                 options: true,
@@ -111,6 +152,21 @@ export class CategoriesService {
         },
       },
     });
+
+    // Calcular estoque atual dos produtos
+    const productIds = categories.flatMap((category) =>
+      category.products.map((product) => product.id),
+    );
+
+    const stockByProduct = await this.calculateStockForProducts(productIds, user.branchId);
+
+    return categories.map((category) => ({
+      ...category,
+      products: category.products.map((product) => ({
+        ...product,
+        currentStock: stockByProduct[product.id] || 0,
+      })),
+    }));
   }
 
   async findOne(id: string, userId: string) {

@@ -43,4 +43,8 @@ export class CreateCustomerAddressDto {
   @IsOptional()
   @IsBoolean()
   isDefault?: boolean;
+
+  @IsOptional()
+  @IsString()
+  customerId?: string;
 }

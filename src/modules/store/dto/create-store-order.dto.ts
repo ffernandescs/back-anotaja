@@ -160,4 +160,10 @@ export class CreateStoreOrderDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  // Desconto manual (em centavos)
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  discount?: number;
 }

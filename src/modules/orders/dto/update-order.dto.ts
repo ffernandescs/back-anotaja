@@ -68,6 +68,14 @@ export class UpdateOrderDto {
   customerId?: string;
 
   @IsOptional()
+  @IsString()
+  couponId?: string;
+
+   @IsOptional()
+  @IsString()
+  addressId?: string;
+
+  @IsOptional()
   @IsEnum(DeliveryTypeDto)
   deliveryType?: DeliveryTypeDto;
 
@@ -90,6 +98,10 @@ export class UpdateOrderDto {
   @IsOptional()
   @IsNumber()
   total?: number;
+
+  @IsOptional()
+  @IsNumber()
+  discount?: number;
 
   @IsOptional()
   @IsEnum(OrderStatusDto)

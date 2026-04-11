@@ -29,6 +29,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { JwtCustomerAuthGuard } from '../../common/guards/jwt-customer.guard';
 import { GetOrdersQueryDto } from './dto/get-orders-query.dto';
 import { GetCustomer } from './decorators/get-customer.decorator';
+import { prisma } from 'lib/prisma';
 
 interface RequestWithUser extends Request {
   user?: {
@@ -412,6 +413,32 @@ export class StoreController {
       calculateFeeDto,
       subdomain,
       branchId || headerBranchId,
+    );
+  }
+
+  @Post('delivery-fee-admin')
+  @UseGuards(JwtAuthGuard)
+  async calculateDeliveryFeeAdmin(
+    @Body() calculateFeeDto: CalculateDeliveryFeeDto,
+    @Req() req: RequestWithUser,
+  ) {
+    if (!req.user?.userId) {
+      throw new UnauthorizedException('User not authenticated');
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.userId },
+      include: { branch: true },
+    });
+
+    if (!user?.branch) {
+      throw new BadRequestException('User not associated with a branch');
+    }
+
+    return await this.storeService.calculateDeliveryFee(
+      calculateFeeDto,
+      user.branch.subdomain || '',
+      user.branch.id,
     );
   }
 

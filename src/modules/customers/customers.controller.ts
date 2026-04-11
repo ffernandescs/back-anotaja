@@ -94,6 +94,34 @@ export class CustomersController {
     return this.customersService.getCustomerById(req.user.userId);
   }
 
+  @Get('addresses-admin')
+  async getAllAddressesAdmin(@Req() req: RequestWithUser) {
+    return this.customersService.findAllCustomerAddresses(req.user.userId);
+  }
+
+  @Get(':customerId/addresses')
+  @UseGuards(JwtAuthGuard)
+  async getCustomerAddresses(@Param('customerId') customerId: string) {
+    return this.customersService.findAllCustomerAddresses(customerId);
+  }
+
+  @Post('addresses-admin')
+  async createAddressAdmin(
+    @Body() dto: CreateCustomerAddressDto,
+    @Req() req: RequestWithUser,
+  ) {
+    return this.customersService.createAddressCustomer(dto, req.user.userId);
+  }
+
+  @Put('addresses-admin/:id')
+  async updateAddressAdmin(
+    @Param('id') id: string,
+    @Body() dto: CreateCustomerAddressDto,
+    @Req() req: RequestWithUser,
+  ) {
+    return this.customersService.updateAddressCustomer(id, dto, req.user.userId);
+  }
+
   @Public()
   @UseGuards(JwtCustomerAuthGuard)
   @Get('addresses')
