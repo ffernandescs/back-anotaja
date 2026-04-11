@@ -249,6 +249,9 @@ async function seed() {
     // 📊 DESEMPENHO - Subfeatures das features de desempenho
     ['customers', 'Clientes', 'performance_reports', '/admin/performance/clientes', 1],
     ['sales_analysis', 'Vendas', 'performance_reports', '/admin/performance/vendas', 2],
+
+    // 👥 CLIENTES - Subfeatures das features de clientes
+    ['list', 'Listagem', 'customers', '/admin/customers', 1],
   ];
 
   for (const [key, name, parentKey, href, displayOrder] of subFeatures) {

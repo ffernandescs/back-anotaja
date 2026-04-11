@@ -71,4 +71,24 @@ export class CouponsController {
   ) {
     return this.couponsService.validateCouponForStore(data);
   }
+
+  @Post('validate-admin')
+  @UseGuards(JwtAuthGuard)
+  validateForAdmin(
+    @Body() data: {
+      code: string;
+      customerId?: string;
+      deliveryType?: string;
+      paymentMethodId?: string;
+      productIds?: string[];
+      subtotal: number;
+    },
+    @Request() req?: any,
+  ) {
+    const branchId = req?.user?.branchId;
+    return this.couponsService.validateCouponForStore({
+      ...data,
+      branchId,
+    });
+  }
 }
