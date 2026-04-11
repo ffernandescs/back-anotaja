@@ -97,18 +97,17 @@ export class OrderPaymentDto {
   @IsNotEmpty()
   paymentMethodId!: string;
 
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  amount?: number;
+  @IsNumber()
+  @Min(0, { message: 'O valor do pagamento deve ser maior ou igual a zero' })
+  amount!: number;
 
   @IsOptional()
-  @IsInt()
+  @IsNumber()
   @Min(0)
   amountGiven?: number;
 
   @IsOptional()
-  @IsInt()
+  @IsNumber()
   @Min(0)
   change?: number;
 }

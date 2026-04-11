@@ -890,34 +890,11 @@ export class StoreService {
   }
 
   /**
-   * Criar pedido na loja (checkout)
+   * Validar se a loja está aberta
    */
-  /**
-   * Criar pedido na loja (checkout)
-   */
-
-  /**
-   * Criar pedido na loja (checkout)
-   */
-async createOrder(
-    createOrderDto: CreateStoreOrderDto,
-    subdomain?: string,
-    branchId?: string,
-    isPdv?:boolean
-  ) {
-    // ---------------------------------------------------------------
-    // 1. Obter branch
-    // ---------------------------------------------------------------
-    const branch = await this.getBranch(subdomain, branchId);
-    if (!branch) {
-      throw new NotFoundException('Loja não encontrada');
-    }
-
-    // ---------------------------------------------------------------
-    // 2. Validar horário de funcionamento
-    // ---------------------------------------------------------------
+  private async validateStoreOpen(branchId: string): Promise<void> {
     const openingHours = await prisma.branchSchedule.findMany({
-      where: { branchId: branch.id },
+      where: { branchId },
     });
 
     if (openingHours.length > 0) {
@@ -953,38 +930,29 @@ async createOrder(
         }
       }
     }
+  }
 
-    // ---------------------------------------------------------------
-    // 3. Validar assinatura + limite de pedidos
-    // ---------------------------------------------------------------
-    const { limits } = await this.validateSubscription(branch.companyId);
-    await this.validateOrderLimit(branch.companyId, limits);
-
-    // ---------------------------------------------------------------
-    // 4. Destructure DTO
-    // ---------------------------------------------------------------
-    const {
-      deliveryType,
-      customerId,
-      customerPhone,
-      couponId,
-      items,
-      addressId,
-      payments,
-      change,
-    } = createOrderDto;
-
-    // ---------------------------------------------------------------
-    // 5. Validar cliente (uma única query)
-    // ---------------------------------------------------------------
+  /**
+   * Validar cliente
+   */
+  private async validateCustomer(
+    customerId?: string,
+    customerPhone?: string,
+    branchId?: string,
+  ): Promise<Customer> {
     let customer: Customer | null = null;
 
     if (customerId) {
       customer = await prisma.customer.findUnique({ where: { id: customerId } });
       if (!customer) throw new NotFoundException('Cliente não encontrado');
-    } else if (customerPhone) {
+      
+      // Validar se cliente pertence à mesma branch
+      if (branchId && customer.branchId !== branchId) {
+        throw new BadRequestException('Cliente não pertence a esta filial');
+      }
+    } else if (customerPhone && branchId) {
       customer = await prisma.customer.findFirst({
-        where: { phone: customerPhone, branchId: branch.id },
+        where: { phone: customerPhone, branchId },
       });
       if (!customer)
         throw new BadRequestException(
@@ -996,10 +964,17 @@ async createOrder(
       );
     }
 
-    // ---------------------------------------------------------------
-    // 6. BATCH: buscar todos os produtos de uma vez
-    // ---------------------------------------------------------------
-    const productIds = items.map((i) => i.productId);
+    return customer;
+  }
+
+  /**
+   * Validar produtos e complementos (pertencem à mesma branch)
+   */
+  private async validateProductsAndComplements(
+    items: any[],
+    branchId: string,
+  ): Promise<{ productMap: Map<string, any>; optionMap: Map<string, any> }> {
+    const productIds = items.map((i) => i.productId).filter((id): id is string => id !== undefined);
 
     const products = await prisma.product.findMany({
       where: { id: { in: productIds } },
@@ -1010,15 +985,22 @@ async createOrder(
 
     const productMap = new Map(products.map((p) => [p.id, p]));
 
-    // ---------------------------------------------------------------
-    // 7. BATCH: buscar todas as opções de complemento referenciadas
-    // ---------------------------------------------------------------
+    // Validar se produtos pertencem à mesma branch
+    for (const product of products) {
+      if (product.branchId !== branchId) {
+        throw new BadRequestException(`Produto "${product.name}" não pertence a esta filial`);
+      }
+    }
+
+    // Buscar opções de complemento
     const allOptionIds: string[] = [];
     for (const item of items) {
       if (item.complements) {
         for (const comp of item.complements) {
           for (const opt of comp.options) {
-            allOptionIds.push(opt.optionId);
+            if (opt.optionId) {
+              allOptionIds.push(opt.optionId);
+            }
           }
         }
       }
@@ -1032,9 +1014,24 @@ async createOrder(
 
     const optionMap = new Map(complementOptions.map((o) => [o.id, o]));
 
-    // ---------------------------------------------------------------
-    // 8. Calcular subtotal usando os mapas (sem queries extras)
-    // ---------------------------------------------------------------
+    // Validar se opções pertencem à mesma branch
+    for (const option of complementOptions) {
+      if (option.branchId !== branchId) {
+        throw new BadRequestException(`Opção "${option.name}" não pertence a esta filial`);
+      }
+    }
+
+    return { productMap, optionMap };
+  }
+
+  /**
+   * Calcular subtotal dos itens
+   */
+  private calculateSubtotal(
+    items: any[],
+    productMap: Map<string, any>,
+    optionMap: Map<string, any>,
+  ): { subtotal: number; itemsData: any[] } {
     let subtotal = 0;
 
     const itemsData = items.map((item) => {
@@ -1065,113 +1062,77 @@ async createOrder(
       };
     });
 
-    // ---------------------------------------------------------------
-    // 9. Calcular delivery fee (envolve geocoding — fora da transação)
-    // ---------------------------------------------------------------
-    let deliveryFee = 0;
-    let estimatedTime: number | null = null;
+    return { subtotal, itemsData };
+  }
 
-    if (deliveryType === DeliveryTypeDto.DELIVERY) {
-      if (!addressId) {
-        throw new BadRequestException(
-          'Endereço completo é obrigatório para delivery',
-        );
-      }
-      
-      const customerAddress = await prisma.customerAddress.findUnique({
-        where: { id: addressId },
-      });
-      if (!customerAddress)
-        throw new BadRequestException(
-          'Endereço completo é obrigatório para delivery',
-        );
-
-      const feeResult = await this.calculateDeliveryFee(
-        {
-          address: customerAddress.street,
-          city: customerAddress.city,
-          state: customerAddress.state,
-          zipCode: customerAddress.zipCode,
-          lat: customerAddress?.lat || undefined,
-          lng: customerAddress?.lng || undefined,
-          subtotal,
-        },
-        subdomain,
-        branchId,
-      );
-
-      if (!feeResult.available)
-        throw new BadRequestException(
-          feeResult.message || 'Delivery não disponível para este endereço',
-        );
-
-      deliveryFee = feeResult.deliveryFee;
-      estimatedTime = feeResult.estimatedTime || null;
-    }
-
-    // ---------------------------------------------------------------
-    // 10. Taxa de serviço (configurável por branch)
-    // ---------------------------------------------------------------
-    let serviceFee = 0;
-    if (deliveryType === DeliveryTypeDto.DINE_IN) {
-      // Buscar configuração da branch
-      const generalConfig = await prisma.generalConfig.findUnique({
-        where: { branchId: branch.id },
-      });
-      
-      // Aplicar taxa de serviço se estiver habilitada
-      if (generalConfig?.enableServiceFee) {
-        const percentage = generalConfig.serviceFeePercentage || 10;
-        serviceFee = Math.round((subtotal * percentage) / 100);
-      }
-    }
-
-    // ---------------------------------------------------------------
-    // 11. Aplicar cupom (busca única, sem query dentro da transação)
-    // ---------------------------------------------------------------
+  /**
+   * Validar e aplicar cupom
+   */
+  private async validateAndApplyCoupon(
+    couponId: string | undefined,
+    branchId: string,
+    customerId: string,
+    subtotal: number,
+    manualDiscount?: number,
+  ): Promise<{ discount: number; appliedCouponId: string | null }> {
     let discount = 0;
     let appliedCouponId: string | null = null;
 
     // Se discount foi fornecido manualmente, usar esse valor
-    if (createOrderDto.discount !== undefined) {
-      discount = createOrderDto.discount;
+    if (manualDiscount !== undefined) {
+      discount = manualDiscount;
     } else if (couponId) {
-      // Caso contrário, calcular do cupom
       const coupon = await prisma.coupon.findFirst({
         where: {
           id: couponId,
-          branchId: branch.id,
+          branchId: branchId,
           active: true,
           validFrom: { lte: new Date() },
           validUntil: { gte: new Date() },
         },
       });
 
-      if (coupon) {
-        if (coupon.maxUses && coupon.usedCount >= coupon.maxUses)
-          throw new BadRequestException('Cupom esgotado');
-        if (coupon.minValue && subtotal < coupon.minValue)
-          throw new BadRequestException(
-            `Valor mínimo do pedido não atingido: ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(coupon.minValue)}`,
-          );
-
-        discount =
-          coupon.type === 'PERCENTAGE'
-            ? Math.round((subtotal * coupon.value) / 100)
-            : coupon.value;
-        appliedCouponId = coupon.id;
-        // coupon.update vai para dentro da transação
+      if (!coupon) {
+        throw new BadRequestException('Cupom inválido ou expirado');
       }
+
+      // Validar se cupom pode ser usado pelo mesmo cliente
+      if (!coupon.allowMultipleUsesPerCustomer) {
+        const existingOrder = await prisma.order.findFirst({
+          where: {
+            couponId: coupon.id,
+            customerId,
+          },
+        });
+        if (existingOrder) {
+          throw new BadRequestException('Este cupom já foi utilizado por este cliente');
+        }
+      }
+
+      if (coupon.maxUses && coupon.usedCount >= coupon.maxUses)
+        throw new BadRequestException('Cupom esgotado');
+      if (coupon.minValue && subtotal < coupon.minValue)
+        throw new BadRequestException(
+          `Valor mínimo do pedido não atingido: ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(coupon.minValue)}`,
+        );
+
+      discount =
+        coupon.type === 'PERCENTAGE'
+          ? Math.round((subtotal * coupon.value) / 100)
+          : coupon.value;
+      appliedCouponId = coupon.id;
     }
 
-    // ---------------------------------------------------------------
-    // 12. Calcular total
-    // ---------------------------------------------------------------
-    const total = subtotal + deliveryFee + serviceFee - discount;
+    return { discount, appliedCouponId };
+  }
 
-    // ---------------------------------------------------------------
-    // 13. BATCH: validar métodos de pagamento
-    // ---------------------------------------------------------------
+  /**
+   * Validar métodos de pagamento
+   */
+  private async validatePaymentMethods(
+    payments: any[],
+    branchId: string,
+  ): Promise<void> {
     if (!payments?.length)
       throw new BadRequestException(
         'Ao menos uma forma de pagamento é obrigatória',
@@ -1180,7 +1141,7 @@ async createOrder(
     const paymentMethodIds = payments.map((p) => p.paymentMethodId);
 
     const branchPaymentMethods = await prisma.branchPaymentMethod.findMany({
-      where: { id: { in: paymentMethodIds }, branchId: branch.id },
+      where: { id: { in: paymentMethodIds }, branchId },
       include: { paymentMethod: true },
     });
 
@@ -1195,47 +1156,22 @@ async createOrder(
           'Método de pagamento inválido ou inativo',
         );
     }
+  }
 
-    // ---------------------------------------------------------------
-    // 14. PRÉ-CALCULAR dados de stock movements (sem queries na transação)
-    // ---------------------------------------------------------------
-    const productQuantities = new Map<string, number>();
-    const optionQuantities = new Map<string, number>();
-
-    for (const item of itemsData) {
-      productQuantities.set(
-        item.productId,
-        (productQuantities.get(item.productId) || 0) + item.quantity,
-      );
-
-      if (item.complements) {
-        for (const comp of item.complements) {
-          for (const opt of comp.options) {
-            optionQuantities.set(
-              opt.optionId,
-              (optionQuantities.get(opt.optionId) || 0) + (opt.quantity || 1),
-            );
-          }
-        }
-      }
-    }
-
-    // Insumos da ficha técnica — batch antes da transação
-    const productIngredients = await prisma.productIngredient.findMany({
-      where: { productId: { in: Array.from(productQuantities.keys()) } },
-    });
-
-    const ingredientQuantities = new Map<string, number>();
-    for (const pi of productIngredients) {
-      const productQty = productQuantities.get(pi.productId) || 0;
-      ingredientQuantities.set(
-        pi.ingredientId,
-        (ingredientQuantities.get(pi.ingredientId) || 0) +
-          pi.quantity * productQty,
-      );
-    }
-
-    // BuscarProducts / Options / Ingredients para filtrar stockControlEnabled
+  /**
+   * Validar estoque disponível
+   */
+  private async validateStock(
+    branchId: string,
+    productQuantities: Map<string, number>,
+    optionQuantities: Map<string, number>,
+    ingredientQuantities: Map<string, number>,
+  ): Promise<{
+    stockProducts: any[];
+    stockOptions: any[];
+    stockIngredients: any[];
+  }> {
+    // Buscar produtos, opções e ingredientes com stockControlEnabled
     const [stockProducts, stockOptions, stockIngredients] = await Promise.all([
       productQuantities.size
         ? prisma.product.findMany({
@@ -1257,12 +1193,10 @@ async createOrder(
         : [],
     ]);
 
-    // ---------------------------------------------------------------
-    // Validar estoque disponível antes de criar o pedido
-    // ---------------------------------------------------------------
+    // Buscar movimentações de estoque atuais
     const productStockMovements = await prisma.stockMovement.findMany({
       where: {
-        branchId: branch.id,
+        branchId,
         OR: [
           { productId: { in: Array.from(productQuantities.keys()) } },
           { optionId: { in: Array.from(optionQuantities.keys()) } },
@@ -1319,8 +1253,239 @@ async createOrder(
       }
     }
 
+    return { stockProducts, stockOptions, stockIngredients };
+  }
+
+  /**
+   * Calcular quantidades de produtos, opções e ingredientes
+   */
+  private calculateQuantities(
+    itemsData: any[],
+  ): {
+    productQuantities: Map<string, number>;
+    optionQuantities: Map<string, number>;
+    ingredientQuantities: Map<string, number>;
+  } {
+    const productQuantities = new Map<string, number>();
+    const optionQuantities = new Map<string, number>();
+    const ingredientQuantities = new Map<string, number>();
+
+    for (const item of itemsData) {
+      productQuantities.set(
+        item.productId,
+        (productQuantities.get(item.productId) || 0) + item.quantity,
+      );
+
+      if (item.complements) {
+        for (const comp of item.complements) {
+          for (const opt of comp.options) {
+            optionQuantities.set(
+              opt.optionId,
+              (optionQuantities.get(opt.optionId) || 0) + (opt.quantity || 1),
+            );
+          }
+        }
+      }
+    }
+
+    return { productQuantities, optionQuantities, ingredientQuantities };
+  }
+
+  /**
+   * Calcular todos os valores do pedido (subtotal, delivery fee, service fee, discount, total)
+   */
+  private async calculateOrderValues(
+    branchId: string,
+    deliveryType: DeliveryTypeDto,
+    addressId: string | undefined,
+    subtotal: number,
+    subdomain?: string,
+    branchIdParam?: string,
+  ): Promise<{
+    deliveryFee: number;
+    serviceFee: number;
+    estimatedTime: number | null;
+  }> {
+    let deliveryFee = 0;
+    let serviceFee = 0;
+    let estimatedTime: number | null = null;
+
+    // Calcular delivery fee
+    if (deliveryType === DeliveryTypeDto.DELIVERY) {
+      if (!addressId) {
+        throw new BadRequestException(
+          'Endereço completo é obrigatório para delivery',
+        );
+      }
+      
+      const customerAddress = await prisma.customerAddress.findUnique({
+        where: { id: addressId },
+      });
+      if (!customerAddress)
+        throw new BadRequestException(
+          'Endereço completo é obrigatório para delivery',
+        );
+
+      const feeResult = await this.calculateDeliveryFee(
+        {
+          address: customerAddress.street,
+          city: customerAddress.city,
+          state: customerAddress.state,
+          zipCode: customerAddress.zipCode,
+          lat: customerAddress?.lat || undefined,
+          lng: customerAddress?.lng || undefined,
+          subtotal,
+        },
+        subdomain,
+        branchIdParam,
+      );
+
+      if (!feeResult.available)
+        throw new BadRequestException(
+          feeResult.message || 'Delivery não disponível para este endereço',
+        );
+
+      deliveryFee = feeResult.deliveryFee;
+      estimatedTime = feeResult.estimatedTime || null;
+    }
+
+    // Calcular taxa de serviço
+    if (deliveryType === DeliveryTypeDto.DINE_IN) {
+      const generalConfig = await prisma.generalConfig.findUnique({
+        where: { branchId },
+      });
+      
+      if (generalConfig?.enableServiceFee) {
+        const percentage = generalConfig.serviceFeePercentage || 10;
+        serviceFee = Math.round((subtotal * percentage) / 100);
+      }
+    }
+
+    return { deliveryFee, serviceFee, estimatedTime };
+  }
+
+  /**
+   * Criar pedido na loja (checkout)
+   */
+async createOrder(
+    createOrderDto: CreateStoreOrderDto,
+    subdomain?: string,
+    branchId?: string,
+    isPdv?:boolean
+  ) {
     // ---------------------------------------------------------------
-    // 15. TRANSAÇÃO — apenas escritas aqui dentro
+    // 1. Obter branch
+    // ---------------------------------------------------------------
+    const branch = await this.getBranch(subdomain, branchId);
+    if (!branch) {
+      throw new NotFoundException('Loja não encontrada');
+    }
+
+    // ---------------------------------------------------------------
+    // 2. Validar horário de funcionamento
+    // ---------------------------------------------------------------
+    await this.validateStoreOpen(branch.id);
+
+    // ---------------------------------------------------------------
+    // 3. Validar assinatura + limite de pedidos
+    // ---------------------------------------------------------------
+    const { limits } = await this.validateSubscription(branch.companyId);
+    await this.validateOrderLimit(branch.companyId, limits);
+
+    // ---------------------------------------------------------------
+    // 4. Destructure DTO
+    // ---------------------------------------------------------------
+    const {
+      deliveryType,
+      customerId,
+      customerPhone,
+      couponId,
+      items,
+      addressId,
+      payments,
+      change,
+    } = createOrderDto;
+
+    // ---------------------------------------------------------------
+    // 5. Validar cliente
+    // ---------------------------------------------------------------
+    const customer = await this.validateCustomer(customerId, customerPhone, branch.id);
+
+    // ---------------------------------------------------------------
+    // 6. Validar produtos e complementos
+    // ---------------------------------------------------------------
+    const { productMap, optionMap } = await this.validateProductsAndComplements(items, branch.id);
+
+    // ---------------------------------------------------------------
+    // 7. Calcular subtotal
+    // ---------------------------------------------------------------
+    const { subtotal, itemsData } = this.calculateSubtotal(items, productMap, optionMap);
+
+    // ---------------------------------------------------------------
+    // 8. Calcular delivery fee e taxa de serviço
+    // ---------------------------------------------------------------
+    const { deliveryFee, serviceFee, estimatedTime } = await this.calculateOrderValues(
+      branch.id,
+      deliveryType,
+      addressId,
+      subtotal,
+      subdomain,
+      branchId,
+    );
+
+    // ---------------------------------------------------------------
+    // 9. Aplicar cupom
+    // ---------------------------------------------------------------
+    const { discount, appliedCouponId } = await this.validateAndApplyCoupon(
+      couponId,
+      branch.id,
+      customer.id,
+      subtotal,
+      createOrderDto.discount,
+    );
+
+    // ---------------------------------------------------------------
+    // 10. Calcular total
+    // ---------------------------------------------------------------
+    const total = subtotal + deliveryFee + serviceFee - discount;
+
+    // ---------------------------------------------------------------
+    // 11. Validar métodos de pagamento
+    // ---------------------------------------------------------------
+    await this.validatePaymentMethods(payments, branch.id);
+
+    // ---------------------------------------------------------------
+    // 12. Calcular quantidades para validação de estoque
+    // ---------------------------------------------------------------
+    const { productQuantities, optionQuantities } = this.calculateQuantities(itemsData);
+
+    // Insumos da ficha técnica — batch antes da transação
+    const productIngredients = await prisma.productIngredient.findMany({
+      where: { productId: { in: Array.from(productQuantities.keys()) } },
+    });
+
+    const ingredientQuantities = new Map<string, number>();
+    for (const pi of productIngredients) {
+      const productQty = productQuantities.get(pi.productId) || 0;
+      ingredientQuantities.set(
+        pi.ingredientId,
+        (ingredientQuantities.get(pi.ingredientId) || 0) +
+          pi.quantity * productQty,
+      );
+    }
+
+    // ---------------------------------------------------------------
+    // 13. Validar estoque disponível
+    // ---------------------------------------------------------------
+    const { stockProducts, stockOptions, stockIngredients } = await this.validateStock(
+      branch.id,
+      productQuantities,
+      optionQuantities,
+      ingredientQuantities,
+    );
+
+    // ---------------------------------------------------------------
+    // 14. TRANSAÇÃO — apenas escritas aqui dentro
     //     timeout elevado para 15 s como safety-net
     // ---------------------------------------------------------------
     // Retry para colisão de orderNumber em alta concorrência
@@ -1377,7 +1542,7 @@ async createOrder(
                 },
                 payments: {
                   create: payments.map((p) => {
-                    const amount = p.amount || 0;
+                    const amount = p.amount;
                     const amountGiven = p.amountGiven || (p.type === PaymentTypeDto.CASH ? amount : null);
                     const calculatedChange = p.type === PaymentTypeDto.CASH && amountGiven && amountGiven > amount ? amountGiven - amount : 0;
 
@@ -3031,10 +3196,132 @@ async createOrder(
       };
     }
 
-    // Se tiver items, usar a lógica completa do createOrder
-    // Deletar itens e pagamentos do pedido antigo, depois atualizar com novos dados calculados
+    // Se tiver items, usar a lógica completa de validação sem criar pedido temporário
+    const {
+      deliveryType,
+      customerId,
+      customerPhone,
+      couponId,
+      items,
+      addressId,
+      payments,
+    } = updateOrderDto;
 
-    await prisma.$transaction(async (tx) => {
+    // Obter branch do pedido existente
+    const branch = await this.getBranch(subdomain, existingOrder.branchId);
+    if (!branch) {
+      throw new NotFoundException('Loja não encontrada');
+    }
+
+    // Validar horário de funcionamento
+    await this.validateStoreOpen(branch.id);
+
+    // Validar assinatura + limite de pedidos
+    const { limits } = await this.validateSubscription(branch.companyId);
+    await this.validateOrderLimit(branch.companyId, limits);
+
+    // Validar cliente
+    const customer = await this.validateCustomer(customerId, customerPhone, branch.id);
+
+    // Validar produtos e complementos
+    const { productMap, optionMap } = await this.validateProductsAndComplements(items, branch.id);
+
+    // Calcular subtotal
+    const { subtotal, itemsData } = this.calculateSubtotal(items, productMap, optionMap);
+
+    // Calcular delivery fee e taxa de serviço
+    const { deliveryFee, serviceFee, estimatedTime } = await this.calculateOrderValues(
+      branch.id,
+      deliveryType,
+      addressId,
+      subtotal,
+      subdomain,
+      branchId,
+    );
+
+    // Aplicar cupom (se diferente do original, precisa validar novamente)
+    let discount = 0;
+    let appliedCouponId: string | null = null;
+    
+    if (couponId !== existingOrder.couponId) {
+      const couponResult = await this.validateAndApplyCoupon(
+        couponId,
+        branch.id,
+        customer.id,
+        subtotal,
+        updateOrderDto.discount,
+      );
+      discount = couponResult.discount;
+      appliedCouponId = couponResult.appliedCouponId;
+    } else {
+      // Manter o cupom original se não mudou
+      discount = existingOrder.discount;
+      appliedCouponId = existingOrder.couponId;
+    }
+
+    // Calcular total
+    const total = subtotal + deliveryFee + serviceFee - discount;
+
+    // Validar métodos de pagamento
+    await this.validatePaymentMethods(payments, branch.id);
+
+    // Calcular quantidades para validação de estoque
+    const { productQuantities, optionQuantities } = this.calculateQuantities(itemsData);
+
+    // Insumos da ficha técnica
+    const productIngredients = await prisma.productIngredient.findMany({
+      where: { productId: { in: Array.from(productQuantities.keys()) } },
+    });
+
+    const ingredientQuantities = new Map<string, number>();
+    for (const pi of productIngredients) {
+      const productQty = productQuantities.get(pi.productId) || 0;
+      ingredientQuantities.set(
+        pi.ingredientId,
+        (ingredientQuantities.get(pi.ingredientId) || 0) +
+          pi.quantity * productQty,
+      );
+    }
+
+    // Validar estoque disponível
+    const { stockProducts, stockOptions, stockIngredients } = await this.validateStock(
+      branch.id,
+      productQuantities,
+      optionQuantities,
+      ingredientQuantities,
+    );
+
+    // Buscar itens antigos para ajustar estoque (devolver estoque do pedido antigo)
+    const oldItems = await prisma.orderItem.findMany({
+      where: { orderId },
+      include: {
+        complements: { include: { options: true } },
+      },
+    });
+
+    const oldProductQuantities = new Map<string, number>();
+    const oldOptionQuantities = new Map<string, number>();
+
+    for (const item of oldItems) {
+      oldProductQuantities.set(
+        item.productId,
+        (oldProductQuantities.get(item.productId) || 0) + item.quantity,
+      );
+
+      if (item.complements) {
+        for (const comp of item.complements) {
+          for (const opt of comp.options) {
+            oldOptionQuantities.set(
+              opt.optionId,
+              (oldOptionQuantities.get(opt.optionId) || 0) + opt.quantity,
+            );
+          }
+        }
+      }
+    }
+
+    // Atualizar pedido em transação
+    const updatedOrder = await prisma.$transaction(async (tx) => {
       // Deletar itens do pedido antigo
       await tx.orderItem.deleteMany({
         where: { orderId },
@@ -3044,52 +3331,113 @@ async createOrder(
       await tx.orderPayment.deleteMany({
         where: { orderId },
       });
-    });
 
-    // Criar novo pedido temporário para obter os valores calculados
-    const tempOrder = await this.createOrder(updateOrderDto, subdomain, branchId, true);
+      // Devolver estoque do pedido antigo
+      const stockReturnMovements: Prisma.PrismaPromise<StockMovement>[] = [];
+      
+      const [oldStockProducts, oldStockOptions] = await Promise.all([
+        oldProductQuantities.size
+          ? prisma.product.findMany({
+              where: { id: { in: Array.from(oldProductQuantities.keys()) } },
+              select: { id: true, name: true, stockControlEnabled: true },
+            })
+          : [],
+        oldOptionQuantities.size
+          ? prisma.complementOption.findMany({
+              where: { id: { in: Array.from(oldOptionQuantities.keys()) } },
+              select: { id: true, name: true, stockControlEnabled: true },
+            })
+          : [],
+      ]);
 
-    // Deletar o pedido temporário
-    await prisma.order.delete({
-      where: { id: tempOrder.order.id },
-    });
+      for (const product of oldStockProducts) {
+        if (!product.stockControlEnabled) continue;
+        const qty = oldProductQuantities.get(product.id) || 0;
+        if (qty <= 0) continue;
 
-    // Atualizar o pedido original com os valores calculados
-    const updatedOrder = await prisma.$transaction(async (tx) => {
-      // Criar itens do pedido
-      for (const item of tempOrder.order.items) {
+        stockReturnMovements.push(
+          tx.stockMovement.create({
+            data: {
+              type: 'ENTRY',
+              quantity: qty,
+              variation: qty,
+              description: `Devolução de estoque (atualização pedido) - Pedido #${existingOrder.orderNumber} - ${product.name}`,
+              productId: product.id,
+              branchId: branch.id,
+            },
+          }),
+        );
+      }
+
+      for (const option of oldStockOptions) {
+        if (!option.stockControlEnabled) continue;
+        const qty = oldOptionQuantities.get(option.id) || 0;
+        if (qty <= 0) continue;
+
+        stockReturnMovements.push(
+          tx.stockMovement.create({
+            data: {
+              type: 'ENTRY',
+              quantity: qty,
+              variation: qty,
+              description: `Devolução de estoque opção (atualização pedido) - Pedido #${existingOrder.orderNumber} - ${option.name}`,
+              optionId: option.id,
+              branchId: branch.id,
+            },
+          }),
+        );
+      }
+
+      if (stockReturnMovements.length > 0) {
+        await Promise.all(stockReturnMovements);
+      }
+
+      // Atualizar o pedido com os novos valores
+      const order = await tx.order.update({
+        where: { id: orderId },
+        data: {
+          deliveryType,
+          customerId: customer.id,
+          couponId: appliedCouponId,
+          customerAddressId: addressId,
+          total,
+          subtotal,
+          deliveryFee,
+          serviceFee,
+          discount,
+          estimatedTime,
+        },
+      });
+
+      // Criar novos itens
+      for (const item of itemsData) {
         await tx.orderItem.create({
           data: {
             orderId,
-            productId: (item as any).product?.id || (item as any).productId,
+            productId: item.productId,
             quantity: item.quantity,
             price: item.price,
             notes: item.notes,
-            additions: {
-              create: (item as any).additions?.map((a: any) => ({ additionId: a })) || [],
-            },
-            complements: {
-              create: item.complements
-                ?.filter((comp: any) => comp.complement?.id)
-                .map((comp: any) => ({
-                  complementId: comp.complement.id,
-                  options: {
-                    create: comp.options
-                      ?.filter((opt: any) => opt.option?.id)
-                      .map((opt: any) => ({
-                        optionId: opt.option.id,
+            complements: item.complements?.length
+              ? {
+                  create: item.complements.map((comp) => ({
+                    complementId: comp.complementId,
+                    options: {
+                      create: comp.options.map((opt) => ({
+                        optionId: opt.optionId,
                         quantity: opt.quantity || 1,
-                      })) || [],
-                  },
-                })) || [],
-            },
+                      })),
+                    },
+                  })),
+                }
+              : undefined,
           },
         });
       }
 
-      // Criar pagamentos do pedido usando o DTO original
-      for (const payment of updateOrderDto.payments) {
-        const amount = payment.amount || 0;
+      // Criar novos pagamentos
+      for (const payment of payments) {
+        const amount = payment.amount;
         const amountGiven = payment.amountGiven || (payment.type === PaymentTypeDto.CASH ? amount : null);
         const calculatedChange = payment.type === PaymentTypeDto.CASH && amountGiven && amountGiven > amount ? amountGiven - amount : 0;
 
@@ -3106,23 +3454,81 @@ async createOrder(
         });
       }
 
-      // Atualizar o pedido com os valores calculados
-      const order = await tx.order.update({
+      // Atualizar contador do cupom se mudou
+      if (appliedCouponId && appliedCouponId !== existingOrder.couponId) {
+        await tx.coupon.update({
+          where: { id: appliedCouponId },
+          data: { usedCount: { increment: 1 } },
+        });
+      }
+
+      // Deduzir estoque do novo pedido
+      const stockMovements: Prisma.PrismaPromise<StockMovement>[] = [];
+
+      for (const product of stockProducts) {
+        if (!product.stockControlEnabled) continue;
+        const qty = productQuantities.get(product.id) || 0;
+        if (qty <= 0) continue;
+
+        stockMovements.push(
+          tx.stockMovement.create({
+            data: {
+              type: 'EXIT',
+              quantity: qty,
+              variation: -qty,
+              description: `Venda de produto (atualização pedido) - Pedido #${existingOrder.orderNumber} - ${product.name}`,
+              productId: product.id,
+              branchId: branch.id,
+            },
+          }),
+        );
+      }
+
+      for (const option of stockOptions) {
+        if (!option.stockControlEnabled) continue;
+        const qty = optionQuantities.get(option.id) || 0;
+        if (qty <= 0) continue;
+
+        stockMovements.push(
+          tx.stockMovement.create({
+            data: {
+              type: 'EXIT',
+              quantity: qty,
+              variation: -qty,
+              description: `Consumo de opção (atualização pedido) - Pedido #${existingOrder.orderNumber} - ${option.name}`,
+              optionId: option.id,
+              branchId: branch.id,
+            },
+          }),
+        );
+      }
+
+      for (const ingredient of stockIngredients) {
+        if (!ingredient.stockControlEnabled) continue;
+        const qty = ingredientQuantities.get(ingredient.id) || 0;
+        if (qty <= 0) continue;
+
+        stockMovements.push(
+          tx.stockMovement.create({
+            data: {
+              type: 'EXIT',
+              quantity: qty,
+              variation: -qty,
+              description: `Consumo de insumo (atualização pedido) - Pedido #${existingOrder.orderNumber} - ${ingredient.name}`,
+              ingredientId: ingredient.id,
+              branchId: branch.id,
+            },
+          }),
+        );
+      }
+
+      if (stockMovements.length > 0) {
+        await Promise.all(stockMovements);
+      }
+
+      // Buscar pedido completo para retorno
+      const fullOrder = await tx.order.findUnique({
         where: { id: orderId },
-        data: {
-          deliveryType: tempOrder.order.deliveryType,
-          customerId: (tempOrder.order.customer as any)?.id,
-          couponId: (tempOrder.order.coupon as any)?.id,
-          customerAddressId: updateOrderDto.addressId,
-          status: tempOrder.order.status,
-          total: tempOrder.order.total,
-          subtotal: tempOrder.order.subtotal,
-          deliveryFee: tempOrder.order.deliveryFee,
-          serviceFee: tempOrder.order.serviceFee,
-          discount: tempOrder.order.discount,
-          notes: (tempOrder.order as any).notes,
-          orderNumber: tempOrder.order.orderNumber,
-        },
         include: {
           branch: {
             select: {
@@ -3140,10 +3546,10 @@ async createOrder(
               },
               complements: {
                 include: {
-                  complement:true,
+                  complement: true,
                   options: {
                     include: {
-                      option:true,
+                      option: true,
                     }
                   },
                 },
@@ -3160,15 +3566,11 @@ async createOrder(
 
       // 🔔 WebSocket
       this.webSocketGateway.emitOrderUpdate(
-        {
-          id: order.id,
-          status: order.status,
-          branchId: order.branchId,
-        },
+        { ...order, fromPDV: true },
         'order:updated',
       );
 
-      return order;
+      return fullOrder;
     });
 
     return {

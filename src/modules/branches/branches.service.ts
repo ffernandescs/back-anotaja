@@ -671,7 +671,8 @@ export class BranchesService {
               name: true,
             },
           },
-          address: true
+          address: true,
+          generalConfig: true,
         },
       });
     });
