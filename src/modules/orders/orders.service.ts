@@ -234,16 +234,17 @@ export class OrdersService {
       orderBy.createdAt = query.sortOrder || 'desc';
     }
 
-    // Paginação
+    // Paginação — se limit não for informado, retorna todos os registros sem paginação
+    const hasLimit = query.limit !== undefined;
     const page = query.page || 1;
-    const limit = Math.min(query.limit || 20, 100);
-    const skip = (page - 1) * limit;
+    const limit = hasLimit ? query.limit! : undefined;
+    const skip = hasLimit ? (page - 1) * limit! : undefined;
 
     const total = await prisma.order.count({ where });
     const data = await prisma.order.findMany({
       where,
-      skip,
-      take: limit,
+      ...(skip !== undefined && { skip }),
+      ...(limit !== undefined && { take: limit }),
       orderBy,
       include: {
         branch: { select: { id: true, branchName: true, address: true } },
@@ -304,7 +305,7 @@ export class OrdersService {
       couponType: order.coupon?.type as 'PERCENTAGE' | 'FIXED' | 'FREE_DELIVERY' | undefined,
     }));
 
-    return new PaginatedResponseDto(dataWithCouponType, total, page, limit);
+    return new PaginatedResponseDto(dataWithCouponType, total, page, limit ?? total);
   }
 
   async findOne(id: string, userId: string) {
@@ -1358,9 +1359,97 @@ export class OrdersService {
     const statuses: OrderStatus[] = ['PENDING', 'CONFIRMED', 'PREPARING', 'READY', 'DELIVERING', 'DELIVERED'];
     const paymentStatuses = ['PENDING', 'PAID'];
 
-    // Gerar pedidos aleatórios em lotes de 50 para evitar timeout
+    // ========================================
+    // ANÁLISE DE PEDIDOS EXISTENTES PARA PREENCHER LACUNAS
+    // ========================================
+    const today = new Date();
+    today.setHours(23, 59, 59, 999); // Final do dia de hoje
+
+    // Definir período de análise: últimos 180 dias (6 meses)
+    const startDate = new Date(today);
+    startDate.setDate(startDate.getDate() - 180);
+    startDate.setHours(0, 0, 0, 0);
+
+    // Buscar pedidos existentes no período
+    const existingOrders = await prisma.order.findMany({
+      where: {
+        branchId,
+        createdAt: {
+          gte: startDate,
+          lte: today,
+        },
+      },
+      select: {
+        createdAt: true,
+      },
+    });
+
+    // Agrupar pedidos por dia para identificar lacunas
+    const ordersByDay = new Map<string, number>();
+    const oneDayMs = 24 * 60 * 60 * 1000;
+    
+    // Inicializar todos os dias com 0 pedidos
+    for (let date = new Date(startDate); date <= today; date.setDate(date.getDate() + 1)) {
+      const dateKey = date.toISOString().split('T')[0];
+      ordersByDay.set(dateKey, 0);
+    }
+
+    // Contar pedidos existentes por dia
+    existingOrders.forEach(order => {
+      const dateKey = order.createdAt.toISOString().split('T')[0];
+      ordersByDay.set(dateKey, (ordersByDay.get(dateKey) || 0) + 1);
+    });
+
+    // Calcular média de pedidos por dia
+    const totalDays = ordersByDay.size;
+    const totalExistingOrders = existingOrders.length;
+    const avgOrdersPerDay = totalExistingOrders / totalDays;
+
+    // Criar array de datas com pesos (mais peso para dias com poucos pedidos)
+    const weightedDates: Date[] = [];
+    const daysArray = Array.from(ordersByDay.entries());
+
+    daysArray.forEach(([dateKey, orderCount]) => {
+      const date = new Date(dateKey);
+      
+      // Calcular peso: dias com menos pedidos têm maior peso
+      // Se o dia tem 0 pedidos, peso muito alto
+      // Se tem menos que a média, peso moderado
+      // Se tem mais que a média, peso baixo
+      let weight = 1;
+      if (orderCount === 0) {
+        weight = 10; // Prioridade alta para dias sem pedidos
+      } else if (orderCount < avgOrdersPerDay * 0.5) {
+        weight = 5; // Prioridade média para dias com poucos pedidos
+      } else if (orderCount < avgOrdersPerDay) {
+        weight = 2; // Prioridade baixa para dias abaixo da média
+      } else {
+        weight = 0.5; // Prioridade muito baixa para dias acima da média
+      }
+
+      // Adicionar a data multiple vezes baseado no peso
+      const occurrences = Math.ceil(weight);
+      for (let i = 0; i < occurrences; i++) {
+        weightedDates.push(new Date(date));
+      }
+    });
+
+    // Se não houver datas suficientes (poucos dias no período), usar distribuição uniforme
+    if (weightedDates.length === 0) {
+      for (let date = new Date(startDate); date <= today; date.setDate(date.getDate() + 1)) {
+        weightedDates.push(new Date(date));
+      }
+    }
+
+    // Embaralhar as datas ponderadas
+    weightedDates.sort(() => Math.random() - 0.5);
+
+    // ========================================
+    // GERAR PEDIDOS ALEATÓRIOS
+    // ========================================
     const batchSize = 50;
     const createdOrders: any[] = [];
+    let dateIndex = 0;
 
     for (let batch = 0; batch < Math.ceil(count / batchSize); batch++) {
       const startIdx = batch * batchSize;
@@ -1403,11 +1492,24 @@ export class OrdersService {
             const discount = Math.random() > 0.7 ? Math.floor(Math.random() * 500) : 0; // 30% chance de desconto
             const total = subtotal + deliveryFee + serviceFee - discount;
 
-            // Sortear data do pedido (últimos 90 dias)
-            const daysAgo = Math.floor(Math.random() * 90);
-            const createdAt = new Date();
-            createdAt.setDate(createdAt.getDate() - daysAgo);
-            createdAt.setHours(Math.floor(Math.random() * 24), Math.floor(Math.random() * 60), Math.floor(Math.random() * 60));
+            // Selecionar data ponderada (nunca após hoje)
+            const baseDate = weightedDates[dateIndex % weightedDates.length];
+            const createdAt = new Date(baseDate);
+            
+            // Adicionar hora aleatória
+            createdAt.setHours(
+              Math.floor(Math.random() * 22), // 0-21 (evitar meia-noite)
+              Math.floor(Math.random() * 60),
+              Math.floor(Math.random() * 60),
+              Math.floor(Math.random() * 1000)
+            );
+
+            // Garantir que a data não seja após hoje
+            if (createdAt > today) {
+              createdAt.setTime(today.getTime());
+            }
+
+            dateIndex++;
 
             // Sortear status (80% chance de ser entregue)
             const status = Math.random() > 0.2
@@ -1483,8 +1585,13 @@ export class OrdersService {
     }
 
     return {
-      message: `Gerados ${count} pedidos aleatórios com sucesso`,
+      message: `Gerados ${count} pedidos aleatórios com sucesso (preenchendo lacunas no histórico)`,
       orders: createdOrders.length,
+      analysis: {
+        periodDays: totalDays,
+        existingOrders: totalExistingOrders,
+        avgOrdersPerDay: Math.round(avgOrdersPerDay * 100) / 100,
+      },
     };
   }
 }

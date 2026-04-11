@@ -10,13 +10,12 @@ export class QueryOrdersDto {
   @Min(1)
   page?: number = 1;
 
-  /** Quantidade de itens por página (mínimo: 1, máximo: 100, padrão: 20) */
+  /** Quantidade de itens por página (mínimo: 1). Quando não informado, retorna todos os registros sem paginação. */
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(100)
-  limit?: number = 20;
+  limit?: number;
 
   /** Campo para ordenação (ex: createdAt, total) */
   @IsOptional()

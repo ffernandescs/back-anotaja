@@ -90,7 +90,6 @@ async function seed() {
     'Vendas',
     'Cardápio',
     'Delivery',
-    'Operação',
     'Financeiro',
     'Relatórios',
     'Clientes',
@@ -141,23 +140,17 @@ async function seed() {
     
     // Delivery - features dentro do grupo Delivery
     ['delivery_orders', 'Pedidos de Delivery', 'Delivery', '/admin/delivery/orders'],
-    ['delivery_management', 'Gestão de Delivery', 'Delivery', '/admin/delivery/management'],
-    
-    // Operação - features dentro do grupo Operação
-    ['operations', 'Operação', 'Operação', '/admin/operations'],
     
     // Financeiro - features dentro do grupo Financeiro
     ['cash', 'Caixa', 'Financeiro', '/admin/financial/cash'],
     ['financial', 'Gestão Financeira', 'Financeiro', '/admin/financial'],
     
-    // Relatórios - features dentro do grupo Relatórios
-    ['reports', 'Relatórios', 'Relatórios', '/admin/reports'],
     
     // Clientes - features dentro do grupo Clientes
     ['customers', 'Clientes', 'Clientes', '/admin/customers'],
 
     // Desempenho - features dentro do grupo Desempenho
-    ['performance', 'Desempenho', 'Desempenho', '/admin/performance'],
+    ['performance', 'Desempenho', 'Relatórios', '/admin/performance'],
 
     // Administração - features dentro do grupo Administração
     ['administration', 'Administração', 'Administração', '/admin/administration'],
