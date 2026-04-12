@@ -526,4 +526,49 @@ export class StoreController {
       branchId: branchId || headerBranchId,
     });
   }
+
+  /**
+   * Buscar produtos relacionados (cross-sell) para os produtos no carrinho
+   * POST /store/cross-sell
+   */
+  @Post('cross-sell')
+  @Public()
+  async getCrossSellProducts(
+    @Body() body: { productIds: string[] },
+    @Query('branchId') branchId?: string,
+    @Headers('x-tenant') xTenant?: string,
+    @Req() req?: Request,
+  ) {
+    const hostname = req?.headers?.host || '';
+    const { subdomain, branchId: headerBranchId } = this.extractSubdomain(
+      hostname,
+      xTenant,
+    );
+
+    // Determinar branchId
+    let finalBranchId = branchId || headerBranchId;
+
+    // Se não temos branchId ainda, buscar pela filial ativa
+    if (!finalBranchId && subdomain) {
+      const branch = await this.storeService.getBranch(subdomain);
+      if (branch) {
+        finalBranchId = branch.id;
+      }
+    }
+
+    if (!finalBranchId) {
+      throw new BadRequestException(
+        'Não foi possível identificar a filial/loja',
+      );
+    }
+
+    if (!body.productIds || body.productIds.length === 0) {
+      return [];
+    }
+
+    return await this.storeService.getCrossSellProducts(
+      body.productIds,
+      finalBranchId,
+    );
+  }
 }

@@ -3586,4 +3586,49 @@ async createOrder(
       order: updatedOrder,
     };
   }
+
+  /**
+   * Buscar produtos relacionados (cross-sell) para múltiplos produtos do carrinho
+   * Retorna os produtos relacionados agrupados por produto principal
+   */
+  async getCrossSellProducts(productIds: string[], branchId: string) {
+    if (!productIds || productIds.length === 0) {
+      return [];
+    }
+
+    // Buscar todos os produtos relacionados para os IDs fornecidos
+    const relatedProducts = await prisma.productRelated.findMany({
+      where: {
+        productId: { in: productIds },
+        // Garantir que o produto relacionado está ativo e na mesma filial
+        relatedProduct: {
+          active: true,
+          branchId: branchId,
+        },
+      },
+      include: {
+        relatedProduct: {
+          select: {
+            id: true,
+            name: true,
+            price: true,
+            image: true,
+            active: true,
+            description: true,
+          },
+        },
+      },
+      orderBy: { priority: 'asc' },
+    });
+
+    // Agrupar por productId para facilitar o uso no frontend
+    const grouped = productIds.map((productId) => ({
+      productId,
+      crossSellProducts: relatedProducts
+        .filter((rel) => rel.productId === productId)
+        .map((rel) => rel.relatedProduct),
+    }));
+
+    return grouped;
+  }
 }

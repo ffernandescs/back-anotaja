@@ -803,6 +803,8 @@ model Product {
   ingredients                                                             ProductIngredient[]
   stockMovements                                                          StockMovement[]
   coupons                                                                 CouponProduct[]
+  relatedProducts                                                         ProductRelated[]  @relation("ProductToRelated")
+  relatedBy                                                               ProductRelated[]  @relation("RelatedToProduct")
 }
 
 model ProductAddition {
@@ -821,6 +823,18 @@ model ProductAddition {
   orderItemAdditions                         OrderItemAddition[]
   ingredients                                AdditionIngredient[]
   stockMovements                             StockMovement[]
+}
+
+model ProductRelated {
+  id                                         String               @id @default(cuid())
+  productId                                  String
+  relatedProductId                           String
+  priority                                   Int                  @default(0)
+
+  product                                    Product              @relation("ProductToRelated", fields: [productId], references: [id], onDelete: Cascade)
+  relatedProduct                             Product              @relation("RelatedToProduct", fields: [relatedProductId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, relatedProductId])
 }
 
 model Customer {

@@ -2,12 +2,14 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { prisma } from '../../../lib/prisma';
 import { Prisma } from '@prisma/client';
 import { UpdateProductAdvancedOptionsDto } from './dto/update-product-advanced-options.dto';
+import { UpsertRelatedProductsDto } from './dto/upsert-related-products.dto';
 
 @Injectable()
 export class ProductsService {
@@ -145,6 +147,7 @@ export class ProductsService {
             slug: true,
           },
         },
+        relatedProducts:true,
       },
     });
   }
@@ -198,6 +201,7 @@ export class ProductsService {
             options: true,
           },
         },
+        relatedProducts:true,
         stockMovements: true
       },
     });
@@ -635,6 +639,152 @@ export class ProductsService {
         totalCategories: sourceCategories.length,
         totalProducts: sourceProducts.length,
       };
+    });
+
+    return result;
+  }
+
+  async getRelatedProducts(productId: string, userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { branch: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    if (!user.branchId) {
+      throw new ForbiddenException('Usuário não está associado a uma filial');
+    }
+
+    // Validar que o produto pertence à filial do usuário
+    const product = await prisma.product.findUnique({
+      where: {
+        id: productId,
+        branchId: user.branchId,
+      },
+    });
+
+    if (!product) {
+      throw new NotFoundException('Produto não encontrado');
+    }
+
+    // Buscar produtos relacionados com dados do produto relacionado
+    const relatedProducts = await prisma.productRelated.findMany({
+      where: { productId },
+      orderBy: { priority: 'asc' },
+      include: {
+        relatedProduct: {
+          select: {
+            id: true,
+            name: true,
+            price: true,
+            image: true,
+            active: true,
+          },
+        },
+      },
+    });
+
+    return relatedProducts;
+  }
+
+  async upsertRelatedProducts(
+    productId: string,
+    dto: UpsertRelatedProductsDto,
+    userId: string,
+  ) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { branch: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    if (!user.branchId) {
+      throw new ForbiddenException('Usuário não está associado a uma filial');
+    }
+
+    // Validar que o produto existe e pertence à filial do usuário
+    const product = await prisma.product.findUnique({
+      where: {
+        id: productId,
+        branchId: user.branchId,
+      },
+    });
+
+    if (!product) {
+      throw new NotFoundException('Produto não encontrado');
+    }
+
+    // Validar que nenhum produto relacionado é o mesmo que o produto principal
+    for (const item of dto.relatedProducts) {
+      if (item.relatedProductId === productId) {
+        throw new BadRequestException(
+          'Um produto não pode ser relacionado a si mesmo',
+        );
+      }
+    }
+
+    // Validar que todos os produtos relacionados existem e pertencem à mesma filial
+    if (dto.relatedProducts.length > 0) {
+      const relatedProductIds = dto.relatedProducts.map(
+        (item) => item.relatedProductId,
+      );
+
+      const foundProducts = await prisma.product.findMany({
+        where: {
+          id: { in: relatedProductIds },
+          branchId: user.branchId,
+        },
+      });
+
+      if (foundProducts.length !== relatedProductIds.length) {
+        throw new BadRequestException(
+          'Um ou mais produtos relacionados não encontrados ou não pertencem à sua filial',
+        );
+      }
+    }
+
+    // Executar em transação: deletar todos os relacionados antigos e criar os novos
+    const result = await prisma.$transaction(async (tx) => {
+      // Deletar todos os relacionamentos anteriores
+      await tx.productRelated.deleteMany({
+        where: { productId },
+      });
+
+      // Criar novos relacionamentos com priority reindexada
+      if (dto.relatedProducts.length > 0) {
+        const newRelatedProducts = dto.relatedProducts.map((item, index) => ({
+          productId,
+          relatedProductId: item.relatedProductId,
+          priority: index,
+        }));
+
+        await tx.productRelated.createMany({
+          data: newRelatedProducts,
+        });
+      }
+
+      // Retornar a lista atualizada
+      return await tx.productRelated.findMany({
+        where: { productId },
+        orderBy: { priority: 'asc' },
+        include: {
+          relatedProduct: {
+            select: {
+              id: true,
+              name: true,
+              price: true,
+              image: true,
+              active: true,
+            },
+          },
+        },
+      });
     });
 
     return result;

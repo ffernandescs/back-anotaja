@@ -18,6 +18,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UpdateProductAdvancedOptionsDto } from './dto/update-product-advanced-options.dto';
+import { UpsertRelatedProductsDto } from './dto/upsert-related-products.dto';
 
 interface RequestWithUser extends Request {
   user: {
@@ -85,7 +86,7 @@ export class ProductsController {
   }
 
   @Patch(':id/advanced-options')
-  
+
   async updateAdvancedOptions(
     @Param('id') productId: string,
     @Body() body: UpdateProductAdvancedOptionsDto,
@@ -96,6 +97,20 @@ export class ProductsController {
       body,
       req.user.userId,
     );
+  }
+
+  @Get(':id/related')
+  getRelatedProducts(@Param('id') id: string, @Req() req: RequestWithUser) {
+    return this.productsService.getRelatedProducts(id, req.user.userId);
+  }
+
+  @Put(':id/related')
+  upsertRelatedProducts(
+    @Param('id') id: string,
+    @Body() dto: UpsertRelatedProductsDto,
+    @Req() req: RequestWithUser,
+  ) {
+    return this.productsService.upsertRelatedProducts(id, dto, req.user.userId);
   }
 
   @Put(':id')
