@@ -1,9 +1,10 @@
-// ✅ SEED FINAL — 3 NÍVEIS (SAAS PDV + DELIVERY)
+// ✅ SEED FINAL — ESCALONAMENTO POR PÚBLICO-ALVO
+// TRIAL (7d) → BASIC (R$49) → GROWTH (R$119) → BUSINESS (R$219)
+// + ADD-ONS para features complexas
 
 import { prisma } from '../lib/prisma';
 import bcrypt from 'bcryptjs';
 import { BillingPeriod, PlanType } from '@prisma/client';
-
 
 export enum PaymentMethodType {
   CASH = 'CASH',
@@ -11,8 +12,8 @@ export enum PaymentMethodType {
   DEBIT = 'DEBIT',
   PIX = 'PIX',
   BOLETO = 'BOLETO',
-  MEAL_VOUCHER = 'MEAL_VOUCHER', // VA
-  FOOD_VOUCHER = 'FOOD_VOUCHER', // VE
+  MEAL_VOUCHER = 'MEAL_VOUCHER',
+  FOOD_VOUCHER = 'FOOD_VOUCHER',
   OTHER = 'OTHER',
   ONLINE = 'ONLINE',
 }
@@ -51,7 +52,7 @@ const paymentMethods = [
 ];
 
 async function seed() {
-  console.log('🚀 Seed iniciado...');
+  console.log('🚀 Seed iniciado... Estratégia: Escalonamento por público-alvo');
 
   // ======================================================
   // MASTER USER
@@ -65,23 +66,22 @@ async function seed() {
       password: await bcrypt.hash('master123', 10),
     },
   });
-
   console.log('✅ Usuário Master criado/atualizado');
 
+  // ======================================================
+  // PAYMENT METHODS
+  // ======================================================
+  for (const method of paymentMethods) {
+    await prisma.paymentMethod.upsert({
+      where: { id: method.id },
+      update: {},
+      create: {
+        ...method,
+      },
+    });
+  }
+  console.log(`✅ ${await prisma.paymentMethod.count()} métodos de pagamento criados`);
 
-   for (const method of paymentMethods) {
-      await prisma.paymentMethod.upsert({
-        where: { id: method.id },
-        update: {},
-        create: {
-          ...method,
-        },
-      });
-    }
-
-    console.log(
-    `✅ ${await prisma.paymentMethod.count()} métodos de pagamento criados/atualizados`,
-  );
   // ======================================================
   // MENU GROUPS
   // ======================================================
@@ -117,7 +117,6 @@ async function seed() {
       });
     }
   }
-
   console.log('✅ Menu Groups criados');
 
   const groups = await prisma.menuGroup.findMany();
@@ -125,58 +124,65 @@ async function seed() {
     groups.find((g) => g.title === title)?.id;
 
   // ======================================================
-  // FEATURES (NÍVEL 2 - features principais dentro dos grupos)
+  // FEATURES PRINCIPAIS (com ICONS)
+  // Formato: [key, name, group, href, icon]
   // ======================================================
-  const rootFeatures = [
-    ['dashboard', 'Dashboard', 'Dashboard', '/admin/dashboard'],
-    
-    // Vendas - features dentro do grupo Vendas
-    ['pdv', 'PDV', 'Vendas', '/admin/pdv'],
-    ['salon', 'Salão', 'Vendas', '/admin/salon'],
-    ['kitchen', 'Cozinha', 'Vendas', '/admin/kitchen'],
-    
-    // Cardápio - features dentro do grupo Cardápio
-    ['menu', 'Cardápio', 'Cardápio', '/admin/menu'],
-    
-    // Delivery - features dentro do grupo Delivery
-    ['delivery_orders', 'Pedidos de Delivery', 'Delivery', '/admin/delivery/orders'],
-    
-    // Financeiro - features dentro do grupo Financeiro
-    ['cash', 'Caixa', 'Financeiro', '/admin/financial/cash'],
-    ['financial', 'Gestão Financeira', 'Financeiro', '/admin/financial'],
-    
-    
-    // Clientes - features dentro do grupo Clientes
-    ['customers', 'Clientes', 'Clientes', '/admin/customers'],
+  const mainFeatures: Array<[string, string, string, string, string | null]> = [
+    ['dashboard', 'Dashboard', 'Dashboard', '/admin/dashboard', 'LayoutGrid'],
 
-    // Desempenho - features dentro do grupo Desempenho
-    ['performance', 'Desempenho', 'Relatórios', '/admin/performance'],
+    // VENDAS (core do sistema)
+    ['pdv', 'PDV', 'Vendas', '/admin/pdv', 'ShoppingCart'],
+    ['salon', 'Salão', 'Vendas', '/admin/salon', 'Wine'],
+    ['kitchen', 'Cozinha', 'Vendas', '/admin/kitchen', 'ChefHat'],
 
-    // Administração - features dentro do grupo Administração
-    ['administration', 'Administração', 'Administração', '/admin/administration'],
-    ['configuracoes', 'Configurações', 'Administração', '/admin/administration/settings'],
-    ['my_company', 'Minha Empresa', 'Administração', '/admin/administration/my-company'],
+    // CARDÁPIO (driver de conversão)
+    ['menu', 'Cardápio', 'Cardápio', '/admin/menu', 'BookOpen'],
+
+    // DELIVERY (add-on complexo)
+    ['delivery_orders', 'Pedidos de Delivery', 'Delivery', '/admin/delivery/orders', 'Truck'],
+
+    // FINANCEIRO
+    ['cash', 'Caixa', 'Financeiro', '/admin/financial/cash', 'Wallet'],
+    ['financial', 'Gestão Financeira', 'Financeiro', '/admin/financial', 'DollarSign'],
+
+    // CLIENTES
+    ['customers', 'Clientes', 'Clientes', '/admin/customers', 'Users'],
+
+    // DESEMPENHO
+    ['performance', 'Desempenho', 'Desempenho', '/admin/performance', 'TrendingUp'],
+
+    // ADMINISTRAÇÃO
+    ['administration', 'Administração', 'Administração', '/admin/administration', 'Settings'],
+    ['configuracoes', 'Configurações', 'Administração', '/admin/administration/settings', null],
+    ['my_company', 'Minha Empresa', 'Administração', '/admin/administration/my-company', null],
   ];
 
   const featureMap = new Map<string, string>();
 
-  for (const featureData of rootFeatures) {
-    const [key, name, group, href] = featureData;
+  for (const featureData of mainFeatures) {
+    const [featureKey, featureName, group, href, icon] = featureData;
+    if (!featureKey) continue;
+
     const feature = await prisma.feature.upsert({
-      where: { key },
+      where: { key: featureKey },
       update: {
+        name: featureName,
+        icon: icon ?? undefined,
+        href,
+        active: true,
         defaultActions: JSON.stringify(['create', 'read', 'update', 'delete']),
       },
       create: {
-        key,
-        name,
-        href: href || (key === 'dashboard' ? '/admin/dashboard' : null), // Usa href se fornecido, senão apenas dashboard tem href
+        key: featureKey,
+        name: featureName,
+        icon: icon ?? undefined,
+        href,
         active: true,
         defaultActions: JSON.stringify(['create', 'read', 'update', 'delete']),
       },
     });
 
-    featureMap.set(key, feature.id);
+    featureMap.set(featureKey, feature.id);
 
     const groupId = getGroupId(group);
     if (groupId) {
@@ -190,13 +196,14 @@ async function seed() {
     }
   }
 
-  console.log('✅ Features principais criadas');
+  console.log('✅ Features principais criadas (com icons)');
 
   // ======================================================
-  // SUBFEATURES (NÍVEL 3 - subfeatures das features)
+  // SUBFEATURES (sem icons)
   // Formato: [key, name, parentKey, href, displayOrder]
-  const subFeatures: [string, string, string | null, string | null, number][] = [
-    // 🧾 VENDAS - Subfeatures das features de vendas
+  // ======================================================
+  const subFeatures: Array<[string, string, string | null, string | null, number]> = [
+    // VENDAS
     ['orders', 'Pedidos', 'pdv', '/admin/sales/orders', 1],
     ['kanban', 'Kanban', 'pdv', '/admin/sales/kanban', 2],
 
@@ -205,29 +212,29 @@ async function seed() {
 
     ['kds', 'KDS', 'kitchen', '/admin/sales/kds', 1],
 
-    // 🍔 CARDÁPIO - Subfeatures da feature de cardápio
+    // CARDÁPIO
     ['categories', 'Categorias', 'menu', '/admin/menu/categories', 1],
     ['products', 'Produtos', 'menu', '/admin/menu/products', 2],
     ['complements', 'Complementos', 'menu', '/admin/menu/complements', 3],
     ['complement_options', 'Opções de Complemento', 'menu', '/admin/menu/complement-options', 4],
     ['stock', 'Estoque', 'menu', '/admin/menu/stock', 5],
 
-    // 🚚 DELIVERY - Subfeatures das features de delivery
+    // DELIVERY
     ['delivery_areas', 'Áreas de Entrega', 'delivery_orders', '/admin/delivery/areas', 1],
     ['delivery_persons', 'Entregadores', 'delivery_orders', '/admin/delivery/persons', 2],
     ['delivery_routes', 'Rotas de Entrega', 'delivery_orders', '/admin/delivery/routes', 3],
     ['delivery_assignments', 'Atribuições', 'delivery_orders', '/admin/delivery/assignments', 4],
 
-    // 💰 FINANCEIRO - Subfeatures das features de financeiro
+    // FINANCEIRO
     ['payment_methods', 'Métodos de Pagamento', 'financial', '/admin/financial/methods', 1],
     ['coupons', 'Cupons', 'financial', '/admin/financial/coupons', 2],
 
-    // ⚙️ ADMINISTRAÇÃO - Subfeatures da feature de administração
+    // ADMINISTRAÇÃO
     ['users', 'Usuários', 'administration', '/admin/users', 1],
     ['branches', 'Filiais', 'administration', '/admin/administration/branches', 2],
     ['groups', 'Grupos', 'administration', '/admin/administration/groups', 3],
 
-    // 🏢 MINHA EMPRESA - Subfeatures da feature Minha Empresa
+    // MINHA EMPRESA
     ['settings_profile', 'Perfil da Empresa', 'my_company', '/admin/administration/settings/profile', 1],
     ['settings_hours', 'Horários', 'my_company', '/admin/administration/settings/hours', 2],
     ['settings_service_fee', 'Taxa de Serviço', 'my_company', '/admin/administration/settings/service-fee', 3],
@@ -235,65 +242,62 @@ async function seed() {
     ['settings_subscription', 'Assinatura', 'my_company', '/admin/administration/settings/payments', 5],
     ['settings_plans', 'Planos', 'my_company', '/admin/administration/settings/subscription', 6],
 
-    // 📊 DESEMPENHO - Subfeatures da feature de desempenho
+    // DESEMPENHO
     ['performance_customers', 'Clientes', 'performance', '/admin/performance/clientes', 1],
     ['sales_analysis', 'Vendas', 'performance', '/admin/performance/vendas', 2],
   ];
 
-  for (const [key, name, parentKey, href, displayOrder] of subFeatures) {
-    // Garante que key e name nunca são null
-    if (!key || !name) {
-      console.error(`❌ Key ou name inválidos: ${key}, ${name}`);
+  for (const [subKey, featureName, parentKey, href, displayOrder] of subFeatures) {
+    if (!subKey || !featureName) {
+      console.error(`❌ Key ou name inválidos: ${subKey}, ${featureName}`);
       continue;
     }
 
-    // Se parentKey for null, é uma feature de nível 1 (categoria)
     if (!parentKey) {
       const feature = await prisma.feature.upsert({
-        where: { key },
+        where: { key: subKey },
         update: {
-          name,
-          href: href || undefined,
+          name: featureName,
+          href: href ?? undefined,
           displayOrder: displayOrder || 0,
           active: true,
           defaultActions: JSON.stringify(['create', 'read', 'update', 'delete']),
         },
         create: {
-          key,
-          name,
-          href: href || undefined,
+          key: subKey,
+          name: featureName,
+          href: href ?? undefined,
           displayOrder: displayOrder || 0,
           active: true,
           defaultActions: JSON.stringify(['create', 'read', 'update', 'delete']),
         },
       });
-      
-      featureMap.set(key, feature.id);
+
+      featureMap.set(subKey, feature.id);
       continue;
     }
 
-    // Se parentKey não for null, é uma subfeature (nível 2+)
     const parentId = featureMap.get(parentKey);
-    
+
     if (!parentId) {
-      console.error(`❌ Parent feature não encontrada: ${parentKey} para ${key}`);
+      console.error(`❌ Parent feature não encontrada: ${parentKey} para ${subKey}`);
       continue;
     }
 
     const feature = await prisma.feature.upsert({
-      where: { key },
+      where: { key: subKey },
       update: {
-        name,
-        href: href || undefined,
+        name: featureName,
+        href: href ?? undefined,
         parentId,
         displayOrder: displayOrder || 0,
         active: true,
         defaultActions: JSON.stringify(['create', 'read', 'update', 'delete']),
       },
       create: {
-        key,
-        name,
-        href: href || undefined,
+        key: subKey,
+        name: featureName,
+        href: href ?? undefined,
         parentId,
         displayOrder: displayOrder || 0,
         active: true,
@@ -301,9 +305,7 @@ async function seed() {
       },
     });
 
-    // ✅ Associar subfeature ao mesmo grupo da feature principal
     if (parentId) {
-      // Encontrar o grupo da feature principal
       const parentFeature = await prisma.feature.findUnique({
         where: { id: parentId },
         include: {
@@ -315,7 +317,7 @@ async function seed() {
 
       if (parentFeature?.featureMenuGroups?.[0]) {
         const groupId = parentFeature.featureMenuGroups[0].groupId;
-        
+
         await prisma.featureMenuGroup.upsert({
           where: {
             featureId_groupId: {
@@ -332,13 +334,34 @@ async function seed() {
       }
     }
 
-    featureMap.set(key, feature.id);
+    featureMap.set(subKey as string, feature.id);
   }
 
-  console.log('✅ Subfeatures criadas');
+  console.log('✅ Subfeatures criadas (sem icons)');
 
   // ======================================================
-  // PLANOS (AJUSTADO)
+  // FEATURES PARA LIMITES (uso interno, não aparecem no menu)
+  // ======================================================
+  const limitFeatures = ['products', 'users', 'branches', 'monthly_orders'];
+  for (const limitKey of limitFeatures) {
+    const existing = await prisma.feature.findUnique({
+      where: { key: limitKey },
+    });
+    if (!existing) {
+      await prisma.feature.create({
+        data: {
+          key: limitKey,
+          name: `Limite: ${limitKey}`,
+          active: false, // Não exibe no menu
+          defaultActions: JSON.stringify([]),
+        },
+      });
+    }
+  }
+  console.log('✅ Features de limite criadas (internas)');
+
+  // ======================================================
+  // PLANOS ESCALONADOS
   // ======================================================
   const plans = [
     {
@@ -347,19 +370,46 @@ async function seed() {
       price: 0,
       isTrial: true,
       trialDays: 7,
-      features: ['*'], // TODAS as features no trial
+      description: '7 dias grátis - Teste tudo sem limites',
+      features: ['*'], // TODAS as features
     },
     {
-      name: 'BASIC',
+      name: 'BÁSICO',
       type: PlanType.BASIC,
-      price: 99.9,
-      features: ['dashboard', 'orders', 'kanban', 'pdv', 'products', 'categories', 'settings_printer'], // keys corrigidas
+      price: 4990, // R$ 49.90
+      isTrial: false,
+      description: 'Para lanchonetes e botecos - O essencial para vender',
+      features: [
+        'dashboard',
+        'pdv', 'orders', 'kanban',
+        'menu', 'categories', 'products', 'complements', 'complement_options',
+        'cash',
+        'customers',
+        'configuracoes', 'settings_profile',
+      ],
     },
     {
-      name: 'PREMIUM',
+      name: 'GROWTH',
       type: PlanType.PREMIUM,
-      price: 299.9,
-      features: ['*'], // todas as features
+      price: 11990, // R$ 119.90
+      isTrial: false,
+      description: 'Para pizzarias e restaurantes pequenos - Gerencie operação',
+      features: [
+        ...['dashboard', 'pdv', 'orders', 'kanban', 'salon', 'commands', 'tables', 'kitchen', 'kds'],
+        ...['menu', 'categories', 'products', 'complements', 'complement_options', 'stock'],
+        ...['delivery_orders', 'delivery_areas', 'delivery_persons'],
+        ...['cash', 'financial', 'payment_methods', 'coupons'],
+        ...['customers', 'performance', 'sales_analysis', 'performance_customers'],
+        ...['administration', 'users', 'my_company', 'settings_profile', 'settings_hours', 'settings_service_fee'],
+      ],
+    },
+    {
+      name: 'BUSINESS',
+      type: PlanType.ENTERPRISE,
+      price: 21990, // R$ 219.90
+      isTrial: false,
+      description: 'Para distribuidoras e redes - Escale seu negócio',
+      features: ['*'], // TODAS as features
     },
   ];
 
@@ -368,7 +418,7 @@ async function seed() {
       where: { type: p.type }
     });
 
-    let plan;
+    let plan: Awaited<ReturnType<typeof prisma.plan.create>>;
     if (existingPlan) {
       plan = await prisma.plan.update({
         where: { id: existingPlan.id },
@@ -376,6 +426,7 @@ async function seed() {
           name: p.name,
           type: p.type,
           price: p.price,
+          description: p.description,
           billingPeriod: BillingPeriod.MONTHLY,
           isTrial: p.isTrial || false,
           trialDays: p.trialDays || 0,
@@ -388,6 +439,7 @@ async function seed() {
           name: p.name,
           type: p.type,
           price: p.price,
+          description: p.description,
           billingPeriod: BillingPeriod.MONTHLY,
           isTrial: p.isTrial || false,
           trialDays: p.trialDays || 0,
@@ -418,10 +470,176 @@ async function seed() {
         },
       });
     }
+
+    // ========== CONFIGURAR LIMITES POR PLANO ==========
+    const planLimits = {
+      [PlanType.TRIAL]: [
+        { featureKey: 'products', name: 'Produtos', maxValue: -1, unit: 'itens' },
+        { featureKey: 'users', name: 'Usuários simultâneos', maxValue: -1, unit: 'pessoas' },
+        { featureKey: 'branches', name: 'Filiais', maxValue: -1, unit: 'filiais' },
+        { featureKey: 'monthly_orders', name: 'Pedidos/mês', maxValue: -1, unit: 'pedidos' },
+      ],
+      [PlanType.BASIC]: [
+        { featureKey: 'products', name: 'Produtos no cardápio', maxValue: 50, unit: 'itens' },
+        { featureKey: 'users', name: 'Usuários simultâneos', maxValue: 2, unit: 'pessoas' },
+        { featureKey: 'branches', name: 'Filiais', maxValue: 1, unit: 'filial' },
+        { featureKey: 'monthly_orders', name: 'Pedidos/mês', maxValue: -1, unit: 'pedidos' },
+      ],
+      [PlanType.PREMIUM]: [
+        { featureKey: 'products', name: 'Produtos no cardápio', maxValue: 300, unit: 'itens' },
+        { featureKey: 'users', name: 'Usuários simultâneos', maxValue: 5, unit: 'pessoas' },
+        { featureKey: 'branches', name: 'Filiais', maxValue: 1, unit: 'filial' },
+        { featureKey: 'monthly_orders', name: 'Pedidos/mês', maxValue: -1, unit: 'pedidos' },
+      ],
+      [PlanType.ENTERPRISE]: [
+        { featureKey: 'products', name: 'Produtos no cardápio', maxValue: -1, unit: 'itens' },
+        { featureKey: 'users', name: 'Usuários simultâneos', maxValue: 15, unit: 'pessoas' },
+        { featureKey: 'branches', name: 'Filiais', maxValue: -1, unit: 'filiais' },
+        { featureKey: 'monthly_orders', name: 'Pedidos/mês', maxValue: -1, unit: 'pedidos' },
+      ],
+    };
+
+    const limits = planLimits[p.type];
+    if (limits) {
+      for (const limit of limits) {
+        await prisma.featureLimit.upsert({
+          where: {
+            featureKey_planId: {
+              featureKey: limit.featureKey,
+              planId: plan.id,
+            },
+          },
+          update: {
+            name: limit.name,
+            maxValue: limit.maxValue,
+            unit: limit.unit,
+          },
+          create: {
+            featureKey: limit.featureKey,
+            planId: plan.id,
+            name: limit.name,
+            maxValue: limit.maxValue,
+            unit: limit.unit,
+            isActive: true,
+          },
+        });
+      }
+    }
   }
 
-  console.log('✅ Planos criados');
-  console.log('🎉 Seed finalizado!');
+  console.log('✅ Planos criados com limites');
+
+  // ======================================================
+  // ADD-ONS ESTRATÉGICOS (monetização de features complexas)
+  // ======================================================
+  const addons = [
+    {
+      key: 'integration_platforms',
+      name: 'Integração com Plataformas',
+      description: 'Conecte com iFood, Uber Eats e outras plataformas de delivery',
+      price: 3900, // R$ 39/mês
+      features: ['integration_platforms'],
+    },
+    {
+      key: 'delivery_advanced',
+      name: 'Delivery Avançado',
+      description: 'Rotas otimizadas, geolocalização, despachante automático',
+      price: 4900, // R$ 49/mês
+      features: ['delivery_routes', 'delivery_assignments'],
+    },
+    {
+      key: 'additional_branch',
+      name: 'Filial Adicional',
+      description: 'Adicione uma filial extra ao seu plano',
+      price: 2900, // R$ 29/mês
+      features: ['branches'],
+    },
+    {
+      key: 'analytics_enterprise',
+      name: 'Analytics Enterprise',
+      description: 'Relatórios avançados, BI, exportação de dados',
+      price: 4900, // R$ 49/mês
+      features: ['performance', 'sales_analysis'],
+    },
+    {
+      key: 'priority_support',
+      name: 'Suporte Prioritário',
+      description: 'Chat prioritário, suporte via WhatsApp',
+      price: 2900, // R$ 29/mês
+      features: [],
+    },
+  ];
+
+  for (const addon of addons) {
+    const existingAddon = await prisma.addon.findFirst({
+      where: { key: addon.key }
+    });
+
+    let addonRecord: Awaited<ReturnType<typeof prisma.addon.create>>;
+    if (existingAddon) {
+      addonRecord = await prisma.addon.update({
+        where: { id: existingAddon.id },
+        data: {
+          name: addon.name,
+          description: addon.description,
+          price: addon.price,
+          active: true,
+        },
+      });
+    } else {
+      addonRecord = await prisma.addon.create({
+        data: {
+          key: addon.key,
+          name: addon.name,
+          description: addon.description,
+          price: addon.price,
+          active: true,
+        },
+      });
+    }
+
+    // Associar features ao addon
+    for (const featureKey of addon.features) {
+      const feature = await prisma.feature.findUnique({
+        where: { key: featureKey },
+      });
+
+      if (feature) {
+        await prisma.addonFeature.upsert({
+          where: {
+            addonId_featureId: {
+              addonId: addonRecord.id,
+              featureId: feature.id,
+            },
+          },
+          update: {},
+          create: {
+            addonId: addonRecord.id,
+            featureId: feature.id,
+          },
+        });
+      }
+    }
+  }
+
+  console.log('✅ Add-ons estratégicos criados');
+
+  // ======================================================
+  // RESUMO FINAL
+  // ======================================================
+  console.log('\n📊 RESUMO DO SEED:\n');
+  console.log('🎯 PLANOS:');
+  console.log('  • TRIAL (7 dias) — Teste ilimitado');
+  console.log('  • BÁSICO (R$ 49/mês) — Lanchonete/Boteco');
+  console.log('  • GROWTH (R$ 119/mês) — Pizzaria/Restaurante');
+  console.log('  • BUSINESS (R$ 219/mês) — Distribuidora/Rede');
+  console.log('\n🔌 ADD-ONS:');
+  console.log('  • Integração com plataformas (R$ 39/mês)');
+  console.log('  • Delivery avançado (R$ 49/mês)');
+  console.log('  • Filial adicional (R$ 29/mês)');
+  console.log('  • Analytics Enterprise (R$ 49/mês)');
+  console.log('  • Suporte prioritário (R$ 29/mês)');
+  console.log('\n✅ Seed finalizado com sucesso!\n');
 }
 
 seed()
