@@ -32,7 +32,7 @@ import { GetCustomer } from './decorators/get-customer.decorator';
 import { prisma } from 'lib/prisma';
 
 interface RequestWithUser extends Request {
-  user?: {
+  user: {
     userId: string;
     email?: string;
     role?: string;
@@ -266,15 +266,15 @@ export class StoreController {
   @UseGuards(JwtCustomerAuthGuard)
   @Get('orders')
   async getOrders(
+    @Req() req: RequestWithUser,
     @Headers('x-tenant') xTenant?: string,
-    @Req() req?: Request,
     @Query() query?: GetOrdersQueryDto,
-    @GetCustomer('id') customerId?: string, // Pega ID do customer do JWT
   ) {
+
     const hostname = req?.headers?.host || '';
     const { subdomain } = this.extractSubdomain(hostname, xTenant);
 
-    return await this.storeService.getOrders(subdomain, query, customerId);
+    return await this.storeService.getOrders(subdomain, query, req?.user.userId);
   }
 
   /**
@@ -527,10 +527,6 @@ export class StoreController {
     });
   }
 
-  /**
-   * Buscar produtos relacionados (cross-sell) para os produtos no carrinho
-   * POST /store/cross-sell
-   */
   @Post('cross-sell')
   @Public()
   async getCrossSellProducts(
