@@ -122,6 +122,18 @@ export class FeaturePermissionsService {
   }
 
   /**
+   * Retorna as permissões (action + subject) para uma lista de feature keys.
+   * Útil para criar registros de Permission no banco.
+   */
+  getPermissionsForFeatureKeys(featureKeys: string[]): FeaturePermission[] {
+    const permissions: FeaturePermission[] = [];
+    for (const key of featureKeys) {
+      permissions.push(...this.getDefaultPermissions(key));
+    }
+    return permissions;
+  }
+
+  /**
    * Atualiza as ações de uma feature (para uso futuro quando tivermos campo no BD)
    */
   async updateFeatureActions(featureKey: string, actions: Action[]): Promise<void> {

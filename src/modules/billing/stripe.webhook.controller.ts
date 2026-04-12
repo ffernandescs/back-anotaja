@@ -11,6 +11,7 @@ import { StripeService } from './stripe.service';
 import { prisma } from '../../../lib/prisma';
 import Stripe from 'stripe';
 import { Public } from 'src/common/decorators/public.decorator';
+import { FeaturePermissionsService } from '../../ability/factory/feature-permissions.service';
 
 @Controller('stripe-billing/webhook')
 @Public()
@@ -327,11 +328,13 @@ export class StripeWebhookController {
       const planFeatures = await getPlanFeatures(plan.type);
 
       // 3. Converter features para formato de permissões
-      const newPermissions = planFeatures.map(([action, subject]: [any, any]) => ({
-        action: action as any,
-        subject: Array.isArray(subject) ? subject[0] : subject as any,
-        inverted: false,
-      }));
+      const featureService = new FeaturePermissionsService();
+      const newPermissions = featureService.getPermissionsForFeatureKeys(planFeatures)
+        .map(p => ({
+          action: p.action,
+          subject: p.subject,
+          inverted: false,
+        }));
 
       // 4. Buscar todos os grupos da empresa
       const company = await prisma.company.findUnique({
