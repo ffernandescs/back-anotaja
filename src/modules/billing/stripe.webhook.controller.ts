@@ -23,40 +23,39 @@ export class StripeWebhookController {
   constructor(private stripeService: StripeService,   @InjectQueue('stripe-events')
     private stripeQueue: Queue,) {}
 
- @Post()
-  async handle(
-    @Req() req: Request,
-    @Headers('stripe-signature') signature: string,
-  ) {
-    let event: Stripe.Event;
+@Post()
+async handle(
+  @Req() req: Request,
+  @Headers('stripe-signature') signature: string,
+) {
+  let event: Stripe.Event;
 
-    try {
-      event = this.stripeService.stripe.webhooks.constructEvent(
-        req['rawBody'],
-        signature,
-        process.env.STRIPE_WEBHOOK_SECRET || '',
-      );
-    } catch (err) {
-      throw new BadRequestException('Invalid Stripe signature');
-    }
+  try {
+    event = this.stripeService.stripe.webhooks.constructEvent(
+      req['rawBody'],
+      signature,
+      process.env.STRIPE_WEBHOOK_SECRET || '',
+    );
+  } catch (err) {
+    throw new BadRequestException('Invalid Stripe signature');
+  }
 
-    // ⚠️ idempotência rápida (opcional aqui)
-    const exists = await prisma.stripeEvent.findUnique({
-      where: { id: event.id },
-    });
+  // 🔐 Idempotência leve (opcional aqui)
+  const exists = await prisma.stripeEvent.findUnique({
+    where: { id: event.id },
+  });
 
-    if (exists) {
-      this.logger.warn(`Evento duplicado ignorado: ${event.id}`);
-      return { received: true };
-    }
-
-    // 🚀 ENVIA PRA FILA (ESSA LINHA QUE FALTAVA)
-   await this.stripeQueue.add('process-event', {
-  event,
-});
-
+  if (exists) {
     return { received: true };
   }
+
+  // 🚀 ENVIA PRA FILA (ESSENCIAL)
+  await this.stripeQueue.add('process-event', {
+    event,
+  });
+
+  return { received: true };
+}
   /**
    * Atualiza as permissões de todos os grupos da empresa para o novo plano
    */
