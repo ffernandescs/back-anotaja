@@ -9,6 +9,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { StripeProcessor } from './stripe.processor';
 import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
 import { JwtModule } from '@nestjs/jwt';
+import { WebSocketModule } from '../websocket/websocket.module';
 
 @Module({
   imports: [
@@ -16,8 +17,9 @@ import { JwtModule } from '@nestjs/jwt';
       name: 'stripe-events', // ⚠️ TEM QUE SER IGUAL ao add()
     }),
     JwtModule,
+    WebSocketModule 
   ],
   controllers: [BillingController, StripeWebhookController],
-  providers: [BillingService, StripeService, ConfigService, BillingOrchestratorService, StripeProcessor,OrdersWebSocketGateway],
+  providers: [BillingService, StripeService, ConfigService, BillingOrchestratorService, StripeProcessor],
 })
 export class BillingModule {}
