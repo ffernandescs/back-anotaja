@@ -8,12 +8,14 @@ import { BillingOrchestratorService } from './orchestrator/billing-orchestrator.
 import { BullModule } from '@nestjs/bullmq';
 import { StripeProcessor } from './stripe.processor';
 import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
+import { JwtModule } from '@nestjs/jwt';
 
 @Module({
   imports: [
     BullModule.registerQueue({
       name: 'stripe-events', // ⚠️ TEM QUE SER IGUAL ao add()
     }),
+    JwtModule,
   ],
   controllers: [BillingController, StripeWebhookController],
   providers: [BillingService, StripeService, ConfigService, BillingOrchestratorService, StripeProcessor,OrdersWebSocketGateway],
