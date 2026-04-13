@@ -7,7 +7,6 @@ import {
 import { CreateGroupDto } from './dto/create-group.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
 import { prisma } from '../../../lib/prisma';
-import { Action, Subject } from '../../ability/types/ability.types';
 import { PermissionAction, Prisma } from '@prisma/client';
 
 @Injectable()

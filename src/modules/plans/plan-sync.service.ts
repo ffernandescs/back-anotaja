@@ -1,14 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { prisma } from '../../../lib/prisma';
-import { PlanType, AddonType } from '../../ability/types/ability.types';
-import { AbilityLoaderService } from '../../ability/factory/ability-loader.service';
 
 @Injectable()
 export class PlanSyncService {
   private readonly logger = new Logger(PlanSyncService.name);
 
   constructor(
-    private readonly abilityLoaderService: AbilityLoaderService,
   ) {}
 
   /**

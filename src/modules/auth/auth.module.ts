@@ -9,8 +9,9 @@ import { SubscriptionModule } from '../subscription/subscription.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
-import { AbilityModule } from '../../ability/ability.module';
-import { MenuService } from '../../ability/factory/menu.service';
+import { AbilitiesService } from '../abilities/abilities.service';
+import { AbilitiesResolver } from '../abilities/abilities.resolver';
+import { MenuBuilderService } from '../abilities/menu-builder.service';
 
 @Module({
   imports: [
@@ -34,9 +35,8 @@ import { MenuService } from '../../ability/factory/menu.service';
     UsersModule,
     PaymentMethodsModule,
     SubscriptionModule,
-    AbilityModule,
   ],
-  providers: [AuthService, JwtStrategy, MailService, MenuService],
+  providers: [AuthService, JwtStrategy, MailService, AbilitiesService, AbilitiesResolver, MenuBuilderService],
   controllers: [AuthController],
   exports: [AuthService, JwtStrategy, PassportModule],
 })

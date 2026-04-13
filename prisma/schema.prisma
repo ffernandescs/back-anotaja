@@ -224,7 +224,9 @@ model Plan {
   subscriptions                                                                        Subscription[]
   historyAsPreviousPlan                                                                SubscriptionHistory[] @relation("PreviousPlan")
   historyAsNewPlan                                                                     SubscriptionHistory[] @relation("NewPlan")
+  pendingPlanSubscriptions                                                             Subscription[]         @relation("PendingPlan")
 }
+
 
 // Opcionais/add-ons disponíveis no sistema
 model PlanAddon {
@@ -259,6 +261,17 @@ model SubscriptionAddon {
   @@unique([subscriptionId, addonId])
 }
 
+model CompanyFeatureOverride {
+  id String @id @default(cuid())
+  companyId String
+  featureKey String
+  enabled Boolean
+
+  createdAt DateTime @default(now())
+
+  @@unique([companyId, featureKey])
+}
+
 // Permissão granular — pertence a um grupo OU a um usuário (override)
 model Permission {
   id                                                                   String    @id @default(cuid())
@@ -267,7 +280,7 @@ model Permission {
   inverted                                                             Boolean   @default(false)
   groupId                                                              String?
   userId                                                               String?
-
+  source String @default("CUSTOM") // Fonte da permissão (CUSTOM, SYSTEM, etc.)
   createdAt                                                            DateTime  @default(now())
 
   group                                                                Group?   @relation(fields: [groupId], references: [id], onDelete: Cascade)
@@ -277,33 +290,56 @@ model Permission {
   @@unique([groupId, action, subject])
   @@unique([userId, action, subject])
 }
-
 model Subscription {
-  id                                                                             String               @id @default(cuid())
-  companyId                                                                      String               @unique
-  planId                                                                         String
-  status                                                                         SubscriptionStatus   @default(ACTIVE)
-  billingPeriod                                                                  BillingPeriod        @default(MONTHLY)
-  startDate                                                                      DateTime             @default(now())
-  endDate                                                                        DateTime?
-  trialEndsAt          DateTime?          // ← novo: controle explícito de trial
-  cancelAtPeriodEnd                                                              Boolean              @default(false) // ← novo
-  paymentRetryCount                                                              Int                  @default(0) // ← novo
-  nextBillingDate                                                                DateTime?
-  lastBillingDate                                                                DateTime?
-  stripeSubscriptionId                                                           String?
-  stripeCustomerId                                                               String?
-  notes                                                                          String?
-  createdAt                                                                      DateTime             @default(now())
-  updatedAt                                                                      DateTime             @updatedAt
+  id                    String               @id @default(cuid())
+  companyId             String               @unique
 
-  addons                                                                         SubscriptionAddon[]
-  invoices  Invoice[]           // ← novo: histórico de cobrança
-  history   SubscriptionHistory[] // ← histórico de mudanças
-  company                                                                        Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  plan                                                                           Plan                @relation(fields: [planId], references: [id])
+  // 🔥 PLANO ATUAL
+  planId                String
+
+  // 🔥 NOVO → plano futuro
+  pendingPlanId         String?
+
+  // 🔥 NOVO → quando aplicar mudança
+  scheduledChangeAt     DateTime?
+
+  status                SubscriptionStatus   @default(ACTIVE)
+  billingPeriod         BillingPeriod        @default(MONTHLY)
+
+  startDate             DateTime             @default(now())
+  endDate               DateTime?
+
+  // 🔥 CICLO REAL (IMPORTANTE PRA PRORATION)
+  currentPeriodStart    DateTime?
+  currentPeriodEnd      DateTime?
+
+  trialEndsAt           DateTime?
+
+  cancelAtPeriodEnd     Boolean              @default(false)
+  paymentRetryCount     Int                  @default(0)
+
+  nextBillingDate       DateTime?
+  lastBillingDate       DateTime?
+
+  stripeSubscriptionId  String?
+  stripeCustomerId      String?
+
+  notes                 String?
+
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  // RELAÇÕES
+  addons                SubscriptionAddon[]
+  invoices              Invoice[]
+  history               SubscriptionHistory[]
+
+  company               Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  plan                  Plan    @relation(fields: [planId], references: [id])
+
+  // 🔥 OPCIONAL (mas recomendo)
+  pendingPlan           Plan?   @relation("PendingPlan", fields: [pendingPlanId], references: [id])
 }
-
 model SubscriptionHistory {
   id                                                                                   String                 @id @default(cuid())
   subscriptionId                                                                       String

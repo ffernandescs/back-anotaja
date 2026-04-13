@@ -10,11 +10,10 @@ import { CreateDynamicPlanDto } from './dto/create-dynamic-plan.dto';
 import { UpdatePlanDto } from './dto/update-plan.dto';
 import { prisma } from '../../../lib/prisma';
 import { BillingPeriod, ChoosePlanDto } from './dto/choose-plan.dto';
-import { FeaturePermissionsService } from '../../ability/factory/feature-permissions.service';
 
 @Injectable()
 export class PlansService {
-  constructor(private readonly featurePermissions: FeaturePermissionsService) {}
+  constructor() {}
   async create(createPlanDto: CreatePlanDto) {
     // Extrair features e limits do DTO se existirem
     const { features, limits, ...planData } = createPlanDto;
@@ -518,13 +517,9 @@ export class PlansService {
     const { features, limits, ...planData } = createPlanDto;
 
     // Validar se todas as features existem
-    const availableFeatures = await this.featurePermissions.listAllFeaturesWithPermissions();
-    const validFeatureKeys = availableFeatures.map(f => f.key);
     
     for (const featureKey of features) {
-      if (!validFeatureKeys.includes(featureKey)) {
-        throw new BadRequestException(`Feature '${featureKey}' não é válida`);
-      }
+      
     }
 
     // Criar o plano
@@ -577,9 +572,7 @@ export class PlansService {
   /**
    * Lista features disponíveis para criação de planos
    */
-  async listAvailableFeatures() {
-    return this.featurePermissions.listAllFeaturesWithPermissions();
-  }
+ 
 
   /**
    * Ativa/Desativa um plano
