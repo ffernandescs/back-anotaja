@@ -11,11 +11,8 @@ import { StripeService } from './stripe.service';
 import { prisma } from '../../../lib/prisma';
 import Stripe from 'stripe';
 import { Public } from 'src/common/decorators/public.decorator';
-<<<<<<< HEAD
-import { FeaturePermissionsService } from '../../ability/factory/feature-permissions.service';
-=======
 import { BillingOrchestratorService } from './orchestrator/billing-orchestrator.service';
->>>>>>> 8c96fbe68c41873f0b4b1f5b2f419d6b8cbce3d2
+import { FeaturePermissionsService } from 'src/ability/factory/feature-permissions.service';
 
 @Controller('stripe-billing/webhook')
 @Public()
