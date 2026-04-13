@@ -3,6 +3,7 @@ import { BillingPeriod } from '@prisma/client';
 import Stripe from 'stripe';
 import { prisma } from '../../../lib/prisma';
 import { calculateStripeAmount } from '../../utils/calculateStripeAmount';
+import { formatCurrency } from '../../utils/formatCurrency';
 import { StripeService } from './stripe.service';
 import { BillingOrchestratorService } from './orchestrator/billing-orchestrator.service';
 
@@ -23,6 +24,179 @@ export class BillingService {
   ) {}
 
   
+
+  /**
+   * Retorna dados completos de billing para o dashboard do frontend.
+   */
+  async getDetails(userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user?.companyId) {
+      throw new NotFoundException('Usuário não associado a uma empresa');
+    }
+
+    const subscription = await prisma.subscription.findUnique({
+      where: { companyId: user.companyId },
+      include: {
+        plan: true,
+        pendingPlan: true,
+      },
+    });
+
+    if (!subscription) {
+      return { subscription: null };
+    }
+
+    const now = new Date();
+    const isTrialActive = subscription.plan?.isTrial === true
+      && subscription.trialEndsAt
+      && subscription.trialEndsAt > now;
+
+    // Calcular trial days remaining
+    let trialDaysRemaining: number | null = null;
+    if (subscription.trialEndsAt) {
+      const todayUTC = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+      const endUTC = new Date(Date.UTC(
+        subscription.trialEndsAt.getFullYear(),
+        subscription.trialEndsAt.getMonth(),
+        subscription.trialEndsAt.getDate(),
+      ));
+      trialDaysRemaining = Math.max(0, Math.ceil((endUTC.getTime() - todayUTC.getTime()) / (1000 * 60 * 60 * 24)));
+    }
+
+    // Calcular valor efetivo (com desconto)
+    const effectivePrice = subscription.plan
+      ? calculateStripeAmount(subscription.plan.price, subscription.plan.discount)
+      : 0;
+
+    // Determinar se há mudança de plano pendente
+    let pendingChange: any = null;
+    if (subscription.pendingPlan && subscription.scheduledChangeAt) {
+      const isPendingUpgrade = subscription.pendingPlan.price > (subscription.plan?.price ?? 0);
+      pendingChange = {
+        type: isPendingUpgrade ? 'UPGRADE' : 'DOWNGRADE',
+        fromPlan: subscription.plan ? {
+          id: subscription.plan.id,
+          name: subscription.plan.name,
+          price: subscription.plan.price,
+          formattedPrice: formatCurrency(subscription.plan.price),
+        } : null,
+        toPlan: {
+          id: subscription.pendingPlan.id,
+          name: subscription.pendingPlan.name,
+          price: subscription.pendingPlan.price,
+          formattedPrice: formatCurrency(subscription.pendingPlan.price),
+        },
+        scheduledAt: subscription.scheduledChangeAt,
+      };
+    }
+
+    // Buscar últimas invoices do Stripe
+    let recentInvoices: any[] = [];
+    if (subscription.stripeSubscriptionId) {
+      try {
+        const stripeInvoices = await this.stripeService.stripe.invoices.list({
+          subscription: subscription.stripeSubscriptionId,
+          limit: 10,
+        });
+
+        recentInvoices = stripeInvoices.data
+          .filter(inv => inv.status === 'paid' || inv.status === 'open')
+          .map(inv => ({
+            id: inv.id,
+            number: inv.number || `INV-${inv.id.slice(-8)}`,
+            amount: inv.amount_paid || inv.amount_due || 0,
+            formattedAmount: formatCurrency(inv.amount_paid || inv.amount_due || 0),
+            status: inv.status === 'paid' ? 'PAID' : 'PENDING',
+            date: new Date(inv.created * 1000),
+            periodStart: inv.period_start ? new Date(inv.period_start * 1000) : null,
+            periodEnd: inv.period_end ? new Date(inv.period_end * 1000) : null,
+            description: inv.description || `${subscription.plan?.name ?? 'Assinatura'} - ${new Date(inv.created * 1000).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}`,
+            pdfUrl: inv.invoice_pdf || null,
+            hostedUrl: inv.hosted_invoice_url || null,
+          }));
+      } catch (error) {
+        console.warn('Erro ao buscar invoices do Stripe:', error);
+      }
+    }
+
+    // Verificar se existe método de pagamento
+    let hasPaymentMethod = false;
+    if (subscription.stripeCustomerId) {
+      try {
+        const paymentMethods = await this.stripeService.stripe.paymentMethods.list({
+          customer: subscription.stripeCustomerId,
+          type: 'card',
+          limit: 1,
+        });
+        hasPaymentMethod = paymentMethods.data.length > 0;
+      } catch (error) {
+        console.warn('Erro ao verificar payment methods:', error);
+      }
+    }
+
+    // Buscar upcoming invoice do Stripe (próxima cobrança)
+    let upcomingInvoice: any = null;
+    if (subscription.stripeSubscriptionId && !isTrialActive) {
+      try {
+        const upcoming = await this.stripeService.stripe.invoices.createPreview({
+          subscription: subscription.stripeSubscriptionId,
+        });
+        upcomingInvoice = {
+          amount: upcoming.amount_due,
+          formattedAmount: formatCurrency(upcoming.amount_due),
+          date: upcoming.next_payment_attempt
+            ? new Date(upcoming.next_payment_attempt * 1000)
+            : subscription.nextBillingDate,
+        };
+      } catch (error) {
+        // Pode falhar se subscription estiver cancelada/incompleta
+      }
+    }
+
+    const billingPeriodLabel: Record<string, string> = {
+      MONTHLY: 'Mensal',
+      SEMESTRAL: 'Semestral',
+      ANNUAL: 'Anual',
+      QUARTERLY: 'Trimestral',
+    };
+
+    return {
+      subscription: {
+        id: subscription.id,
+        status: subscription.status,
+        billingPeriod: subscription.billingPeriod,
+        billingPeriodLabel: billingPeriodLabel[subscription.billingPeriod] || subscription.billingPeriod,
+        startDate: subscription.startDate,
+        nextBillingDate: subscription.nextBillingDate,
+        currentPeriodStart: subscription.currentPeriodStart,
+        currentPeriodEnd: subscription.currentPeriodEnd,
+        cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+      },
+      plan: subscription.plan ? {
+        id: subscription.plan.id,
+        name: subscription.plan.name,
+        type: subscription.plan.type,
+        price: subscription.plan.price,
+        effectivePrice,
+        discount: subscription.plan.discount,
+        formattedPrice: formatCurrency(effectivePrice),
+        billingPeriod: subscription.plan.billingPeriod,
+      } : null,
+      trial: {
+        isActive: !!isTrialActive,
+        endsAt: subscription.trialEndsAt,
+        daysRemaining: trialDaysRemaining,
+      },
+      pendingChange,
+      upcomingInvoice,
+      invoices: recentInvoices,
+      hasPaymentMethod,
+      hasStripeCustomer: !!subscription.stripeCustomerId,
+    };
+  }
 
   async portal(userId: string) {
     const user = await prisma.user.findUnique({

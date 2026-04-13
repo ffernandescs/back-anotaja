@@ -3,6 +3,7 @@ import { Job } from 'bullmq';
 import { Logger } from '@nestjs/common';
 import { prisma } from '../../../lib/prisma';
 import { BillingOrchestratorService } from './orchestrator/billing-orchestrator.service';
+import { StripeService } from './stripe.service';
 import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
 
 @Processor('stripe-events')
@@ -11,6 +12,7 @@ export class StripeProcessor extends WorkerHost {
 
   constructor(
     private billingOrchestrator: BillingOrchestratorService,
+    private stripeService: StripeService,
     private webSocketGateway: OrdersWebSocketGateway,
   ) {
     super();
@@ -78,9 +80,25 @@ export class StripeProcessor extends WorkerHost {
     const companyId = session.metadata?.companyId;
     const planId = session.metadata?.planId;
     const subscriptionId = session.subscription;
+    const replacesSubscription = session.metadata?.replacesSubscription;
 
     if (!companyId || !planId || !subscriptionId) {
       throw new Error('Dados inválidos no checkout');
+    }
+
+    // Se esta checkout substitui uma subscription anterior (ex: upgrade sem payment method),
+    // cancelar a subscription antiga no Stripe
+    if (replacesSubscription) {
+      try {
+        const oldSub = await this.stripeService.stripe.subscriptions.retrieve(replacesSubscription);
+        if (oldSub.status === 'active' || oldSub.status === 'trialing') {
+          await this.stripeService.stripe.subscriptions.cancel(replacesSubscription);
+          this.logger.log(`🔄 Subscription antiga cancelada: ${replacesSubscription}`);
+        }
+      } catch (error) {
+        this.logger.warn(`⚠️ Erro ao cancelar subscription antiga ${replacesSubscription}:`, error);
+        // Não bloquear o fluxo se falhar
+      }
     }
 
     await prisma.subscription.upsert({
@@ -89,6 +107,8 @@ export class StripeProcessor extends WorkerHost {
         stripeSubscriptionId: subscriptionId,
         planId,
         status: 'ACTIVE',
+        pendingPlanId: null,
+        scheduledChangeAt: null,
       },
       create: {
         companyId,
@@ -98,7 +118,7 @@ export class StripeProcessor extends WorkerHost {
       },
     });
 
-    this.logger.log(`✅ Checkout aplicado`);
+    this.logger.log(`✅ Checkout aplicado${replacesSubscription ? ' (substituiu subscription anterior)' : ''}`);
   }
 
   private async handleInvoice(event: any) {

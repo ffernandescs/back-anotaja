@@ -18,6 +18,11 @@ interface RequestWithUser extends Request {
 export class BillingController {
   constructor(private readonly billingService: BillingService) {}
 
+  @Get('details')
+  async getDetails(@Req() req: RequestWithUser) {
+    return this.billingService.getDetails(req.user.userId);
+  }
+
   @Get('payment-link')
   async getPaymentLink(@Req() req: RequestWithUser) {
     const userId = req.user.userId;
