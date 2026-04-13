@@ -13,12 +13,15 @@ import Stripe from 'stripe';
 import { Public } from 'src/common/decorators/public.decorator';
 import { BillingOrchestratorService } from './orchestrator/billing-orchestrator.service';
 import { stripeQueue } from './stripe.queue';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 
 @Controller('stripe-billing/webhook')
 @Public()
 export class StripeWebhookController {
   private readonly logger = new Logger(StripeWebhookController.name);
-  constructor(private stripeService: StripeService, private billingOrchestrator: BillingOrchestratorService,) {}
+  constructor(private stripeService: StripeService,   @InjectQueue('stripe-events')
+    private stripeQueue: Queue,) {}
 
  @Post()
   async handle(
@@ -48,9 +51,9 @@ export class StripeWebhookController {
     }
 
     // 🚀 ENVIA PRA FILA (ESSA LINHA QUE FALTAVA)
-    await stripeQueue.add('process-event', {
-      event,
-    });
+   await this.stripeQueue.add('process-event', {
+  event,
+});
 
     return { received: true };
   }

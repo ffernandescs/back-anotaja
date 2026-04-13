@@ -54,12 +54,19 @@ import { GeneralConfigModule } from './modules/general-config/general-config.mod
 import { PerformanceModule } from './modules/performance/performance.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
+import { BullModule } from '@nestjs/bullmq';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
+    }),
+    BullModule.forRoot({
+      connection: {
+        host: '127.0.0.1',
+        port: 6379,
+      },
     }),
     AuthModule,
     UsersModule,
