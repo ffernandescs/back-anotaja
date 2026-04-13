@@ -117,18 +117,22 @@ export class StripeWebhookController {
       this.logger.log(`  - now: ${now.toLocaleString()}`);
       this.logger.log(`  - shouldUpdatePlan: ${shouldUpdatePlan}`);
       
-      // Salvar no banco (só atualiza planId se não estiver em trial)
+      // Salvar no banco
+      // Se estiver em trial: salvar planId como pendingPlanId para aplicar quando trial acabar
+      // Se NÃO estiver em trial: atualizar planId diretamente
       const subscriptionRecord = await prisma.subscription.upsert({
         where: { companyId },
         update: {
           status: 'ACTIVE',
           stripeSubscriptionId: subscriptionId,
-          ...(shouldUpdatePlan ? { planId } : {}), // ❌ NÃO atualiza planId durante trial
+          ...(shouldUpdatePlan
+            ? { planId, pendingPlanId: null, scheduledChangeAt: null }
+            : { pendingPlanId: planId, scheduledChangeAt: trialEndsAt }), // ✅ Salva como pendingPlanId durante trial
           startDate, // Data que a assinatura foi criada
           trialEndsAt, // ✅ Sincronizar trial_end do Stripe
           nextBillingDate, // Próxima data de cobrança (trial + período do plano)
           endDate,
-          notes: trialEndsAt 
+          notes: trialEndsAt
             ? `Plano ativado com trial até ${trialEndsAt.toLocaleDateString('pt-BR')}. Primeira cobrança em ${nextBillingDate?.toLocaleDateString('pt-BR')}`
             : `Plano ativado. Próxima cobrança em ${nextBillingDate?.toLocaleDateString('pt-BR')}`,
         },
@@ -141,7 +145,7 @@ export class StripeWebhookController {
           trialEndsAt, // ✅ Sincronizar trial_end do Stripe
           nextBillingDate,
           endDate,
-          notes: trialEndsAt 
+          notes: trialEndsAt
             ? `Plano ativado com trial até ${trialEndsAt.toLocaleDateString('pt-BR')}. Primeira cobrança em ${nextBillingDate?.toLocaleDateString('pt-BR')}`
             : `Plano ativado. Próxima cobrança em ${nextBillingDate?.toLocaleDateString('pt-BR')}`,
         },
@@ -208,17 +212,17 @@ export class StripeWebhookController {
           },
         });
 
-        // Criar registro de invoice apenas se não estiver em trial
+        // Buscar subscription com todos os dados necessários (uma única query)
         const subscriptionRecord = await prisma.subscription.findFirst({
           where: { stripeSubscriptionId: invoice.subscription },
-          select: { id: true, trialEndsAt: true }
+          select: { id: true, trialEndsAt: true, planId: true, companyId: true }
         });
 
         if (subscriptionRecord) {
           // Verificar se ainda está em trial
           const now = new Date();
           const isTrialActive = subscriptionRecord.trialEndsAt && subscriptionRecord.trialEndsAt > now;
-          
+
           // Criar invoice apenas se não estiver mais em trial
           if (!isTrialActive && (invoice.amount_paid || 0) > 0) {
             await prisma.invoice.create({
@@ -231,24 +235,24 @@ export class StripeWebhookController {
                 paidAt: new Date(),
               },
             });
-            
+
             this.logger.log(`Invoice criada: ${invoice.amount_paid} (fora do trial)`);
 
-            // 🔄 Atualizar permissões quando o trial termina ou primeira cobrança real
-            const subscriptionWithPlan = await prisma.subscription.findFirst({
+            // 🔄 Buscar planId atualizado (pode ter sido alterado por applyPendingPlanIfNeeded)
+            const updatedSubscription = await prisma.subscription.findFirst({
               where: { stripeSubscriptionId: invoice.subscription },
-              select: { planId: true }
+              select: { planId: true, companyId: true }
             });
 
-            if (subscriptionWithPlan?.planId) {
+            if (updatedSubscription?.planId && updatedSubscription?.companyId) {
+              this.logger.log(`Atualizando permissões para planId=${updatedSubscription.planId}, companyId=${updatedSubscription.companyId}`);
               await this.updateGroupPermissionsForNewPlan(
-                (await prisma.subscription.findFirst({
-                  where: { stripeSubscriptionId: invoice.subscription },
-                  select: { companyId: true }
-                }))?.companyId || '',
-                subscriptionWithPlan.planId
+                updatedSubscription.companyId,
+                updatedSubscription.planId
               );
-              this.logger.log(`Permissões atualizadas após cobrança real para o plano ${subscriptionWithPlan.planId}`);
+              this.logger.log(`✅ Permissões atualizadas após cobrança real para o plano ${updatedSubscription.planId}`);
+            } else {
+              this.logger.warn(`⚠️ Não foi possível atualizar permissões: planId=${updatedSubscription?.planId}, companyId=${updatedSubscription?.companyId}`);
             }
           } else {
             this.logger.log(`Invoice ignorada: valor=${invoice.amount_paid}, trialAtivo=${isTrialActive}`);

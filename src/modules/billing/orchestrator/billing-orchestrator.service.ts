@@ -36,6 +36,10 @@ export class BillingOrchestratorService {
       subscription.scheduledChangeAt &&
       new Date() >= subscription.scheduledChangeAt
     ) {
+      this.logger.log(
+        `Aplicando plano pendente: ${subscription.pendingPlanId} (agendado para ${subscription.scheduledChangeAt.toISOString()}, planId anterior: ${subscription.planId})`,
+      );
+
       await prisma.subscription.update({
         where: { id: subscription.id },
         data: {
@@ -45,7 +49,11 @@ export class BillingOrchestratorService {
         },
       });
 
-      this.logger.log(`Plano aplicado automaticamente`);
+      this.logger.log(`✅ Plano aplicado automaticamente: ${subscription.pendingPlanId}`);
+    } else if (subscription.pendingPlanId) {
+      this.logger.log(
+        `⏸️ Plano pendente encontrado (${subscription.pendingPlanId}) mas scheduledChangeAt=${subscription.scheduledChangeAt?.toISOString()} ainda não chegou`,
+      );
     }
   }
 }
