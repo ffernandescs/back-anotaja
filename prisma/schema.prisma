@@ -224,7 +224,7 @@ model Plan {
   subscriptions                                                                        Subscription[]
   historyAsPreviousPlan                                                                SubscriptionHistory[] @relation("PreviousPlan")
   historyAsNewPlan                                                                     SubscriptionHistory[] @relation("NewPlan")
-  pendingPlanSubscriptions                                                             Subscription[]         @relation("PendingPlan")
+  pendingPlanSubscriptions                                                             Subscription[]        @relation("PendingPlan")
 }
 
 
@@ -262,12 +262,12 @@ model SubscriptionAddon {
 }
 
 model CompanyFeatureOverride {
-  id String @id @default(cuid())
-  companyId String
+  id         String    @id @default(cuid())
+  companyId  String
   featureKey String
-  enabled Boolean
+  enabled    Boolean
 
-  createdAt DateTime @default(now())
+  createdAt  DateTime  @default(now())
 
   @@unique([companyId, featureKey])
 }
@@ -280,7 +280,7 @@ model Permission {
   inverted                                                             Boolean   @default(false)
   groupId                                                              String?
   userId                                                               String?
-  source String @default("CUSTOM") // Fonte da permissão (CUSTOM, SYSTEM, etc.)
+  source                                                               String    @default("CUSTOM") // Fonte da permissão (CUSTOM, SYSTEM, etc.)
   createdAt                                                            DateTime  @default(now())
 
   group                                                                Group?   @relation(fields: [groupId], references: [id], onDelete: Cascade)
@@ -291,54 +291,54 @@ model Permission {
   @@unique([userId, action, subject])
 }
 model Subscription {
-  id                    String               @id @default(cuid())
-  companyId             String               @unique
+  id                   String                 @id @default(cuid())
+  companyId            String                 @unique
 
   // 🔥 PLANO ATUAL
-  planId                String
+  planId               String
 
   // 🔥 NOVO → plano futuro
-  pendingPlanId         String?
+  pendingPlanId        String?
 
   // 🔥 NOVO → quando aplicar mudança
-  scheduledChangeAt     DateTime?
+  scheduledChangeAt    DateTime?
 
-  status                SubscriptionStatus   @default(ACTIVE)
-  billingPeriod         BillingPeriod        @default(MONTHLY)
+  status               SubscriptionStatus     @default(ACTIVE)
+  billingPeriod        BillingPeriod          @default(MONTHLY)
 
-  startDate             DateTime             @default(now())
-  endDate               DateTime?
+  startDate            DateTime               @default(now())
+  endDate              DateTime?
 
   // 🔥 CICLO REAL (IMPORTANTE PRA PRORATION)
-  currentPeriodStart    DateTime?
-  currentPeriodEnd      DateTime?
+  currentPeriodStart   DateTime?
+  currentPeriodEnd     DateTime?
 
-  trialEndsAt           DateTime?
+  trialEndsAt          DateTime?
 
-  cancelAtPeriodEnd     Boolean              @default(false)
-  paymentRetryCount     Int                  @default(0)
+  cancelAtPeriodEnd    Boolean                @default(false)
+  paymentRetryCount    Int                    @default(0)
 
-  nextBillingDate       DateTime?
-  lastBillingDate       DateTime?
+  nextBillingDate      DateTime?
+  lastBillingDate      DateTime?
 
-  stripeSubscriptionId  String?
-  stripeCustomerId      String?
+  stripeSubscriptionId String?
+  stripeCustomerId     String?
 
-  notes                 String?
+  notes                String?
 
-  createdAt             DateTime             @default(now())
-  updatedAt             DateTime             @updatedAt
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
 
-  // RELAÇÕES
-  addons                SubscriptionAddon[]
-  invoices              Invoice[]
-  history               SubscriptionHistory[]
+  //                   RELAÇÕES
+  addons               SubscriptionAddon[]
+  invoices             Invoice[]
+  history              SubscriptionHistory[]
 
-  company               Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  plan                  Plan    @relation(fields: [planId], references: [id])
+  company              Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  plan                 Plan                  @relation(fields: [planId], references: [id])
 
   // 🔥 OPCIONAL (mas recomendo)
-  pendingPlan           Plan?   @relation("PendingPlan", fields: [pendingPlanId], references: [id])
+  pendingPlan          Plan?                 @relation("PendingPlan", fields: [pendingPlanId], references: [id])
 }
 model SubscriptionHistory {
   id                                                                                   String                 @id @default(cuid())
@@ -363,6 +363,12 @@ model SubscriptionHistory {
 
   @@index([subscriptionId])
   @@index([createdAt])
+}
+
+model StripeEvent {
+  id        String    @id
+  type      String
+  createdAt DateTime  @default(now())
 }
 
 enum SubscriptionEventType {
@@ -839,8 +845,8 @@ model Product {
   ingredients                                                             ProductIngredient[]
   stockMovements                                                          StockMovement[]
   coupons                                                                 CouponProduct[]
-  relatedProducts                                                         ProductRelated[]  @relation("ProductToRelated")
-  relatedBy                                                               ProductRelated[]  @relation("RelatedToProduct")
+  relatedProducts                                                         ProductRelated[]    @relation("ProductToRelated")
+  relatedBy                                                               ProductRelated[]    @relation("RelatedToProduct")
 }
 
 model ProductAddition {
@@ -862,13 +868,13 @@ model ProductAddition {
 }
 
 model ProductRelated {
-  id                                         String               @id @default(cuid())
-  productId                                  String
-  relatedProductId                           String
-  priority                                   Int                  @default(0)
+  id               String   @id @default(cuid())
+  productId        String
+  relatedProductId String
+  priority         Int      @default(0)
 
-  product                                    Product              @relation("ProductToRelated", fields: [productId], references: [id], onDelete: Cascade)
-  relatedProduct                             Product              @relation("RelatedToProduct", fields: [relatedProductId], references: [id], onDelete: Cascade)
+  product          Product @relation("ProductToRelated", fields: [productId], references: [id], onDelete: Cascade)
+  relatedProduct   Product @relation("RelatedToProduct", fields: [relatedProductId], references: [id], onDelete: Cascade)
 
   @@unique([productId, relatedProductId])
 }
