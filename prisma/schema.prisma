@@ -927,6 +927,23 @@ model CustomerAddress {
   @@index([branchId])
 }
 
+enum OrderChannel {
+  ONLINE
+  PDV
+  WAITER
+}
+
+enum ServiceType {
+  TABLE
+  COMANDA
+  TAKEAWAY
+}
+
+enum CustomerType {
+  REGISTERED
+  GUEST
+}
+
 model Order {
   id                                                             String               @id @default(cuid())
   orderNumber       Int? // Número sequencial do pedido
@@ -939,6 +956,9 @@ model Order {
   deliveryFee                                                    Int                  @default(0)
   serviceFee                                                     Int                  @default(0) // Taxa de serviço (10% para pedidos de mesa)
   discount                                                       Int                  @default(0)
+  channel      OrderChannel
+  serviceType  ServiceType
+  customerType CustomerType
   estimatedTime     Int? // Tempo estimado de entrega em minutos
   customerId                                                     String?
   customer                                                       Customer?           @relation(fields: [customerId], references: [id], onDelete: SetNull)
@@ -1721,6 +1741,7 @@ model GeneralConfig {
   showCategoriesScreen                                                                                   Boolean   @default(true) // Mostrar tela de categorias no site
   hideFreightCalculation                                                                                 Boolean   @default(false) // Esconder opção de calcular frete no início do catálogo
   autoCompleteOrders                                                                                     Boolean   @default(false) // Finalizar pedidos automaticamente após 24 horas
+  allowSplitPayment                                                                                      Boolean   @default(false) // Permitir divisão de pagamento (Split/Conta dividida)
 
   // Informações do Estabelecimento (mantidos para compatibilidade)
   companyName                                                                                            String?

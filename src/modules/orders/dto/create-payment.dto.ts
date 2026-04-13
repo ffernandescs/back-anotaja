@@ -14,5 +14,9 @@ export class CreatePaymentDto {
 
   @IsNumber()
   @IsOptional()
+  amountGiven?: number;
+
+  @IsNumber()
+  @IsOptional()
   change?: number; // Troco, se houver
 }

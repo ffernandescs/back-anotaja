@@ -1,61 +1,80 @@
 import {
-  IsString,
+  CustomerType,
+  OrderChannel,
+  ServiceType,
+} from '@prisma/client';
+import { Type } from 'class-transformer';
+import {
+  IsArray,
+  IsEnum,
+  IsInt,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
-  IsArray,
-  ValidateNested,
+  IsString,
   Min,
-  IsPositive,
-  IsInt,
+  ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { CreateOrderItemDto, DeliveryTypeDto, OrderStatusDto } from 'src/modules/orders/dto/create-order-item.dto';
+import { OrderPaymentDto } from './create-store-order.dto';
 
-class OrderItemAdditionDto {
-  @IsString()
-  additionId!: string;
-}
+/**
+ * 🔥 BASE DTO (regra do domínio)
+ */
+export class CreateStoreOrderDto {
+  @IsOptional()
+  @IsEnum(OrderStatusDto)
+  status?: OrderStatusDto;
 
-class OrderItemComplementOptionDto {
-  @IsString()
-  optionId!: string;
-}
+  @IsEnum(DeliveryTypeDto)
+  deliveryType!: DeliveryTypeDto;
 
-class OrderItemComplementDto {
+  @IsEnum(CustomerType)
+  customerType!: CustomerType;
+
+  @IsEnum(OrderChannel)
+  channel!: OrderChannel;
+
+  @IsEnum(ServiceType)
+  serviceType!: ServiceType;
+
+  @IsOptional()
   @IsString()
-  complementId!: string;
+  customerId?: string;
+
+  @IsOptional()
+  @IsString()
+  customerPhone?: string;
+
+  @IsOptional()
+  @IsString()
+  addressId?: string;
+
+  @IsOptional()
+  @IsString()
+  couponId?: string;
 
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => OrderItemComplementOptionDto)
-  options!: OrderItemComplementOptionDto[];
-}
+  @Type(() => CreateOrderItemDto)
+  items!: CreateOrderItemDto[];
 
-export class CreateStoreOrderItemDto {
-  @IsString()
-  productId!: string;
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => OrderPaymentDto)
+  payments!: OrderPaymentDto[];
 
-  @IsNumber()
+  @IsOptional()
   @IsInt()
-  @IsPositive()
-  quantity!: number;
-
-  @IsNumber()
-  @IsPositive()
-  price!: number;
+  @Min(0)
+  change?: number;
 
   @IsOptional()
   @IsString()
   notes?: string;
 
   @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => OrderItemAdditionDto)
-  additions?: OrderItemAdditionDto[];
-
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => OrderItemComplementDto)
-  complements?: OrderItemComplementDto[];
+  @IsInt()
+  @Min(0)
+  discount?: number;
 }

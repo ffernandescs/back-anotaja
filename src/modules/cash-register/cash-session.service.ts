@@ -148,9 +148,6 @@ export class CashSessionService {
       (p) => p.subject === 'cash_register' && p.action === 'manage',
     );
 
-    console.log(user.group?.permissions,'user.group?.permissions')
-
-
     const whereClause = canViewAllSessions
       ? { branchId: user.branchId }
       : { branchId: user.branchId, openedBy: userId };

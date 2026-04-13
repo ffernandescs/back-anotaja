@@ -5,21 +5,17 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { CreateOrderDto } from './dto/create-order.dto';
-import { UpdateOrderDto, UpdateOrderItemDto } from './dto/update-order.dto';
+import { UpdateOrderDto } from './dto/update-order.dto';
 import { PaginatedResponseDto } from '../../common/dto/paginated-response.dto';
 import { QueryOrdersDto } from './dto/query-orders.dto';
 import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
 import { PrinterService } from '../printer/printer.service';
 import { prisma } from '../../../lib/prisma';
 import { DeliveryTypeDto, OrderStatusDto } from './dto/create-order-item.dto';
-import { OrderStatus, Prisma, CashMovementType, PaymentMethodType, DeliveryType, OrderItem, StockMovement } from '@prisma/client';
+import { OrderStatus, Prisma, CashMovementType, PaymentMethodType, DeliveryType, OrderItem, StockMovement, OrderChannel, ServiceType, CustomerType } from '@prisma/client';
 import { CreatePaymentDto } from './dto/create-payment.dto';
-import { money } from '../../utils/money';
-import { PaymentTypeDto } from '../store/dto/create-store-order.dto';
-import { formatCurrency } from 'src/utils/formatCurrency';
 import { CalculateDeliveryFeeDto } from '../store/dto/calculate-delivery-fee.dto';
 import { LatLng } from '../store/types';
-import { CreateStoreOrderDto } from '../store/dto/create-store-order.dto';
 import { StoreService } from '../store/store.service';
 
 const isValidCoord = (v: unknown): v is number =>
@@ -50,33 +46,8 @@ export class OrdersService {
 
     // Sempre usar branchId do usuário logado
     const branchId = user.branchId;
-
-    // Mapear CreateOrderDto para CreateStoreOrderDto
-    const storeOrderDto: CreateStoreOrderDto = {
-      deliveryType: createOrderDto.deliveryType,
-      customerId: createOrderDto.customerId,
-      addressId: createOrderDto.addressId,
-      couponId: createOrderDto.couponId,
-      items: createOrderDto.items.map((item) => ({
-        productId: item.productId,
-        quantity: item.quantity,
-        notes: item.notes,
-        complements: item.complements?.map((comp) => ({
-          complementId: comp.complementId,
-          options: comp.options?.map((opt) => ({
-            optionId: opt.optionId,
-            quantity: opt.quantity || 1,
-          })) || [],
-        })),
-      })),
-      payments: createOrderDto.payments,
-      change: createOrderDto.change,
-      notes: createOrderDto.notes,
-      status: createOrderDto.status,
-    };
-
     // Chamar storeService.createOrder com branchId (sem subdomain para admin/PDV)
-    const result = await this.storeService.createOrder(storeOrderDto, undefined, branchId, true);
+    const result = await this.storeService.createOrder(createOrderDto, undefined, branchId);
 
 
     return result;
@@ -100,48 +71,8 @@ export class OrdersService {
     // Sempre usar branchId do usuário logado
     const branchId = user.branchId;
 
-    // Resolver couponCode -> couponId se necessário
-    let couponId = createOrderDto.couponId;
-    if (!couponId && createOrderDto.couponCode) {
-      const coupon = await prisma.coupon.findFirst({
-        where: {
-          code: createOrderDto.couponCode.toUpperCase(),
-          branchId,
-          active: true,
-        },
-        select: { id: true },
-      });
-      if (coupon) {
-        couponId = coupon.id;
-      }
-    }
-
-    // Mapear CreateOrderDto para CreateStoreOrderDto
-    const storeOrderDto: CreateStoreOrderDto = {
-      deliveryType: createOrderDto.deliveryType,
-      customerId: createOrderDto.customerId,
-      addressId: createOrderDto.addressId,
-      couponId,
-      items: createOrderDto.items.map((item) => ({
-        productId: item.productId,
-        quantity: item.quantity,
-        notes: item.notes,
-        complements: item.complements?.map((comp) => ({
-          complementId: comp.complementId,
-          options: comp.options?.map((opt) => ({
-            optionId: opt.optionId,
-            quantity: opt.quantity || 1,
-          })) || [],
-        })),
-      })),
-      payments: createOrderDto.payments,
-      change: createOrderDto.change,
-      notes: createOrderDto.notes,
-      status: createOrderDto.status,
-    };
-
     // Chamar storeService.createOrder com branchId (sem subdomain para admin/PDV)
-    const result = await this.storeService.createOrder(storeOrderDto, undefined, branchId, true);
+    const result = await this.storeService.createOrder(createOrderDto, undefined, branchId);
 
 
     return result;
@@ -719,128 +650,34 @@ export class OrdersService {
       };
     }
 
-  async update(id: string, dto: UpdateOrderDto, userId: string) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, group: true, branchId: true },
-    });
+async update(id: string, dto: UpdateOrderDto, userId: string, ) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, group: true, branchId: true },
+  });
 
-    if (!user) {
-      throw new NotFoundException('Usuário não encontrado');
-    }
-
-    if (!user.branchId) {
-      throw new ForbiddenException('Usuário não está associado a uma filial');
-    }
-
-    // Mapear UpdateOrderDto para CreateStoreOrderDto
-    const storeOrderDto: CreateStoreOrderDto = {
-      deliveryType: dto.deliveryType || DeliveryTypeDto.PICKUP,
-      customerId: dto.customerId,
-      addressId: dto.addressId,
-      couponId: dto.couponId,
-      items: dto.items?.map((item) => ({
-        productId: item.productId,
-        quantity: item.quantity,
-        notes: '',
-        complements: item.complements?.map((comp) => ({
-          complementId: comp.complementId,
-          options: comp.options?.map((opt) => ({
-            optionId: opt.optionId,
-            quantity: opt.quantity || 1,
-          })) || [],
-        })),
-      })) || [],
-      payments: dto.payments || [],
-      change: 0,
-      notes: '',
-      status: dto.status,
-      discount: dto.discount ?? 0,
-    };
-
-    // Chamar storeService.updateOrder com branchId
-    const result = await this.storeService.updateOrder(id, storeOrderDto, undefined, user.branchId);
-
-    return result;
+  if (!user?.branchId) {
+    throw new ForbiddenException('Usuário não está associado a uma filial');
   }
 
-  async updateItems(
-    orderId: string,
-    items: UpdateOrderItemDto[],
-    userId: string,
-  ) {
-    const order = await this.findOne(orderId, userId);
+  const existingOrder = await prisma.order.findUnique({
+    where: { id },
+  });
 
-    if (['CANCELLED', 'DELIVERED'].includes(order.status)) {
-      throw new BadRequestException(
-        'Não é possível alterar itens de pedidos finalizados ou cancelados',
-      );
-    }
+  const serviceType = existingOrder?.serviceType || 'TAKEAWAY';
 
-    await prisma.$transaction(async (tx) => {
-      // 🔥 Remove itens antigos
-      await tx.orderItem.deleteMany({
-        where: { orderId },
-      });
-
-      // ✅ Cria novos itens
-      for (const item of items) {
-        await tx.orderItem.create({
-          data: {
-            orderId,
-            productId: item.productId,
-            quantity: item.quantity,
-            price: item.price,
-
-            // ➕ Additions
-            additions: {
-              create:
-                item.additions?.map((additionId) => ({
-                  additionId,
-                })) ?? [],
-            },
-
-            // 🧩 Complements + Options (CORRETO)
-            complements: {
-              create:
-                item.complements?.map((complement) => ({
-                  complementId: complement.complementId,
-
-                  options: {
-                    create:
-                      complement.options?.map((option) => ({
-                        optionId: option.optionId,
-                        price: option.price,
-                      })) ?? [],
-                  },
-                })) ?? [],
-            },
-          },
-        });
-      }
-    });
-
-    return prisma.order.findUnique({
-      where: { id: orderId },
-      include: {
-        items: {
-          include: {
-            product: true,
-            additions: {
-              include: {
-                addition: true,
-              },
-            },
-            complements: {
-              include: {
-                options: true,
-              },
-            },
-          },
-        },
-      },
-    });
+  if (!existingOrder) {
+    throw new NotFoundException('Pedido não encontrado');
   }
+
+  return await this.storeService.updateOrder(
+    id,
+    dto,
+    undefined,
+    user.branchId,
+  );
+}
+
 
   async updateStatus(id: string, status: OrderStatusDto, userId: string) {
     const user = await prisma.user.findUnique({
@@ -969,162 +806,68 @@ export class OrdersService {
     return cancelledOrder;
   }
 
-  async addPayment(
-    orderId: string,
-    dto: CreatePaymentDto | CreatePaymentDto[],
-    userId: string,
-  ) {
-    const payments = Array.isArray(dto) ? dto : [dto];
+ async updateOrderPayments(
+  orderId: string,
+  dto: CreatePaymentDto | CreatePaymentDto[],
+  userId: string,
+) {
+  const payments = Array.isArray(dto) ? dto : [dto];
 
-    const order = await this.findOne(orderId, userId);
+  const order = await this.findOne(orderId, userId);
 
-    if (['CANCELLED', 'DELIVERED'].includes(order.status)) {
-      throw new BadRequestException(
-        'Não é possível adicionar pagamento a pedidos finalizados ou cancelados',
-      );
-    }
-
-    // Buscar usuário para obter branchId
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-    });
-
-    if (!user || !user.branchId) {
-      throw new ForbiddenException('Usuário não está associado a uma filial');
-    }
-
-    // Verificar se existe caixa aberto
-    let openCashSession = await prisma.cashSession.findFirst({
-      where: {
-        branchId: user.branchId,
-        openedBy: userId,
-        status: 'OPEN',
-      },
-    });
-
-    // Se não houver caixa aberto, abrir automaticamente com saldo anterior
-    if (!openCashSession) {
-      // Buscar último caixa fechado da filial
-      const lastClosedCashSession = await prisma.cashSession.findFirst({
-        where: {
-          branchId: user.branchId,
-          status: 'CLOSED',
-        },
-        orderBy: { closedAt: 'desc' },
-      });
-
-      const previousBalance = lastClosedCashSession?.closingAmount ?? 0;
-
-      // Criar novo caixa com saldo anterior
-      openCashSession = await prisma.cashSession.create({
-        data: {
-          branchId: user.branchId,
-          openedBy: userId,
-          status: 'OPEN',
-          openingAmount: previousBalance,
-        },
-      });
-
-      // Registrar movimento de abertura se houver saldo anterior
-      if (previousBalance > 0) {
-        await prisma.cashMovement.create({
-          data: {
-            cashSessionId: openCashSession.id,
-            type: CashMovementType.DEPOSIT,
-            amount: previousBalance,
-            userId: userId,
-            paymentMethod: PaymentMethodType.CASH,
-            description: 'Abertura automática com saldo anterior',
-          },
-        });
-      }
-    }
-
-    // SUBSTITUIR pagamentos existentes: deletar todos os pagamentos anteriores
-    await prisma.orderPayment.deleteMany({
-      where: { orderId },
-    });
-
-    // Registrar novos pagamentos
-    await prisma.orderPayment.createMany({
-      data: payments.map((p) => ({
-        orderId,
-        paymentMethodId: p.paymentMethodId,
-        type: p.type,
-        amount: p.amount,
-        change: p.change || 0,
-      })),
-    });
-
-    // Atualizar paidAmount e paymentStatus com base nos NOVOS pagamentos
-    const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
-
-    const updatedOrder = await prisma.order.update({
-      where: { id: orderId },
-      data: {
-        paidAmount: totalPaid,
-        paymentStatus: totalPaid >= order.total ? 'PAID' : 'PARTIAL',
-      },
-      include: {
-        payments: true,
-        customer: true,
-        customerAddress: true,
-        items: {
-          include: {
-            product: true,
-          },
-        },
-      },
-    });
-
-    // Registrar movimentações de caixa para cada pagamento
-    for (const payment of payments) {
-      // REGRA CRÍTICA: Só cria movimento SALE se for pagamento em DINHEIRO
-      const paymentMethod = (() => {
-        const value = String(payment.type || '').toLowerCase();
-        if (['pix'].includes(value)) return PaymentMethodType.PIX;
-        if (['dinheiro', 'cash'].includes(value)) return PaymentMethodType.CASH;
-        if (['credito', 'crédito', 'credit', 'credit_card', 'cartão de crédito', 'cartao de credito'].includes(value))
-          return PaymentMethodType.CREDIT;
-        if (['debito', 'débito', 'debit', 'debit_card', 'cartão de débito', 'cartao de debito'].includes(value))
-          return PaymentMethodType.DEBIT;
-        if (['online'].includes(value)) return PaymentMethodType.ONLINE;
-        return PaymentMethodType.CASH;
-      })();
-      
-      if (paymentMethod === PaymentMethodType.CASH) {
-        await prisma.cashMovement.create({
-          data: {
-            cashSessionId: openCashSession.id,
-            type: CashMovementType.SALE,
-            amount: payment.amount,
-            userId: userId,
-            orderId: orderId,
-            paymentMethod: paymentMethod,
-            description: `Pagamento pedido #${order.orderNumber || orderId.slice(0, 8)} - ${payment.type}`,
-          },
-        });
-      }
-      // Para pagamentos não-dinheiro (cartão, pix, etc.), NÃO cria movimento de caixa
-      // pois não afetam o caixa físico
-    }
-
-    // Emitir evento WebSocket
-    this.webSocketGateway.emitOrderUpdate(updatedOrder);
-
-    // 🖨️ Imprimir pedido automaticamente se estiver pago
-    if (updatedOrder.paymentStatus === 'PAID') {
-      const branch = await prisma.branch.findUnique({
-        where: { id: user.branchId! },
-        include: { company: true },
-      });
-      await this.printerService.printOrderIfPaid(updatedOrder, branch);
-    }
-
-    return updatedOrder;
+  if (['CANCELLED', 'DELIVERED'].includes(order.status)) {
+    throw new BadRequestException('Pedido finalizado');
   }
 
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+  });
+
+  if (!user?.branchId) {
+    throw new ForbiddenException('Sem filial');
+  }
+
+  // 🔥 SOMENTE EDITA PAGAMENTOS
+  await prisma.orderPayment.deleteMany({ where: { orderId } });
+
+  await prisma.orderPayment.createMany({
+    data: payments.map((p) => ({
+      orderId,
+      paymentMethodId: p.paymentMethodId,
+      type: p.type,
+      amount: p.amount,
+      amountGiven: p.amountGiven,
+      change: p.change ?? 0,
+    })),
+  });
+
+  const paidAmount = payments.reduce((s, p) => s + p.amount, 0);
+
+  const updated = await prisma.order.update({
+    where: { id: orderId },
+    data: {
+      paidAmount,
+      // ❌ NÃO ALTERA STATUS AQUI
+    },
+    include: {
+      payments: true,
+      customer: true,
+      customerAddress: true,
+     items: {
+            include: {
+              product: true,
+            },
+          },
+        },
+  });
+
+  this.webSocketGateway.emitOrderUpdate(updated);
+
+  return updated;
+}
+
   async markOrderAsPaid(orderId: string, userId: string) {
+  return await prisma.$transaction(async (tx) => {
     const order = await this.findOne(orderId, userId);
 
     if (order.status === 'CANCELLED') {
@@ -1137,8 +880,7 @@ export class OrdersService {
       throw new BadRequestException('Pedido já está marcado como pago');
     }
 
-    // Buscar usuário para obter branchId
-    const user = await prisma.user.findUnique({
+    const user = await tx.user.findUnique({
       where: { id: userId },
     });
 
@@ -1146,8 +888,8 @@ export class OrdersService {
       throw new ForbiddenException('Usuário não está associado a uma filial');
     }
 
-    // Verificar se existe caixa aberto para este usuário
-    let openCashSession = await prisma.cashSession.findFirst({
+    // 🚨 NÃO abre caixa automático (melhor prática)
+    const openCashSession = await tx.cashSession.findFirst({
       where: {
         branchId: user.branchId,
         openedBy: userId,
@@ -1155,41 +897,16 @@ export class OrdersService {
       },
     });
 
-    // Se não houver caixa aberto, abrir automaticamente com saldo anterior
+
     if (!openCashSession) {
-      const lastClosedCashSession = await prisma.cashSession.findFirst({
-        where: {
-          branchId: user.branchId,
-          status: 'CLOSED',
-        },
-        orderBy: { closedAt: 'desc' },
-      });
-
-      const previousBalance = lastClosedCashSession?.closingAmount ?? 0;
-
-      openCashSession = await prisma.cashSession.create({
-        data: {
-          branchId: user.branchId,
-          openedBy: userId,
-          status: 'OPEN',
-          openingAmount: previousBalance,
-          notes: 'Abertura automática ao marcar pedido como pago',
-        },
-      });
-
-      await prisma.cashMovement.create({
-        data: {
-          cashSessionId: openCashSession.id,
-          type: CashMovementType.DEPOSIT,
-          amount: previousBalance,
-          userId: userId,
-          paymentMethod: PaymentMethodType.CASH,
-          description: 'Abertura automática - saldo anterior mantido',
-        },
+      throw new BadRequestException({
+        message: 'Nenhuma sessão de caixa aberta. Por favor, abra uma sessão para marcar o pedido como pago.',
+        action: 'OPEN_CASH_SESSION_REQUIRED',
       });
     }
 
-    const updatedOrder = await prisma.order.update({
+    // Atualiza pedido
+    const updatedOrder = await tx.order.update({
       where: { id: orderId },
       data: {
         paymentStatus: 'PAID',
@@ -1197,13 +914,6 @@ export class OrdersService {
       },
       include: {
         payments: true,
-        customer: true,
-        customerAddress: true,
-        items: {
-          include: {
-            product: true,
-          },
-        },
         billSplit: {
           include: {
             persons: {
@@ -1216,400 +926,306 @@ export class OrdersService {
       },
     });
 
-    // Registrar movimentações de caixa para esta marcação como pago
-    // Se existirem pagamentos associados ao pedido, usa cada um (suporta múltiplos pagamentos/divisão)
+    // 🚨 Proteção contra duplicidade
+    const alreadyExists = await tx.cashMovement.findFirst({
+      where: {
+        orderId,
+        type: CashMovementType.SALE,
+      },
+    });
+
+    if (alreadyExists) {
+      return updatedOrder;
+    }
+
+    // 🔄 Coleta pagamentos corretamente (USANDO updatedOrder)
     const directPayments =
-      (order as any).payments && (order as any).payments.length > 0
-        ? (order as any).payments.map((p: any) => ({
+      updatedOrder.payments?.length > 0
+        ? updatedOrder.payments.map((p: any) => ({
             amount: p.amount,
-            method: p.type || p.paymentMethod || 'CASH',
+            method: p.type,
           }))
         : [];
 
-    const splitPayments =
-      (order as any).billSplit?.persons?.length > 0
-        ? (order as any).billSplit.persons
-            .flatMap((person: any) => person.payments || [])
-            .map((p: any) => ({
-              amount: p.amount,
-              method: p.type || p.paymentMethod || 'CASH',
-            }))
-        : [];
+  const splitPersons = updatedOrder.billSplit?.persons ?? [];
 
-    // Evitar duplicidade: se existe billSplit, usar apenas os pagamentos do split;
-    // senão, usar pagamentos diretos; senão, fallback para total.
-    const paymentsForMovement =
-      splitPayments.length > 0
-        ? splitPayments
-        : directPayments.length > 0
-          ? directPayments
-          : [
-              {
-                amount: order.total,
-                method: (order as any).paymentMethod || 'CASH',
-              },
-            ];
+  const splitPayments = splitPersons.flatMap((person: any) =>
+    (person.payments ?? []).map((p: any) => ({
+      amount: p.amount,
+      method: p.type,
+    }))
+  );
 
+   const fallbackPaymentMethod =
+  directPayments[0]?.method ??
+  splitPayments[0]?.method ??
+  PaymentMethodType.CASH;
+
+const paymentsForMovement =
+  splitPayments.length > 0
+    ? splitPayments
+    : directPayments.length > 0
+    ? directPayments
+    : [
+        {
+          amount: updatedOrder.total,
+          method: fallbackPaymentMethod,
+        },
+      ];
+
+    // 🔧 Normalizador
     const normalizePaymentMethod = (method: any): PaymentMethodType => {
       const value = String(method || '').toLowerCase();
 
       if (['pix'].includes(value)) return PaymentMethodType.PIX;
       if (['dinheiro', 'cash'].includes(value)) return PaymentMethodType.CASH;
-      if (['credito', 'crédito', 'credit', 'credit_card', 'cartão de crédito', 'cartao de credito'].includes(value))
+      if (
+        [
+          'credito',
+          'crédito',
+          'credit',
+          'credit_card',
+          'cartão de crédito',
+        ].includes(value)
+      )
         return PaymentMethodType.CREDIT;
-      if (['debito', 'débito', 'debit', 'debit_card', 'cartão de débito', 'cartao de debito'].includes(value))
+      if (
+        [
+          'debito',
+          'débito',
+          'debit',
+          'debit_card',
+          'cartão de débito',
+        ].includes(value)
+      )
         return PaymentMethodType.DEBIT;
       if (['online'].includes(value)) return PaymentMethodType.ONLINE;
 
-      // fallback seguro
       return PaymentMethodType.CASH;
     };
 
+    // 💰 Criar TODAS as movimentações (🔥 aqui está a correção)
     for (const payment of paymentsForMovement) {
-      // REGRA CRÍTICA: Só cria movimento SALE se for pagamento em DINHEIRO
       const paymentMethod = normalizePaymentMethod(payment.method);
-      
-      if (paymentMethod === PaymentMethodType.CASH) {
-        await prisma.cashMovement.create({
-          data: {
-            cashSessionId: openCashSession!.id,
-            type: CashMovementType.SALE,
-            amount: payment.amount,
-            userId: userId,
-            orderId: orderId,
-            paymentMethod: paymentMethod,
-            description: `Pedido marcado como pago #${order.orderNumber || orderId.slice(0, 8)} - ${payment.method}`,
-          },
-        });
-      }
-      // Para pagamentos não-dinheiro (cartão, pix, etc.), NÃO cria movimento de caixa
-      // pois não afetam o caixa físico
-    }
 
-    // Emitir evento WebSocket
-    this.webSocketGateway.emitOrderUpdate(updatedOrder);
+      const affectsCash = paymentMethod === PaymentMethodType.CASH;
 
-    // 🖨️ Imprimir pedido automaticamente se estiver pago
-    if (updatedOrder.paymentStatus === 'PAID') {
-      const branch = await prisma.branch.findUnique({
-        where: { id: user.branchId! },
-        include: { company: true },
+      await tx.cashMovement.create({
+        data: {
+          cashSessionId: openCashSession.id,
+          type: CashMovementType.SALE,
+          amount: payment.amount,
+          userId: userId,
+          orderId: orderId,
+          paymentMethod: paymentMethod,
+          description: `Pedido #${
+            order.orderNumber || orderId.slice(0, 8)
+          } - ${paymentMethod}`,
+        },
       });
-      await this.printerService.printOrderIfPaid(updatedOrder, branch);
     }
 
     return updatedOrder;
-  }
+  });
+}
 
   async testPrint(order: any, branch: any): Promise<void> {
     await this.printerService.printOrder(order, branch);
   }
 
+  
   async generateRandomOrders(userId: string, count: number = 100) {
-    // Verificar se o usuário existe e tem acesso à filial
+    const randomEnum = <T extends object>(e: T): T[keyof T] => {
+      const values = Object.values(e);
+      return values[Math.floor(Math.random() * values.length)];
+    };
+
     const user = await prisma.user.findUnique({
       where: { id: userId },
       include: { branch: true },
     });
 
-    if (!user) {
-      throw new NotFoundException('Usuário não encontrado');
-    }
+  if (!user?.branchId) {
+    throw new ForbiddenException('Usuário não está associado a uma filial');
+  }
 
-    if (!user.branchId) {
-      throw new ForbiddenException('Usuário não está associado a uma filial');
-    }
+  const branchId = user.branchId;
 
-    const branchId = user.branchId;
+  const customers = await prisma.customer.findMany({ where: { branchId } });
 
-    // Buscar clientes da branch
-    const customers = await prisma.customer.findMany({
-      where: { branchId },
-    });
+  const products = await prisma.product.findMany({
+    where: { branchId, active: true },
+  });
 
-    if (customers.length === 0) {
-      throw new BadRequestException('Nenhum cliente encontrado na filial');
-    }
+  const branchPaymentMethods = await prisma.branchPaymentMethod.findMany({
+    where: { branchId },
+    include: { paymentMethod: true },
+  });
 
-    // Buscar produtos ativos da branch
-    const products = await prisma.product.findMany({
-      where: { 
-        branchId,
-        active: true,
-      },
-    });
+  const paymentMethods = branchPaymentMethods.map((bpm) => bpm.paymentMethod);
 
-    if (products.length === 0) {
-      throw new BadRequestException('Nenhum produto encontrado na filial');
-    }
+  if (!products.length) throw new BadRequestException('Sem produtos');
+  if (!paymentMethods.length) throw new BadRequestException('Sem pagamentos');
 
-    // Buscar métodos de pagamento da branch
-    const branchPaymentMethods = await prisma.branchPaymentMethod.findMany({
-      where: { branchId },
-      include: { paymentMethod: true },
-    });
+  const deliveryTypes: DeliveryType[] = ['PICKUP', 'DELIVERY', 'DINE_IN'];
+  const statuses: OrderStatus[] = [
+    'PENDING',
+    'CONFIRMED',
+    'PREPARING',
+    'READY',
+    'DELIVERING',
+    'DELIVERED',
+  ];
 
-    if (branchPaymentMethods.length === 0) {
-      throw new BadRequestException('Nenhum método de pagamento encontrado na filial');
-    }
+  const lastOrder = await prisma.order.findFirst({
+    where: { branchId },
+    orderBy: { orderNumber: 'desc' },
+    select: { orderNumber: true },
+  });
 
-    const paymentMethods = branchPaymentMethods.map(bpm => bpm.paymentMethod);
+  let currentOrderNumber = (lastOrder?.orderNumber ?? 0) + 1;
 
-    // Tipo para itens do pedido
-    interface OrderItemInput {
-      productId: string;
-      quantity: number;
-      price: number;
-      notes?: string;
-    }
+  const createdOrders: any[] = [];
 
-    // Obter o último orderNumber
-    const lastOrder = await prisma.order.findFirst({
-      where: { branchId },
-      orderBy: { orderNumber: 'desc' },
-      select: { orderNumber: true },
-    });
+  const batchSize = 50;
 
-    let currentOrderNumber = lastOrder?.orderNumber ? lastOrder.orderNumber + 1 : 1;
+  for (let batch = 0; batch < Math.ceil(count / batchSize); batch++) {
+    const start = batch * batchSize;
+    const end = Math.min(start + batchSize, count);
 
-    // Opções para sorteio
-    const deliveryTypes: DeliveryType[] = ['PICKUP', 'DELIVERY', 'DINE_IN'];
-    const statuses: OrderStatus[] = ['PENDING', 'CONFIRMED', 'PREPARING', 'READY', 'DELIVERING', 'DELIVERED'];
-    const paymentStatuses = ['PENDING', 'PAID'];
+    const batchOrders = await prisma.$transaction(
+      async (tx) => {
+        const result: any[] = [];
 
-    // ========================================
-    // ANÁLISE DE PEDIDOS EXISTENTES PARA PREENCHER LACUNAS
-    // ========================================
-    const today = new Date();
-    today.setHours(23, 59, 59, 999); // Final do dia de hoje
-
-    // Definir período de análise: últimos 180 dias (6 meses)
-    const startDate = new Date(today);
-    startDate.setDate(startDate.getDate() - 180);
-    startDate.setHours(0, 0, 0, 0);
-
-    // Buscar pedidos existentes no período
-    const existingOrders = await prisma.order.findMany({
-      where: {
-        branchId,
-        createdAt: {
-          gte: startDate,
-          lte: today,
-        },
-      },
-      select: {
-        createdAt: true,
-      },
-    });
-
-    // Agrupar pedidos por dia para identificar lacunas
-    const ordersByDay = new Map<string, number>();
-    const oneDayMs = 24 * 60 * 60 * 1000;
-    
-    // Inicializar todos os dias com 0 pedidos
-    for (let date = new Date(startDate); date <= today; date.setDate(date.getDate() + 1)) {
-      const dateKey = date.toISOString().split('T')[0];
-      ordersByDay.set(dateKey, 0);
-    }
-
-    // Contar pedidos existentes por dia
-    existingOrders.forEach(order => {
-      const dateKey = order.createdAt.toISOString().split('T')[0];
-      ordersByDay.set(dateKey, (ordersByDay.get(dateKey) || 0) + 1);
-    });
-
-    // Calcular média de pedidos por dia
-    const totalDays = ordersByDay.size;
-    const totalExistingOrders = existingOrders.length;
-    const avgOrdersPerDay = totalExistingOrders / totalDays;
-
-    // Criar array de datas com pesos (mais peso para dias com poucos pedidos)
-    const weightedDates: Date[] = [];
-    const daysArray = Array.from(ordersByDay.entries());
-
-    daysArray.forEach(([dateKey, orderCount]) => {
-      const date = new Date(dateKey);
-      
-      // Calcular peso: dias com menos pedidos têm maior peso
-      // Se o dia tem 0 pedidos, peso muito alto
-      // Se tem menos que a média, peso moderado
-      // Se tem mais que a média, peso baixo
-      let weight = 1;
-      if (orderCount === 0) {
-        weight = 10; // Prioridade alta para dias sem pedidos
-      } else if (orderCount < avgOrdersPerDay * 0.5) {
-        weight = 5; // Prioridade média para dias com poucos pedidos
-      } else if (orderCount < avgOrdersPerDay) {
-        weight = 2; // Prioridade baixa para dias abaixo da média
-      } else {
-        weight = 0.5; // Prioridade muito baixa para dias acima da média
-      }
-
-      // Adicionar a data multiple vezes baseado no peso
-      const occurrences = Math.ceil(weight);
-      for (let i = 0; i < occurrences; i++) {
-        weightedDates.push(new Date(date));
-      }
-    });
-
-    // Se não houver datas suficientes (poucos dias no período), usar distribuição uniforme
-    if (weightedDates.length === 0) {
-      for (let date = new Date(startDate); date <= today; date.setDate(date.getDate() + 1)) {
-        weightedDates.push(new Date(date));
-      }
-    }
-
-    // Embaralhar as datas ponderadas
-    weightedDates.sort(() => Math.random() - 0.5);
-
-    // ========================================
-    // GERAR PEDIDOS ALEATÓRIOS
-    // ========================================
-    const batchSize = 50;
-    const createdOrders: any[] = [];
-    let dateIndex = 0;
-
-    for (let batch = 0; batch < Math.ceil(count / batchSize); batch++) {
-      const startIdx = batch * batchSize;
-      const endIdx = Math.min(startIdx + batchSize, count);
-      const batchCount = endIdx - startIdx;
-
-      const batchOrders = await prisma.$transaction(
-        async (tx) => {
-          const orders: any[] = [];
-
-          for (let i = startIdx; i < endIdx; i++) {
-            // Sortear cliente (20% chance de não ter cliente)
-            const customer = Math.random() > 0.2
+        for (let i = start; i < end; i++) {
+          const customer =
+            Math.random() > 0.2
               ? customers[Math.floor(Math.random() * customers.length)]
               : null;
 
-            // Sortear deliveryType
-            const deliveryType = deliveryTypes[Math.floor(Math.random() * deliveryTypes.length)];
+          const deliveryType =
+            deliveryTypes[Math.floor(Math.random() * deliveryTypes.length)];
 
-            // Sortear 1-5 produtos
-            const numProducts = Math.floor(Math.random() * 5) + 1;
-            const selectedProducts: OrderItemInput[] = [];
-            const shuffledProducts = [...products].sort(() => Math.random() - 0.5);
+          const shuffled = [...products].sort(() => Math.random() - 0.5);
 
-            for (let j = 0; j < numProducts; j++) {
-              const product = shuffledProducts[j];
-              const quantity = Math.floor(Math.random() * 5) + 1; // 1-5
-              selectedProducts.push({
-                productId: product.id,
-                quantity,
-                price: product.price,
-                notes: undefined,
-              });
-            }
+          const itemsCount = Math.floor(Math.random() * 4) + 1;
 
-            // Calcular total e subtotal
-            const subtotal = selectedProducts.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-            const deliveryFee = deliveryType === 'DELIVERY' ? Math.floor(Math.random() * 1000) + 500 : 0; // 5-15 reais se delivery
-            const serviceFee = deliveryType === 'DINE_IN' ? Math.floor(subtotal * 0.1) : 0; // 10% se dine-in
-            const discount = Math.random() > 0.7 ? Math.floor(Math.random() * 500) : 0; // 30% chance de desconto
-            const total = subtotal + deliveryFee + serviceFee - discount;
+          const items = shuffled.slice(0, itemsCount).map((p) => ({
+            productId: p.id,
+            quantity: Math.floor(Math.random() * 3) + 1,
+            price: p.price,
+          }));
 
-            // Selecionar data ponderada (nunca após hoje)
-            const baseDate = weightedDates[dateIndex % weightedDates.length];
-            const createdAt = new Date(baseDate);
-            
-            // Adicionar hora aleatória
-            createdAt.setHours(
-              Math.floor(Math.random() * 22), // 0-21 (evitar meia-noite)
-              Math.floor(Math.random() * 60),
-              Math.floor(Math.random() * 60),
-              Math.floor(Math.random() * 1000)
-            );
+          const subtotal = items.reduce(
+            (s, it) => s + it.price * it.quantity,
+            0,
+          );
 
-            // Garantir que a data não seja após hoje
-            if (createdAt > today) {
-              createdAt.setTime(today.getTime());
-            }
+          const deliveryFee = deliveryType === 'DELIVERY' ? 500 : 0;
+          const serviceFee = deliveryType === 'DINE_IN' ? subtotal * 0.1 : 0;
+          const discount = Math.random() > 0.7 ? 300 : 0;
 
-            dateIndex++;
+          const total = subtotal + deliveryFee + serviceFee - discount;
 
-            // Sortear status (80% chance de ser entregue)
-            const status = Math.random() > 0.2
+          const createdAt = new Date(
+            Date.now() - Math.random() * 1000 * 60 * 60 * 24 * 180,
+          );
+
+          const status =
+            Math.random() > 0.2
               ? 'DELIVERED'
               : statuses[Math.floor(Math.random() * statuses.length)];
 
-            // Sortear paymentStatus
-            const paymentStatus = status === 'DELIVERED' ? 'PAID' : paymentStatuses[Math.floor(Math.random() * paymentStatuses.length)];
+          const isPaid = status === 'DELIVERED';
 
-            // Sortear paymentMethod
-            const paymentMethod = paymentMethods[Math.floor(Math.random() * paymentMethods.length)];
+          const order = await tx.order.create({
+            data: {
+              orderNumber: currentOrderNumber,
+              status,
+              deliveryType,
+              paymentStatus: isPaid ? 'PAID' : 'PENDING',
+              paidAmount: isPaid ? total : 0,
+              channel:
+                Math.random() > 0.7
+                  ? OrderChannel.ONLINE
+                  : Math.random() > 0.5
+                    ? OrderChannel.PDV
+                    : OrderChannel.WAITER,
 
-            // Criar pedido seguindo o padrão do método create
-            const order = await tx.order.create({
+              serviceType:
+                Math.random() > 0.5
+                  ? ServiceType.TABLE
+                  : Math.random() > 0.5
+                    ? ServiceType.TAKEAWAY
+                    : ServiceType.COMANDA,
+
+              customerType: customer
+                ? CustomerType.REGISTERED
+                : CustomerType.GUEST,
+              subtotal,
+              total,
+              deliveryFee,
+              serviceFee,
+              discount,
+
+              branchId,
+              userId,
+
+              customerId: customer?.id, // ✅ sem null
+              createdAt,
+
+              items: {
+                create: items.map((it) => ({
+                  productId: it.productId,
+                  quantity: it.quantity,
+                  price: it.price,
+                })),
+              },
+            },
+          });
+
+          if (isPaid) {
+            const pm =
+              paymentMethods[
+                Math.floor(Math.random() * paymentMethods.length)
+              ];
+
+            await tx.orderPayment.create({
               data: {
-                orderNumber: currentOrderNumber,
-                status: status as OrderStatus,
-                deliveryType: deliveryType,
-                paymentStatus,
-                paidAmount: paymentStatus === 'PAID' ? total : 0,
-                total: money(total),
-                subtotal: money(subtotal),
-                deliveryFee: money(deliveryFee),
-                serviceFee: money(serviceFee),
-                discount: money(discount),
-                customerId: customer?.id || null,
-                branchId,
-                userId: userId,
-                createdAt,
-                items: {
-                  create: selectedProducts.map((item) => ({
-                    productId: item.productId,
-                    quantity: item.quantity,
-                    price: money(item.price),
-                    notes: item.notes || null,
-                    preparationStatus: 'PENDING',
-                    dispatchStatus: 'PENDING',
-                  })),
-                },
+                orderId: order.id,
+                type: pm.type,
+                paymentMethodId: pm.id,
+                amount: total,
+                status: 'PAID',
+                change:
+                  pm.type === 'CASH'
+                    ? Math.floor(Math.random() * 300)
+                    : 0,
               },
             });
-
-            // Criar pagamento se o pedido estiver pago
-            if (paymentStatus === 'PAID') {
-              await tx.orderPayment.create({
-                data: {
-                  orderId: order.id,
-                  type: paymentMethod.type as PaymentMethodType,
-                  amount: total,
-                  status: 'PAID',
-                  paymentMethodId: paymentMethod.id,
-                  change: paymentMethod.type === 'CASH' ? Math.floor(Math.random() * 500) : 0,
-                },
-              });
-            }
-
-            orders.push(order);
-            currentOrderNumber++;
           }
 
-          return orders;
-        },
-        { timeout: 30000 } // 30 segundos por lote
-      );
+          result.push(order);
+          currentOrderNumber++;
+        }
 
-      createdOrders.push(...batchOrders);
-    }
-
-    for(const item of createdOrders) {
-       const fullCreatedOrder = await this.findOne(item.id, userId);
-    await this.webSocketGateway.emitOrderUpdate(fullCreatedOrder, 'order:created');
-
-    }
-
-    return {
-      message: `Gerados ${count} pedidos aleatórios com sucesso (preenchendo lacunas no histórico)`,
-      orders: createdOrders.length,
-      analysis: {
-        periodDays: totalDays,
-        existingOrders: totalExistingOrders,
-        avgOrdersPerDay: Math.round(avgOrdersPerDay * 100) / 100,
+        return result;
       },
-    };
+      { timeout: 30000 },
+    );
+
+    createdOrders.push(...batchOrders);
   }
+
+  // 🚀 Websocket (otimizado)
+  for (const order of createdOrders) {
+    const full = await this.findOne(order.id, userId);
+    this.webSocketGateway.emitOrderUpdate(full, 'order:created');
+  }
+
+  return {
+    message: `Gerados ${count} pedidos`,
+    orders: createdOrders.length,
+  };
+}
 }

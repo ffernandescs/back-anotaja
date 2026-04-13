@@ -98,14 +98,14 @@ export class OrdersController {
     return this.ordersService.remove(id, req.user.userId);
   }
 
-  @Post(':orderId/payment')
+  @Patch(':orderId/payments')
   async addPayment(
     @Param('orderId') orderId: string,
-    @Body() dto: CreatePaymentDto,
+    @Body() dto: CreatePaymentDto | CreatePaymentDto[],
     @Req() req: RequestWithUser,
   ) {
     const userId = req.user.userId;
-    return this.ordersService.addPayment(orderId, dto, userId);
+    return this.ordersService.updateOrderPayments(orderId, dto, userId);
   }
 
   @Patch(':orderId/mark-paid')

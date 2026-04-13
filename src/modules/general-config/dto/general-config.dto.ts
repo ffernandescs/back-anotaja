@@ -127,6 +127,10 @@ export class CreateGeneralConfigDto {
   @IsOptional()
   @IsBoolean()
   autoCompleteOrders?: boolean = false;
+
+  @IsOptional()
+  @IsBoolean()
+  allowSplitPayment?: boolean = false;
 }
 
 export class UpdateGeneralConfigDto extends CreateGeneralConfigDto {}

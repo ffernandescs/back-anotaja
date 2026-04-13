@@ -1,3 +1,4 @@
+import { CustomerType, OrderChannel, ServiceType } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   IsArray,
@@ -10,26 +11,9 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { DeliveryTypeDto, OrderStatusDto } from 'src/modules/orders/dto/create-order-item.dto';
+import { CreateOrderItemDto, DeliveryTypeDto, OrderStatusDto } from 'src/modules/orders/dto/create-order-item.dto';
 
-class PaymentDto {
-  @IsEnum([
-    'CASH',
-    'CREDIT_CARD',
-    'DEBIT_CARD',
-    'PIX',
-    'ONLINE',
-    'MEAL_VOUCHER',
-  ])
-  type!: string;
 
-  @IsNumber()
-  @Min(0, { message: 'O valor do pagamento deve ser maior ou igual a zero' })
-  amount!: number;
-
-  @IsString()
-  paymentMethodId!: string;
-}
 
 export enum PaymentTypeDto {
   CASH = 'CASH',
@@ -68,25 +52,7 @@ export class OrderItemComplementDto {
 }
 
 // Item do pedido
-export class CreateOrderItemDto {
-  @IsString()
-  @IsNotEmpty()
-  productId!: string;
 
-  @IsInt()
-  @Min(1)
-  quantity!: number;
-
-  @IsOptional()
-  @IsString()
-  notes?: string;
-
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => OrderItemComplementDto)
-  complements?: OrderItemComplementDto[];
-}
 
 // Pagamento
 export class OrderPaymentDto {
@@ -98,7 +64,7 @@ export class OrderPaymentDto {
   paymentMethodId!: string;
 
   @IsNumber()
-  @Min(0, { message: 'O valor do pagamento deve ser maior ou igual a zero' })
+  @Min(0)
   amount!: number;
 
   @IsOptional()
@@ -121,13 +87,20 @@ export class CreateStoreOrderDto {
   @IsEnum(DeliveryTypeDto)
   deliveryType!: DeliveryTypeDto;
 
+  // =====================================================
+  // 🧠 NOVO MODELO
+  // =====================================================
+
   @IsOptional()
-  @IsString()
-  customerId?: string;
+  @IsEnum(ServiceType)
+  serviceType?: ServiceType;
+  // =====================================================
+  // CUSTOMER (OPCIONAL AGORA CONTROLADO PELO TYPE)
+  // =====================================================
 
   @IsOptional()
   @IsString()
-  addressId?: string;
+  customerId?: string;
 
   @IsOptional()
   @IsString()
@@ -135,32 +108,43 @@ export class CreateStoreOrderDto {
 
   @IsOptional()
   @IsString()
+  addressId?: string;
+
+  @IsOptional()
+  @IsString()
   couponId?: string;
 
-  // Items do pedido
+  // =====================================================
+  // ITEMS
+  // =====================================================
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CreateOrderItemDto)
   items!: CreateOrderItemDto[];
 
-  // Pagamentos
+  // =====================================================
+  // PAYMENTS
+  // =====================================================
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => OrderPaymentDto)
   payments!: OrderPaymentDto[];
 
-  // Troco (apenas para pagamento em dinheiro)
+  // =====================================================
+  // OPTIONAL FIELDS
+  // =====================================================
+
   @IsOptional()
   @IsInt()
   @Min(0)
   change?: number;
 
-  // Observações gerais do pedido
   @IsOptional()
   @IsString()
   notes?: string;
 
-  // Desconto manual (em centavos)
   @IsOptional()
   @IsInt()
   @Min(0)
