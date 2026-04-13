@@ -1,13 +1,12 @@
 import { IsString, IsOptional, IsArray, IsEnum, IsBoolean, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
-import { Action, Subject } from '../../../ability/types/ability.types';
 
 class PermissionDto {
-  @IsEnum(Action)
-  action!: Action;
+  @IsString()
+  action!: string;
 
-  @IsEnum(Subject)
-  subject!: Subject;
+  @IsString()
+  subject!: string;
 
   @IsOptional()
   @IsBoolean()

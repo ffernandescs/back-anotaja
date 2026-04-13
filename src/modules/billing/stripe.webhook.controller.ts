@@ -11,12 +11,13 @@ import { StripeService } from './stripe.service';
 import { prisma } from '../../../lib/prisma';
 import Stripe from 'stripe';
 import { Public } from 'src/common/decorators/public.decorator';
+import { BillingOrchestratorService } from './orchestrator/billing-orchestrator.service';
 
 @Controller('stripe-billing/webhook')
 @Public()
 export class StripeWebhookController {
   private readonly logger = new Logger(StripeWebhookController.name);
-  constructor(private stripeService: StripeService) {}
+  constructor(private stripeService: StripeService, private billingOrchestrator: BillingOrchestratorService,) {}
 
   @Post()
   async handle(
@@ -186,6 +187,9 @@ export class StripeWebhookController {
       const invoice = event.data.object;
       this.logger.log(
         `invoice.payment_succeeded recebido para subscriptionId=${invoice.subscription}`,
+      );
+      await this.billingOrchestrator.applyPendingPlanIfNeeded(
+        invoice.subscription as string,
       );
 
       if (invoice.subscription) {
@@ -360,17 +364,20 @@ export class StripeWebhookController {
           this.logger.log(`Atualizando permissões do grupo: ${group.name} (${group.id})`);
 
           // Deletar permissões antigas
-          await prisma.permission.deleteMany({
-            where: { groupId: group.id },
+         await prisma.permission.deleteMany({
+            where: {
+              groupId: group.id,
+              source: 'PLAN',
+            },
           });
-
           // Criar novas permissões baseadas no plano
           await prisma.permission.createMany({
-            data: newPermissions.map(perm => ({
+            data: newPermissions.map((perm) => ({
               groupId: group.id,
               action: perm.action,
               subject: perm.subject,
               inverted: perm.inverted,
+              source: 'PLAN',
             })),
           });
 

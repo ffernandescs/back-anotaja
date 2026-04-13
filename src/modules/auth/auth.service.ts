@@ -8,19 +8,16 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { securityConfig } from '../../../src/config/security.config';
-import { getPlanLimits } from '../../ability/factory/plan-rules';
-import { PlanType } from '../../ability/types/ability.types';
 import { prisma } from '../../../lib/prisma';
 import { MailService } from '../mail/mail.service';
 import { UsersService } from '../users/users.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RegisterDto } from './dto/register.dto';
-import { AbilityLoaderService } from '../../ability/factory/ability-loader.service';
-import { MenuService } from '../../ability/factory/menu.service';
-import { AbilityFactory } from '../../ability/factory/ability.factory';
 import { PaymentMethodsService } from '../payment-methods/payment-methods.service';
 import { SubscriptionService } from '../subscription/subscription.service';
+import { AbilitiesResolver } from '../abilities/abilities.resolver';
+import { MenuBuilderService } from '../abilities/menu-builder.service';
 
 const OTP_EXPIRES_IN_MINUTES = Number(process.env.OTP_EXPIRES_IN_MINUTES ?? 10);
 
@@ -30,11 +27,10 @@ export class AuthService {
     private usersService: UsersService,
     private jwtService: JwtService,
     private mailService: MailService,
-    private abilityLoaderService: AbilityLoaderService,
-    private menuService: MenuService,
-    private abilityFactory: AbilityFactory,
     private paymentMethodsService: PaymentMethodsService,
     private subscriptionService: SubscriptionService,
+    private abilitiesResolver: AbilitiesResolver,
+    private menuBuilder: MenuBuilderService
   ) {}
 
   private async sendResetEmail(email: string, otp: string) {
@@ -78,7 +74,16 @@ export class AuthService {
 
     // pedidos pendentes (mantive seu código)
     let pendingOrders: any[] = [];
+
+    const abilities = await this.abilitiesResolver.resolveUserAbility(user);
+    const menu = await this.menuBuilder.build(user, abilities);
+
+
+    
+ 
     if (user.branchId) {
+     
+
       pendingOrders = await prisma.order.findMany({
         where: {
           branchId: user.branchId,
@@ -110,7 +115,8 @@ export class AuthService {
         companyId: user.companyId || undefined,
         branchId: user.branchId || undefined,
         permission: user.permissions,
-
+        abilities,
+        menu,
       },
       pendingOrders,
     };
@@ -347,8 +353,10 @@ export class AuthService {
       throw new NotFoundException('Usuário não encontrado');
     }
 
+   
     // Se usuário não tem branchId, buscar a primeira branch da empresa
     if (!user.branchId && user.companyId) {
+     
       const firstBranch = await prisma.branch.findFirst({
         where: { companyId: user.companyId },
         include: {
@@ -367,7 +375,11 @@ export class AuthService {
 
     // Buscar pedidos pendentes da filial do usuário
     let pendingOrders: any[] = [];
+    const abilities = await this.abilitiesResolver.resolveUserAbility(user);
+    const menu = await this.menuBuilder.build(user, abilities);
+
     if (user.branchId) {
+     
       pendingOrders = await prisma.order.findMany({
         where: {
           branchId: user.branchId,
@@ -391,7 +403,6 @@ export class AuthService {
 
     // Carregar permissões do usuário (grupo + overrides)
     let permissions: any[] = [];
-    let menu: any[] = [];
     let subscriptionInfo = user.company?.subscription;
     let resourceCounts = {
       users: 0,
@@ -475,7 +486,6 @@ export class AuthService {
       };
 
       // 2. Obter o contexto para filtrar permissões pelo plano
-      const ctx = await this.abilityLoaderService.buildContext(user.id, user.companyId);
       
       // 3. Coletar permissões efetivas (grupo + overrides) filtradas pelo plano
       const effectivePermissions: any[] = [];
@@ -510,11 +520,7 @@ export class AuthService {
         userOverrides = user.permissions;
       }
       // ✅ Gerar menu baseado nas features do plano e permissões do usuário
-      menu = await this.menuService.generateMenuFromPlanFeatures(
-        ctx.tenant.planId,
-        ctx.tenant.addons,
-        effectivePermissions
-      );
+     
       // ✅ permissions no response = permissões efetivas (grupo + overrides)
       permissions = effectivePermissions;
 
@@ -554,7 +560,7 @@ export class AuthService {
       }
     } else {
       // Usuário sem company = menu vazio
-      menu = [];
+      
     }
 
     // ✅ Buscar métodos de pagamento globais (do master owner)
@@ -582,7 +588,6 @@ export class AuthService {
     let planLimits: any = null;
     if (subscriptionInfo) {
       try {
-        planLimits = await getPlanLimits(subscriptionInfo.plan.type as PlanType);
       } catch (error) {
         console.warn('Erro ao buscar limites do plano:', error);
         planLimits = null;
@@ -620,6 +625,7 @@ export class AuthService {
         invoices,
         menu,
         limits: planLimits,
+        abilities,
       },
     };
   }

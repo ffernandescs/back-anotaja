@@ -83,13 +83,7 @@ export class PlansController {
     return this.plansService.findActive();
   }
 
-  @Public()
-  @Get('features')
-  @UseGuards(JwtOwnerAuthGuard)
-  @Roles('master')
-  listAvailableFeatures() {
-    return this.plansService.listAvailableFeatures();
-  }
+
 
   @Public()
   @Get('featured')

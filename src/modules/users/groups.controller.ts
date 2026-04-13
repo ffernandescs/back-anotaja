@@ -3,8 +3,6 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { GroupsService } from './groups.service';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { UpdateGroupDto } from './dto/update-group.dto';
-import { CheckAbilities } from '../../ability/decorators/check-abilities.decorator';
-import { Action, Subject } from '../../ability/types/ability.types';
 
 interface RequestWithUser extends Request {
   user: {

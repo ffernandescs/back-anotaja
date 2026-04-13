@@ -39,12 +39,10 @@ import { CronModule } from './modules/cron/cron.module';
 import { StockModule } from './stock/stock.module';
 import { IngredientsModule } from './ingredients/ingredients.module';
 import { IngredientCategoriesModule } from './ingredient-categories/ingredient-categories.module';
-import { AbilitiesGuard, AbilityModule } from './ability';
 import { OwnerModule } from './modules/owner/owner.module';
 import { FeaturesModule } from './modules/features/features.module';
 import { AddonsModule } from './modules/addons/addons.module';
 import { LimitsModule } from './modules/limits/limits.module';
-import { AccessModule } from './access/access.module';
 import { MenuGroupsModule } from './modules/menu-groups/menu-groups.module';
 import { MasterModule } from './modules/master/master.module';
 import { PrinterModule } from './modules/printer/printer.module';
@@ -99,12 +97,10 @@ import { IntegrationsModule } from './modules/integrations/integrations.module';
     StockModule,
     IngredientsModule,
     IngredientCategoriesModule,
-    AbilityModule,
     OwnerModule,
     FeaturesModule,
     AddonsModule,
     LimitsModule,
-    AccessModule,
     MenuGroupsModule,
     MasterModule,
     PrinterModule,
@@ -122,7 +118,6 @@ import { IntegrationsModule } from './modules/integrations/integrations.module';
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
     },
-    { provide: APP_GUARD, useClass: AbilitiesGuard },
     {
       provide: APP_FILTER,
       useClass: CashRegisterFilter,

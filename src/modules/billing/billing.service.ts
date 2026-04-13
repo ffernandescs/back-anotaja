@@ -4,6 +4,7 @@ import Stripe from 'stripe';
 import { prisma } from '../../../lib/prisma';
 import { calculateStripeAmount } from '../../utils/calculateStripeAmount';
 import { StripeService } from './stripe.service';
+import { BillingOrchestratorService } from './orchestrator/billing-orchestrator.service';
 
 function mapBillingPeriodToStripeInterval(
   period: BillingPeriod,
@@ -19,142 +20,176 @@ function mapBillingPeriodToStripeInterval(
 
 @Injectable()
 export class BillingService {
-  constructor(private stripeService: StripeService) {}
+  constructor(private stripeService: StripeService, private billingOrchestrator: BillingOrchestratorService) {}
 
-  async createCheckout(planId: string, userId: string) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: { branch: true },
-    });
+ async createCheckout(planId: string, userId: string) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: { branch: true },
+  });
 
-    if (!user) {
-      throw new NotFoundException('Usuário não encontrado');
-    }
+  if (!user) throw new NotFoundException('Usuário não encontrado');
+  if (!user.companyId)
+    throw new NotFoundException('Usuário não está associado a uma empresa');
 
-    if (!user.companyId) {
-      throw new NotFoundException('Usuário não está associado a uma empresa');
-    }
-
-    const company = await prisma.company.findUnique({
-      where: { id: user.companyId },
-      include: {
-        subscription: {
-          include: {
-            plan: true,
-          },
+  const company = await prisma.company.findUnique({
+    where: { id: user.companyId },
+    include: {
+      subscription: {
+        include: {
+          plan: true,
         },
       },
-    });
+    },
+  });
 
-    if (!company) throw new NotFoundException('Empresa não encontrada');
+  if (!company) throw new NotFoundException('Empresa não encontrada');
 
-    const plan = await prisma.plan.findUnique({
-      where: { id: planId },
-    });
+  const plan = await prisma.plan.findUnique({
+    where: { id: planId },
+  });
 
-    if (!plan || !plan.active) {
-      throw new NotFoundException('Plano inválido');
-    }
+  if (!plan || !plan.active) {
+    throw new NotFoundException('Plano inválido');
+  }
 
-    /** 🔄 Verificar se tem subscription no Stripe e qual o status real */
-    if (company.subscription?.stripeSubscriptionId) {
-      try {
-        // Buscar status real da subscription no Stripe
-        const stripeSubscription = await this.stripeService.stripe.subscriptions.retrieve(
-          company.subscription.stripeSubscriptionId
+  const subscription = company.subscription;
+
+  /**
+   * 🔥 NOVA LÓGICA DE DECISÃO (UPGRADE / DOWNGRADE)
+   */
+  if (subscription?.stripeSubscriptionId && subscription.plan) {
+    const currentPlan = subscription.plan;
+
+    const isUpgrade = plan.price > currentPlan.price;
+    const isDowngrade = plan.price < currentPlan.price;
+
+    // 🧠 verificar se ainda está em trial
+    const now = new Date();
+    const isTrialActive =
+      subscription.trialEndsAt && subscription.trialEndsAt > now;
+
+    // 🚀 UPGRADE
+    if (isUpgrade) {
+      // Se estiver em trial → NÃO aplica ainda
+      if (isTrialActive) {
+        await this.billingOrchestrator.schedulePlanChange(
+          company.id,
+          plan.id,
         );
 
-        // Se está ativa ou em trial, SEMPRE criar novo checkout para mudança de plano
-        // O webhook processará a mudança e atualizará permissões apenas quando trial terminar
-        if (stripeSubscription.status === 'active' || stripeSubscription.status === 'trialing') {
-          console.log(`Subscription já existe (${stripeSubscription.status}), criando novo checkout para mudança de plano`);
-          // Continua para criar checkout session
-        }
-
-        // Se está cancelada, suspensa ou incompleta, criar nova subscription via checkout
-      } catch (error) {
-        console.error('Erro ao verificar subscription no Stripe:', error);
-        // Se falhar, continua para criar checkout session
+        return {
+          message:
+            'Upgrade agendado. Será aplicado após o término do trial.',
+        };
       }
+
+      // 🔥 upgrade imediato com proration
+      return await this.updateSubscriptionPlan(
+        subscription.stripeSubscriptionId,
+        plan,
+        company.id,
+      );
     }
 
-    // Se não tem subscription no Stripe ou está inativa, criar checkout session
+    // 🧊 DOWNGRADE
+    if (isDowngrade) {
+      await this.billingOrchestrator.schedulePlanChange(
+        company.id,
+        plan.id,
+      );
 
-    /** 1️⃣ Criar ou reutilizar customer */
-    let customerId = company.subscription?.stripeCustomerId;
-
-    if (!customerId) {
-      const customer = await this.stripeService.stripe.customers.create({
-        name: company.name,
-        email: company.email,
-        phone: company.phone,
-        metadata: {
-          companyId: company.id,
-        },
-      });
-
-      customerId = customer.id;
+      return {
+        message:
+          'Downgrade agendado para o próximo ciclo de cobrança.',
+      };
     }
 
-    /** 2️⃣ Criar Checkout Session respeitando trial existente */
-    // Usar trialEndsAt em vez de nextBillingDate/endDate para cálculo correto
-    const trialEndDate = company.subscription?.trialEndsAt;
-    const trialEndSeconds = trialEndDate ? Math.floor(new Date(trialEndDate).getTime() / 1000) : null;
-    const nowSeconds = Math.floor(Date.now() / 1000);
-    const shouldApplyTrial = trialEndSeconds && trialEndSeconds > nowSeconds;
-
-    const session = await this.stripeService.stripe.checkout.sessions.create({
-      mode: 'subscription',
-      customer: customerId,
-      payment_method_types: ['card'],
-      line_items: [
-        {
-          price_data: {
-            currency: 'brl',
-            product_data: {
-              name: plan.name,
-              ...(plan.description && { description: plan.description }),
-            },
-            unit_amount: calculateStripeAmount(plan.price, plan.discount),
-            recurring: {
-              interval: mapBillingPeriodToStripeInterval(plan.billingPeriod),
-            },
-          },
-          quantity: 1,
-        },
-      ],
-      success_url: `${process.env.FRONTEND_URL}/billing/success/{CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.FRONTEND_URL}/billing/error/{CHECKOUT_SESSION_ID}`,
-      metadata: {
-        companyId: company.id,
-        planId: plan.id,
-      },
-      subscription_data: shouldApplyTrial
-        ? {
-            trial_end: trialEndSeconds,
-            trial_settings: {
-              end_behavior: {
-                missing_payment_method: 'cancel',
-              },
-            },
-          }
-        : undefined,
-    });
-
-    /** 3️⃣ Atualizar apenas o stripeCustomerId (não muda o plano ainda) */
-    // O plano só será alterado após confirmação do pagamento via webhook
-    await prisma.subscription.update({
-      where: { companyId: company.id },
-      data: {
-        stripeCustomerId: customerId,
-      },
-    });
-
-    return { 
-      checkoutUrl: session.url,
-      message: 'Checkout criado. O plano será ativado após confirmação do pagamento.'
+    // 🔁 mesmo plano
+    return {
+      message: 'Você já está neste plano.',
     };
   }
+
+  /**
+   * 🔥 CASO NÃO TENHA SUBSCRIPTION → CHECKOUT NORMAL
+   */
+
+  let customerId = subscription?.stripeCustomerId;
+
+  if (!customerId) {
+    const customer = await this.stripeService.stripe.customers.create({
+      name: company.name,
+      email: company.email,
+      phone: company.phone,
+      metadata: {
+        companyId: company.id,
+      },
+    });
+
+    customerId = customer.id;
+  }
+
+  const trialEndDate = subscription?.trialEndsAt;
+  const trialEndSeconds = trialEndDate
+    ? Math.floor(new Date(trialEndDate).getTime() / 1000)
+    : null;
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const shouldApplyTrial = trialEndSeconds && trialEndSeconds > nowSeconds;
+
+  const session = await this.stripeService.stripe.checkout.sessions.create({
+    mode: 'subscription',
+    customer: customerId,
+    payment_method_types: ['card'],
+    line_items: [
+      {
+        price_data: {
+          currency: 'brl',
+          product_data: {
+            name: plan.name,
+            ...(plan.description && { description: plan.description }),
+          },
+          unit_amount: calculateStripeAmount(plan.price, plan.discount),
+          recurring: {
+            interval: mapBillingPeriodToStripeInterval(plan.billingPeriod),
+          },
+        },
+        quantity: 1,
+      },
+    ],
+    success_url: `${process.env.FRONTEND_URL}/billing/success/{CHECKOUT_SESSION_ID}`,
+    cancel_url: `${process.env.FRONTEND_URL}/billing/error/{CHECKOUT_SESSION_ID}`,
+    metadata: {
+      companyId: company.id,
+      planId: plan.id,
+    },
+    subscription_data: shouldApplyTrial
+      ? {
+          trial_end: trialEndSeconds,
+        }
+      : undefined,
+  });
+
+  await prisma.subscription.upsert({
+    where: { companyId: company.id },
+    update: {
+      stripeCustomerId: customerId,
+    },
+    create: {
+      companyId: company.id,
+      stripeCustomerId: customerId,
+      planId: plan.id,
+      status: 'PENDING',
+    },
+  });
+
+  return {
+    checkoutUrl: session.url,
+    message:
+      'Checkout criado. O plano será ativado após confirmação do pagamento.',
+  };
+}
 
   /**
    * Atualiza o plano de uma assinatura ativa (upgrade/downgrade)

@@ -9,66 +9,11 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import * as bcrypt from 'bcrypt';
 import { prisma } from '../../../lib/prisma';
 import { Prisma, User } from '@prisma/client';
-import { PlanType } from '../../ability/types/ability.types';
 
 /**
  * Busca limites do plano diretamente da tabela FeatureLimit (100% dinâmico e genérico)
  */
-async function getPlanLimits(planType: PlanType) {
-  // Primeiro buscar o plano para pegar o ID
-  const plan = await prisma.plan.findFirst({
-    where: { type: planType, active: true }
-  });
 
-  if (!plan) {
-    console.warn(`⚠️ Plano ${planType} não encontrado no banco`);
-    // ✅ Retornar objeto vazio - sem restrições
-    return {};
-  }
-
-  try {
-    // Buscar limites da tabela FeatureLimit
-    const featureLimits = await prisma.featureLimit.findMany({
-      where: { 
-        planId: plan.id,
-        isActive: true 
-      },
-      include: {
-        feature: {
-          select: { key: true, name: true }
-        }
-      }
-    });
-
-    if (featureLimits.length === 0) {
-      console.warn(`⚠️ Plano ${planType} não possui limites configurados na tabela FeatureLimit, sem restrições`);
-      // ✅ Retornar objeto vazio - sem restrições
-      return {};
-    }
-
-    // Montar objeto de limites genérico
-    const limits: any = {};
-    featureLimits.forEach(limit => {
-      limits[limit.featureKey] = {
-        featureKey: limit.featureKey,
-        name: limit.name,
-        description: limit.description,
-        maxValue: limit.maxValue,
-        unit: limit.unit,
-        isActive: limit.isActive,
-        createdAt: limit.createdAt,
-        updatedAt: limit.updatedAt
-      };
-    });
-
-    return limits;
-    
-  } catch (error) {
-    console.warn(`⚠️ Erro ao buscar limites do plano ${planType}:`, error);
-    // ✅ Retornar objeto vazio - sem restrições
-    return {};
-  }
-}
 
 @Injectable()
 export class UsersService {
@@ -102,8 +47,6 @@ export class UsersService {
       });
 
       if (company?.subscription?.plan) {
-        const planType = company.subscription.plan.type as PlanType;
-        const limits = await getPlanLimits(planType);
         
         const currentUsersCount = await prisma.user.count({
           where: { companyId: createUserDto.companyId }
@@ -111,18 +54,10 @@ export class UsersService {
 
         // Criar mapa de limites para validação (dinâmico do banco)
         const limitsMap = new Map<string, number>();
-        Object.entries(limits).forEach(([key, value]) => {
-          if (typeof value === 'number') {
-            limitsMap.set(key, value);
-          }
-        });
+        
         
 
-        if (currentUsersCount >= limits.maxUsers) {
-          throw new ForbiddenException(
-            `Limite de usuários atingido para o plano ${planType} (${limits.maxUsers}).`
-          );
-        }
+        
       }
     }
 
@@ -220,17 +155,7 @@ export class UsersService {
     const processedUsers = await Promise.all(
       users.map(async (user, index) => {
         if (user.active && user.companyId) {
-          const planType = user.company?.subscription?.plan?.type as PlanType;
-          if (planType) {
-            const limits = await getPlanLimits(planType);
-            
-            // Contar quantos usuários ATIVOS existem ANTES deste na lista (já ordenada por createdAt)
-            const activeUsersBefore = users.slice(0, index).filter(u => u.active).length;
-
-            if (activeUsersBefore >= limits.maxUsers) {
-              return { ...user, active: false, _excess: true };
-            }
-          }
+          
         }
         return user;
       })
@@ -265,24 +190,7 @@ export class UsersService {
 
     // Validar se o usuário deve estar ativo com base no limite do plano
     if (user.active && user.companyId) {
-      const planType = user.company?.subscription?.plan?.type as PlanType;
-      if (planType) {
-        const limits = await getPlanLimits(planType);
-        
-        // Contar quantos usuários ATIVOS foram criados ANTES deste (ordem de criação)
-        const activeUsersBeforeCount = await prisma.user.count({
-          where: { 
-            companyId: user.companyId,
-            active: true,
-            createdAt: { lt: user.createdAt }
-          }
-        });
-
-        if (activeUsersBeforeCount >= limits.maxUsers) {
-          // Este usuário excede o limite, deve ser considerado inativo
-          return { ...user, active: false, _excess: true };
-        }
-      }
+      
     }
 
     return user;
@@ -340,24 +248,7 @@ export class UsersService {
 
     // Validar se o usuário deve estar ativo com base no limite do plano
     if (user.active && user.companyId) {
-      const planType = user.company?.subscription?.plan?.type as PlanType;
-      if (planType) {
-        const limits = await getPlanLimits(planType);
-        
-        // Contar quantos usuários ATIVOS foram criados ANTES deste (ordem de criação)
-        const activeUsersBeforeCount = await prisma.user.count({
-          where: { 
-            companyId: user.companyId,
-            active: true,
-            createdAt: { lt: user.createdAt }
-          }
-        });
-
-        if (activeUsersBeforeCount >= limits.maxUsers) {
-          // Este usuário excede o limite, deve ser considerado inativo
-          user.active = false;
-        }
-      }
+      
     }
 
     // Preparar dados para atualização

@@ -6,7 +6,6 @@ import {
 import { prisma } from '../../../lib/prisma';
 import { OnboardingStatusResponseDto } from './dto/onboarding-status-response.dto';
 import { UpdateOnboardingStepDto } from './dto/update-onboarding-step.dto';
-import { getPlanLimits } from '../../ability/factory/plan-rules';
 import { OnboardingStep, PlanType } from '@prisma/client';
 
 @Injectable()
@@ -117,7 +116,6 @@ export class OnboardingService {
               nextBillingDate: subscription.nextBillingDate,
               trialDaysRemaining,
               daysSinceExpiration,
-              limits: await getPlanLimits(subscription.plan.type as any) as any,
             }
           : undefined,
       };
@@ -155,7 +153,6 @@ export class OnboardingService {
             nextBillingDate: subscription.nextBillingDate,
             trialDaysRemaining,
             daysSinceExpiration,
-            limits: await getPlanLimits(subscription.plan.type as any) as any,
           }
         : undefined,
       missingSteps,
