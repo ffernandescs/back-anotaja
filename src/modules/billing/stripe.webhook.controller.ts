@@ -116,6 +116,14 @@ export class StripeWebhookController {
       this.logger.log(`  - now: ${now.toLocaleString()}`);
       this.logger.log(`  - shouldUpdatePlan: ${shouldUpdatePlan}`);
       
+      const companyExists = await prisma.company.findUnique({
+          where: { id: companyId },
+        });
+
+      if (!companyExists) {
+        this.logger.error(`❌ Company não encontrada: ${companyId}`);
+        return { received: true }; // importante pro Stripe não ficar reenviando
+      }
     // Salvar no banco
       // Se estiver em trial: salvar planId como pendingPlanId para aplicar quando trial acabar
       // Se NÃO estiver em trial: atualizar planId diretamente

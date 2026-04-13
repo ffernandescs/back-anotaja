@@ -138,6 +138,10 @@ export class BillingService {
   const nowSeconds = Math.floor(Date.now() / 1000);
   const shouldApplyTrial = trialEndSeconds && trialEndSeconds > nowSeconds;
 
+  if (!company?.id) {
+    throw new Error('Company inválida antes do checkout');
+  }
+  
   const session = await this.stripeService.stripe.checkout.sessions.create({
     mode: 'subscription',
     customer: customerId,
@@ -158,6 +162,7 @@ export class BillingService {
         quantity: 1,
       },
     ],
+    
     success_url: `${process.env.FRONTEND_URL}/billing/success/{CHECKOUT_SESSION_ID}`,
     cancel_url: `${process.env.FRONTEND_URL}/billing/error/{CHECKOUT_SESSION_ID}`,
     metadata: {
