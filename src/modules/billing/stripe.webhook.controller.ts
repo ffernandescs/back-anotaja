@@ -320,9 +320,16 @@ export class StripeWebhookController {
     try {
       this.logger.log(`Atualizando permissões dos grupos para o novo plano: ${newPlanId}`);
 
-      // 1. Buscar o plano para obter o tipo
+      // 1. Buscar o plano com suas features diretamente do banco
       const plan = await prisma.plan.findUnique({
         where: { id: newPlanId },
+        include: {
+          planFeatures: {
+            include: {
+              feature: true,
+            },
+          },
+        },
       });
 
       if (!plan) {
@@ -330,16 +337,58 @@ export class StripeWebhookController {
         return;
       }
 
-      // 2. Buscar features do plano dinamicamente
-      const { getPlanFeatures } = require('../../ability/factory/plan-rules');
-      const planFeatures = await getPlanFeatures(plan.type);
+      // 2. Extrair feature keys ativas do plano
+      const featureKeys = plan.planFeatures
+        .filter(pf => pf.feature.active)
+        .map(pf => pf.feature.key);
 
-      // 3. Converter features para formato de permissões
-      const newPermissions = planFeatures.map(([action, subject]: [any, any]) => ({
-        action: action as any,
-        subject: Array.isArray(subject) ? subject[0] : subject as any,
-        inverted: false,
-      }));
+      this.logger.log(`Features do plano ${plan.type}: ${featureKeys.join(', ')}`);
+
+      if (featureKeys.length === 0) {
+        this.logger.warn(`Plano ${plan.type} não possui features ativas. Pulando atualização de permissões.`);
+        return;
+      }
+
+      // 3. Converter feature keys para permissões
+      const featureToSubject: Record<string, string> = {
+        orders: 'order', products: 'product', categories: 'category',
+        customers: 'customer', dashboard: 'dashboard', profile: 'profile',
+        hours: 'hours', payment: 'payment', kanban: 'kanban', pdv: 'pdv',
+        kds: 'kds', commands: 'commands', reports: 'report', coupons: 'coupon',
+        delivery_routes: 'delivery_route', delivery_areas: 'delivery_area',
+        delivery_persons: 'delivery_person', stock: 'stock',
+        cash_register: 'cash_register', tables: 'table',
+        payment_methods: 'payment_method', points: 'points',
+        announcements: 'announcement', groups: 'group', users: 'user',
+        subscription: 'subscription', branches: 'branch',
+      };
+
+      const featureActions: Record<string, string[]> = {
+        dashboard: ['read'],
+        reports: ['read', 'manage'],
+        pdv: ['read', 'manage'],
+        kds: ['read', 'manage'],
+        kanban: ['read', 'manage'],
+        delivery_routes: ['read', 'manage'],
+        customers: ['read', 'create', 'update', 'manage'],
+        subscription: ['read', 'update'],
+        profile: ['read', 'update', 'manage'],
+        hours: ['read', 'update', 'manage'],
+        payment: ['read', 'update', 'manage'],
+      };
+      const fullCrud = ['read', 'create', 'update', 'delete', 'manage'];
+
+      const newPermissions: { action: string; subject: string; inverted: boolean }[] = [];
+      for (const key of featureKeys) {
+        const subject = featureToSubject[key];
+        if (!subject) continue;
+        const actions = featureActions[key] || fullCrud;
+        for (const action of actions) {
+          newPermissions.push({ action, subject, inverted: false });
+        }
+      }
+
+      this.logger.log(`Total de permissões a criar: ${newPermissions.length}`);
 
       // 4. Buscar todos os grupos da empresa
       const company = await prisma.company.findUnique({
