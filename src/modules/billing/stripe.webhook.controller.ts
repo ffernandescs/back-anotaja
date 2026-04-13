@@ -431,15 +431,27 @@ export class StripeWebhookController {
               source: 'PLAN',
             },
           });
+
+          const uniquePermissionsMap = new Map();
+
+          for (const perm of newPermissions) {
+            const key = `${perm.action}-${perm.subject}`;
+            if (!uniquePermissionsMap.has(key)) {
+              uniquePermissionsMap.set(key, perm);
+            }
+          }
+
+          const uniquePermissions = Array.from(uniquePermissionsMap.values());
           // Criar novas permissões baseadas no plano
           await prisma.permission.createMany({
-            data: newPermissions.map((perm) => ({
+            data: uniquePermissions.map((perm) => ({
               groupId: group.id,
               action: perm.action,
               subject: perm.subject,
               inverted: perm.inverted,
               source: 'PLAN',
             })),
+            skipDuplicates: true,
           });
 
           this.logger.log(`Permissões atualizadas para o grupo: ${group.name}`);
