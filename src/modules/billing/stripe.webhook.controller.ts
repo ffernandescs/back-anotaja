@@ -12,7 +12,6 @@ import { prisma } from '../../../lib/prisma';
 import Stripe from 'stripe';
 import { Public } from 'src/common/decorators/public.decorator';
 import { BillingOrchestratorService } from './orchestrator/billing-orchestrator.service';
-import { FeaturePermissionsService } from 'src/ability/factory/feature-permissions.service';
 
 @Controller('stripe-billing/webhook')
 @Public()
@@ -117,22 +116,22 @@ export class StripeWebhookController {
       this.logger.log(`  - now: ${now.toLocaleString()}`);
       this.logger.log(`  - shouldUpdatePlan: ${shouldUpdatePlan}`);
       
-      // Salvar no banco
+    // Salvar no banco
       // Se estiver em trial: salvar planId como pendingPlanId para aplicar quando trial acabar
       // Se NÃO estiver em trial: atualizar planId diretamente
-      const subscriptionRecord = await prisma.subscription.upsert({
+        const subscriptionRecord = await prisma.subscription.upsert({
         where: { companyId },
         update: {
           status: 'ACTIVE',
           stripeSubscriptionId: subscriptionId,
           ...(shouldUpdatePlan
             ? { planId, pendingPlanId: null, scheduledChangeAt: null }
-            : { pendingPlanId: planId, scheduledChangeAt: trialEndsAt }), // ✅ Salva como pendingPlanId durante trial
-          startDate, // Data que a assinatura foi criada
+            : { pendingPlanId: planId, scheduledChangeAt: trialEndsAt }),           
+
           trialEndsAt, // ✅ Sincronizar trial_end do Stripe
           nextBillingDate, // Próxima data de cobrança (trial + período do plano)
           endDate,
-          notes: trialEndsAt
+          notes: trialEndsAt 
             ? `Plano ativado com trial até ${trialEndsAt.toLocaleDateString('pt-BR')}. Primeira cobrança em ${nextBillingDate?.toLocaleDateString('pt-BR')}`
             : `Plano ativado. Próxima cobrança em ${nextBillingDate?.toLocaleDateString('pt-BR')}`,
         },
@@ -145,7 +144,7 @@ export class StripeWebhookController {
           trialEndsAt, // ✅ Sincronizar trial_end do Stripe
           nextBillingDate,
           endDate,
-          notes: trialEndsAt
+          notes: trialEndsAt 
             ? `Plano ativado com trial até ${trialEndsAt.toLocaleDateString('pt-BR')}. Primeira cobrança em ${nextBillingDate?.toLocaleDateString('pt-BR')}`
             : `Plano ativado. Próxima cobrança em ${nextBillingDate?.toLocaleDateString('pt-BR')}`,
         },
@@ -222,7 +221,7 @@ export class StripeWebhookController {
           // Verificar se ainda está em trial
           const now = new Date();
           const isTrialActive = subscriptionRecord.trialEndsAt && subscriptionRecord.trialEndsAt > now;
-
+          
           // Criar invoice apenas se não estiver mais em trial
           if (!isTrialActive && (invoice.amount_paid || 0) > 0) {
             await prisma.invoice.create({
@@ -235,7 +234,7 @@ export class StripeWebhookController {
                 paidAt: new Date(),
               },
             });
-
+            
             this.logger.log(`Invoice criada: ${invoice.amount_paid} (fora do trial)`);
 
             // 🔄 Buscar planId atualizado (pode ter sido alterado por applyPendingPlanIfNeeded)
@@ -244,7 +243,7 @@ export class StripeWebhookController {
               select: { planId: true, companyId: true }
             });
 
-            if (updatedSubscription?.planId && updatedSubscription?.companyId) {
+             if (updatedSubscription?.planId && updatedSubscription?.companyId) {
               this.logger.log(`Atualizando permissões para planId=${updatedSubscription.planId}, companyId=${updatedSubscription.companyId}`);
               await this.updateGroupPermissionsForNewPlan(
                 updatedSubscription.companyId,
@@ -336,13 +335,11 @@ export class StripeWebhookController {
       const planFeatures = await getPlanFeatures(plan.type);
 
       // 3. Converter features para formato de permissões
-      const featureService = new FeaturePermissionsService();
-      const newPermissions = featureService.getPermissionsForFeatureKeys(planFeatures)
-        .map(p => ({
-          action: p.action,
-          subject: p.subject,
-          inverted: false,
-        }));
+      const newPermissions = planFeatures.map(([action, subject]: [any, any]) => ({
+        action: action as any,
+        subject: Array.isArray(subject) ? subject[0] : subject as any,
+        inverted: false,
+      }));
 
       // 4. Buscar todos os grupos da empresa
       const company = await prisma.company.findUnique({
