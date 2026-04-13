@@ -226,6 +226,7 @@ export class BillingService {
 
   /**
    * 🔥 UPGRADE IMEDIATO (PRORATION)
+   * Se o cliente não tiver método de pagamento, redireciona para checkout.
    */
   private async updateSubscriptionPlan(
     stripeSubscriptionId: string,
@@ -306,9 +307,72 @@ export class BillingService {
         message: 'Plano atualizado com sucesso',
         subscription: updatedSubscription,
       };
-    } catch (error) {
+    } catch (error: any) {
+      // Se o Stripe retorna que não há método de pagamento, criar checkout session
+      const isNoPaymentMethod =
+        error?.type === 'StripeInvalidRequestError' &&
+        error?.code === 'resource_missing' &&
+        error?.message?.includes('payment');
+
+      if (isNoPaymentMethod) {
+        console.log('⚠️ Cliente sem método de pagamento, redirecionando para checkout');
+        return this.createCheckoutForPlanChange(stripeSubscriptionId, newPlan, companyId);
+      }
+
       console.error('Erro ao atualizar plano:', error);
       throw error;
     }
+  }
+
+  /**
+   * Cria um Checkout Session para troca de plano quando não há método de pagamento.
+   * Cancela a subscription atual e cria uma nova via checkout.
+   */
+  private async createCheckoutForPlanChange(
+    stripeSubscriptionId: string,
+    newPlan: any,
+    companyId: string,
+  ) {
+    const dbSubscription = await prisma.subscription.findUnique({
+      where: { companyId },
+    });
+
+    if (!dbSubscription?.stripeCustomerId) {
+      throw new NotFoundException('Cliente Stripe não encontrado');
+    }
+
+    const session = await this.stripeService.stripe.checkout.sessions.create({
+      mode: 'subscription',
+      customer: dbSubscription.stripeCustomerId,
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price_data: {
+            currency: 'brl',
+            product_data: {
+              name: newPlan.name,
+              ...(newPlan.description && { description: newPlan.description }),
+            },
+            unit_amount: calculateStripeAmount(newPlan.price, newPlan.discount),
+            recurring: {
+              interval: mapBillingPeriodToStripeInterval(newPlan.billingPeriod),
+            },
+          },
+          quantity: 1,
+        },
+      ],
+      success_url: `${process.env.FRONTEND_URL}/billing/success/{CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.FRONTEND_URL}/billing/error/{CHECKOUT_SESSION_ID}`,
+      metadata: {
+        companyId,
+        planId: newPlan.id,
+        replacesSubscription: stripeSubscriptionId,
+      },
+    });
+
+    return {
+      checkoutUrl: session.url,
+      message: 'Método de pagamento necessário. Redirecionando para checkout.',
+    };
   }
 }
