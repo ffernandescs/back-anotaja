@@ -7,6 +7,7 @@ import { StripeWebhookController } from './stripe.webhook.controller';
 import { BillingOrchestratorService } from './orchestrator/billing-orchestrator.service';
 import { BullModule } from '@nestjs/bullmq';
 import { StripeProcessor } from './stripe.processor';
+import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
 
 @Module({
   imports: [
@@ -15,6 +16,6 @@ import { StripeProcessor } from './stripe.processor';
     }),
   ],
   controllers: [BillingController, StripeWebhookController],
-  providers: [BillingService, StripeService, ConfigService, BillingOrchestratorService, StripeProcessor],
+  providers: [BillingService, StripeService, ConfigService, BillingOrchestratorService, StripeProcessor,OrdersWebSocketGateway],
 })
 export class BillingModule {}

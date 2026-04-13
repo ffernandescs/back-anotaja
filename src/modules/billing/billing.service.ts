@@ -22,6 +22,34 @@ export class BillingService {
     private billingOrchestrator: BillingOrchestratorService,
   ) {}
 
+  
+
+  async portal(userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+    
+    if (!user?.companyId) {
+      throw new NotFoundException('Usuário não associado a uma empresa');
+    }
+
+    const subscription = await prisma.subscription.findFirst({
+      where: { companyId: user.companyId },
+    });
+
+    if (!subscription?.stripeCustomerId) {
+      throw new NotFoundException('Assinatura não encontrada');
+    }
+
+    const session =
+      await this.stripeService.stripe.billingPortal.sessions.create({
+        customer: subscription.stripeCustomerId,
+        return_url: process.env.FRONTEND_URL,
+      });
+
+    return { url: session.url };
+  }
+
   async createCheckout(planId: string, userId: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },

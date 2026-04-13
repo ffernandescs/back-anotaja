@@ -3,6 +3,7 @@ import { Job } from 'bullmq';
 import { Logger } from '@nestjs/common';
 import { prisma } from '../../../lib/prisma';
 import { BillingOrchestratorService } from './orchestrator/billing-orchestrator.service';
+import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
 
 @Processor('stripe-events')
 export class StripeProcessor extends WorkerHost {
@@ -10,6 +11,7 @@ export class StripeProcessor extends WorkerHost {
 
   constructor(
     private billingOrchestrator: BillingOrchestratorService,
+    private webSocketGateway: OrdersWebSocketGateway,
   ) {
     super();
   }
@@ -165,10 +167,23 @@ export class StripeProcessor extends WorkerHost {
     const invoice = event.data.object;
 
     if (!invoice.subscription) return;
+    const subscription = await prisma.subscription.findFirst({
+    where: { stripeSubscriptionId: invoice.subscription },
+    select: { companyId: true },
+    });
 
-    await prisma.subscription.updateMany({
+    if(!subscription?.companyId) {
+        throw new Error('Subscription sem companyId');
+    };
+  await prisma.subscription.updateMany({
       where: { stripeSubscriptionId: invoice.subscription },
       data: { status: 'SUSPENDED' },
+    });
+
+    this.webSocketGateway.server.to(`company:${subscription?.companyId}`).emit('billing:failed', {
+        status: 'SUSPENDED',
+        amount: invoice.amount_due,
+        attemptCount: invoice.attempt_count,
     });
 
     this.logger.log(`❌ Pagamento falhou`);
