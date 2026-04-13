@@ -249,7 +249,7 @@ export class BillingService {
                 price: price.id,
               },
             ],
-            proration_behavior: 'create_prorations',
+            proration_behavior: 'always_invoice',
             metadata: {
               companyId,
               planId: newPlan.id,
