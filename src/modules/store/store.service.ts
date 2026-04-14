@@ -1576,10 +1576,12 @@ async createOrder(
     ? DispatchStatus.PENDING
     : undefined;
 
-    const status = OrderStatus.PENDING;
+    const status = OrderChannel.PDV
+    ? OrderStatus.IN_PROGRESS
+    : OrderStatus.PENDING;
 
     const paymentStatus =
-    createOrderDto.serviceType === 'TAKEAWAY'
+    createOrderDto.serviceType === ServiceType.TAKEAWAY
       ? PaymentStatus.PENDING
       : PaymentStatus.PENDING;
     // =========================================================
@@ -1670,6 +1672,7 @@ async createOrder(
     where: { id: order.id },
     include: {
       customer: true,
+      deliveryPerson: true,
       items: { include: { product: true, complements: {
               include: {
                 complement: true,
@@ -1687,7 +1690,8 @@ async createOrder(
   this.webSocketGateway.emitOrderUpdate(
     {
       ...fullOrder,
-      fromPDV: fullOrder.serviceType === ServiceType.TAKEAWAY ? false : true,
+      fromPDV: fullOrder.channel === OrderChannel.PDV,
+      availableTransitions: stateMachine.getAvailableTransitions(fullOrder),
     },
     'order:created',
   );
@@ -3327,32 +3331,42 @@ async updateOrder(
   // 11. FULL ORDER RESPONSE
   // =====================================================
   const fullOrder = await prisma.order.findUnique({
-    where: { id: updatedOrder.id },
-    include: {
-      customer: true,
-      items: { include: { product: true, complements: {
-              include: {
-                complement: true,
-                options: { include: { option: true } },
-              },
-            }, } },
-      payments: true,
-      coupon: true,
+  where: { id: updatedOrder.id },
+  include: {
+    customer: true,
+    deliveryPerson: true,
+    items: {
+      include: {
+        product: true,
+        complements: {
+          include: {
+            complement: true,
+            options: { include: { option: true } },
+          },
+        },
+      },
     },
-  });
+    payments: true,
+    coupon: true,
+  },
+});
+
+if (!fullOrder) {
+  throw new NotFoundException('Pedido não encontrado após atualização');
+}
 
   // =====================================================
   // 12. WEBSOCKET
   // =====================================================
   this.webSocketGateway.emitOrderUpdate(
     {
-      id: fullOrder!.id,
-      branchId: fullOrder!.branchId,
-      status: fullOrder!.status,
-      fromPDV: fullOrder!.serviceType === ServiceType.TAKEAWAY ? true : false,
+      ...fullOrder,
+      fromPDV: fullOrder!.channel === OrderChannel.PDV,
+      availableTransitions: stateMachine.getAvailableTransitions(fullOrder!),
     },
     'order:updated',
   );
+
 
   // =====================================================
   // 13. RETURN

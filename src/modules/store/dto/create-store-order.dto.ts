@@ -86,6 +86,7 @@ export class CreateStoreOrderDto {
 
   @IsEnum(DeliveryTypeDto)
   deliveryType!: DeliveryTypeDto;
+  
 
   // =====================================================
   // 🧠 NOVO MODELO
