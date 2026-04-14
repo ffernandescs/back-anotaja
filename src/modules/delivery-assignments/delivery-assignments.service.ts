@@ -118,14 +118,11 @@ export class DeliveryAssignmentsService {
       name: dto.name || `Rota ${new Date().toLocaleString('pt-BR')}`,
       branchId: user.branchId,
       status: dto.status || 'PENDING',
+      route: dto.route ? JSON.stringify(dto.route) : '[]',
     };
 
     if (dto.deliveryPersonId) {
       createData.deliveryPersonId = dto.deliveryPersonId;
-    }
-
-    if (dto.route) {
-      createData.route = JSON.stringify(dto.route);
     }
 
     if (dto.estimatedDistance !== undefined) {

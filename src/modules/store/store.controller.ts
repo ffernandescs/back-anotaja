@@ -59,9 +59,10 @@ export class StoreController {
   async moveOrder(
     @Param('id') id: string,
     @Body('action') action: OrderAction,
-    @Body('note') note?: string, // 👈 ADICIONADO
+    @Body('note') note?: string,
+    @Body('deliveryPersonId') deliveryPersonId?: string,
   ) {
-    return this.storeService.moveOrder(id, action, note);
+    return this.storeService.moveOrder(id, action, note, deliveryPersonId);
   }
 
     /**

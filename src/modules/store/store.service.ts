@@ -60,14 +60,14 @@ export class StoreService {
     private couponsService: CouponsService,
   ) {}
 
-async moveOrder(orderId: string, action: OrderAction, note?: string) {  const order = await prisma.order.findUnique({
+async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPersonId?: string) {
+  const order = await prisma.order.findUnique({
     where: { id: orderId },
   });
 
   if (!order) throw new NotFoundException('Pedido não encontrado');
 
-  
-  const updates = stateMachine.moveByAction(order, action);
+  const updates = stateMachine.moveByAction(order, action, deliveryPersonId);
   if (action === 'CANCEL' && note) {
     (updates as any).notes = note;
   }

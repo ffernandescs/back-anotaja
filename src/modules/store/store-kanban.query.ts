@@ -1,4 +1,4 @@
-import { DeliveryType, Order, OrderStatus } from '@prisma/client';
+import { DeliveryType, DispatchStatus, Order, OrderStatus } from '@prisma/client';
 import { prisma } from 'lib/prisma';
 import { OrderAction, OrderStateMachineService } from './store-state-machine.service';
 
@@ -86,7 +86,7 @@ export async function getKanbanOrders(userId: string): Promise<KanbanResponse> {
       case 'READY':
         if (
           order.deliveryType === DeliveryType.DELIVERY &&
-          order.dispatchStatus === 'WAITING_DRIVER'
+          order.dispatchStatus === DispatchStatus.WAITING_DRIVER
         ) {
           columns.waitingDriver.push(order);
         } else {
