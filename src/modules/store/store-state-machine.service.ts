@@ -8,6 +8,11 @@ import {
   PaymentStatus,
 } from '@prisma/client';
 
+type AvailableTransition = {
+  status: OrderStatus;
+  action: OrderAction;
+};
+
 export enum OrderAction {
   CONFIRM = 'CONFIRM',
   START_COOKING = 'START_COOKING',
@@ -27,6 +32,7 @@ export const ACTION_TO_STATUS: Record<OrderAction, OrderStatus> = {
   COMPLETE: OrderStatus.COMPLETED,
   CANCEL: OrderStatus.CANCELLED,
 };
+
 
 export const ORDER_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   PENDING: [OrderStatus.CONFIRMED, OrderStatus.CANCELLED],
@@ -61,20 +67,33 @@ export class OrderStateMachineService {
     return this.buildUpdate(order, target);
   }
 
-  getAvailableTransitions(order: Order) {
-  const allowedStatuses = ORDER_TRANSITIONS[order.status];
+  getAvailableTransitions(order: Order): AvailableTransition[] {
+    const allowedStatuses = ORDER_TRANSITIONS[order.status] || [];
 
-  return allowedStatuses.map((status) => {
-    const action = Object.entries(ACTION_TO_STATUS).find(
-      ([, value]) => value === status,
-    )?.[0] as OrderAction;
+    return allowedStatuses
+      .map((status) => {
+        const action = Object.entries(ACTION_TO_STATUS).find(
+          ([, value]) => value === status,
+        )?.[0] as OrderAction | undefined;
 
-    return {
-      status,
-      action,
-    };
-  });
-}
+        if (!action) return null;
+
+        // 🚨 regra extra dinâmica (ex: delivery)
+        if (
+          order.deliveryType !== DeliveryType.DELIVERY &&
+          status === 'DELIVERING'
+        ) {
+          return null;
+        }
+
+        return {
+          status,
+          action,
+        };
+      })
+      .filter(Boolean) as AvailableTransition[];
+  }
+
   private validateTransition(order: Order, target: OrderStatus) {
     const allowed = ORDER_TRANSITIONS[order.status];
 
@@ -84,7 +103,7 @@ export class OrderStateMachineService {
       );
     }
 
-    // 🚚 regra entrega
+    // 🚚 delivery precisa ser entregue antes de completar
     if (
       order.deliveryType === DeliveryType.DELIVERY &&
       target === OrderStatus.COMPLETED &&
@@ -93,13 +112,12 @@ export class OrderStateMachineService {
       throw new BadRequestException('Entrega não finalizada');
     }
 
-    // 🧾 pickup não precisa dispatch
+    // 🚫 pickup não pode ir para delivering
     if (
-      order.deliveryType === DeliveryType.PICKUP &&
-      order.dispatchStatus !== DispatchStatus.PENDING &&
+      order.deliveryType !== DeliveryType.DELIVERY &&
       target === OrderStatus.DELIVERING
     ) {
-      throw new BadRequestException('Pickup não usa entrega');
+      throw new BadRequestException('Pedido não é delivery');
     }
   }
 
@@ -123,7 +141,6 @@ export class OrderStateMachineService {
         if (order.deliveryType === DeliveryType.DELIVERY) {
           updates.dispatchStatus = DispatchStatus.WAITING_DRIVER;
         }
-
         break;
 
       case OrderStatus.DELIVERING:

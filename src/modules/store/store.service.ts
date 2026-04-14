@@ -60,15 +60,17 @@ export class StoreService {
     private couponsService: CouponsService,
   ) {}
 
-async moveOrder(orderId: string, action: OrderAction) {
-  const order = await prisma.order.findUnique({
+async moveOrder(orderId: string, action: OrderAction, note?: string) {  const order = await prisma.order.findUnique({
     where: { id: orderId },
   });
 
   if (!order) throw new NotFoundException('Pedido não encontrado');
 
+  
   const updates = stateMachine.moveByAction(order, action);
-
+  if (action === 'CANCEL' && note) {
+    (updates as any).notes = note;
+  }
   const updatedOrder = await prisma.order.update({
     where: { id: orderId },
     data: updates,
@@ -79,13 +81,11 @@ async moveOrder(orderId: string, action: OrderAction) {
     },
   });
 
-  // 🔥 injeta transitions igual no kanban
-  const enrichedOrder = {
+  return {
     ...updatedOrder,
     availableTransitions: stateMachine.getAvailableTransitions(updatedOrder),
   };
 
-  return enrichedOrder;
 }
 
 
