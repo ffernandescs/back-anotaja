@@ -815,7 +815,11 @@ async update(id: string, dto: UpdateOrderDto, userId: string, ) {
 
   const order = await this.findOne(orderId, userId);
 
-  if (['CANCELLED', 'DELIVERED'].includes(order.status)) {
+  if (order.status === 'CANCELLED') {
+    throw new BadRequestException('Pedido cancelado');
+  }
+
+   if (order.status === 'COMPLETED') {
     throw new BadRequestException('Pedido finalizado');
   }
 
