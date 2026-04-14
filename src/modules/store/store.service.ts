@@ -1576,9 +1576,9 @@ async createOrder(
     ? DispatchStatus.PENDING
     : undefined;
 
-    const status = OrderChannel.PDV
-    ? OrderStatus.IN_PROGRESS
-    : OrderStatus.PENDING;
+    const status = createOrderDto.channel === OrderChannel.ONLINE
+    ? OrderStatus.PENDING
+    : OrderStatus.IN_PROGRESS;
 
     const paymentStatus =
     createOrderDto.serviceType === ServiceType.TAKEAWAY
@@ -1606,7 +1606,7 @@ async createOrder(
         branchId: branch.id,
 
         // 👇 NOVO PADRÃO
-        channel: createOrderDto.serviceType === "TAKEAWAY" ? OrderChannel.ONLINE : OrderChannel.PDV,
+        channel: createOrderDto.channel || OrderChannel.PDV,
         serviceType: createOrderDto.serviceType || ServiceType.TAKEAWAY,
         customerType: createOrderDto.customerId ? CustomerType.REGISTERED : CustomerType.GUEST,
         // 👇 PERMITE NULL
@@ -1690,7 +1690,7 @@ async createOrder(
   this.webSocketGateway.emitOrderUpdate(
     {
       ...fullOrder,
-      fromPDV: fullOrder.channel === OrderChannel.PDV,
+      fromPDV: fullOrder.channel === OrderChannel.PDV ? true : false,
       availableTransitions: stateMachine.getAvailableTransitions(fullOrder),
     },
     'order:created',
@@ -3361,7 +3361,6 @@ if (!fullOrder) {
   this.webSocketGateway.emitOrderUpdate(
     {
       ...fullOrder,
-      fromPDV: fullOrder!.channel === OrderChannel.PDV,
       availableTransitions: stateMachine.getAvailableTransitions(fullOrder!),
     },
     'order:updated',
