@@ -841,7 +841,12 @@ async update(id: string, dto: UpdateOrderDto, userId: string, ) {
       type: p.type,
       amount: p.amount,
       amountGiven: p.amountGiven,
-      change: p.change ?? 0,
+      change:
+        p.change != null && p.change > 0
+          ? p.change
+          : p.type === 'CASH' && p.amountGiven != null && p.amountGiven > p.amount
+            ? p.amountGiven - p.amount
+            : 0,
     })),
   });
 
