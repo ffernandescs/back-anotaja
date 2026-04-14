@@ -10,15 +10,6 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
-export enum OrderStatusDto {
-  PENDING = 'PENDING',
-  CONFIRMED = 'CONFIRMED',
-  PREPARING = 'PREPARING',
-  READY = 'READY',
-  DELIVERING = 'DELIVERING',
-  DELIVERED = 'DELIVERED',
-  CANCELLED = 'CANCELLED',
-}
 
 export enum DeliveryTypeDto {
   PICKUP = 'PICKUP',

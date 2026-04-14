@@ -14,12 +14,12 @@ import {
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
-import { OrderStatusDto } from './dto/create-order-item.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { QueryOrdersDto } from './dto/query-orders.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { OrdersService } from './orders.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
+import { OrderStatus } from '@prisma/client';
 
 interface RequestWithUser extends Request {
   user: {
@@ -77,7 +77,7 @@ export class OrdersController {
   
   updateStatus(
     @Param('id') id: string,
-    @Body('status') status: OrderStatusDto,
+    @Body('status') status: OrderStatus,
     @Req() req: RequestWithUser,
   ) {
     return this.ordersService.updateStatus(id, status, req.user.userId);
@@ -86,7 +86,7 @@ export class OrdersController {
   @Patch(':id/status/delivery')
   updateStatusByDelivery(
     @Param('id') id: string,
-    @Body('status') status: OrderStatusDto,
+    @Body('status') status: OrderStatus,
     @Req() req: RequestWithUser,
   ) {
     return this.ordersService.updateStatus(id, status, req.user.userId);

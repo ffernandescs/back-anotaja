@@ -11,7 +11,7 @@ import { QueryOrdersDto } from './dto/query-orders.dto';
 import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
 import { PrinterService } from '../printer/printer.service';
 import { prisma } from '../../../lib/prisma';
-import { DeliveryTypeDto, OrderStatusDto } from './dto/create-order-item.dto';
+import { DeliveryTypeDto } from './dto/create-order-item.dto';
 import { OrderStatus, Prisma, CashMovementType, PaymentMethodType, DeliveryType, OrderItem, StockMovement, OrderChannel, ServiceType, CustomerType } from '@prisma/client';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { CalculateDeliveryFeeDto } from '../store/dto/calculate-delivery-fee.dto';
@@ -99,7 +99,7 @@ export class OrdersService {
     // Status único ou múltiplos
     if (query.status) {
       // Garante que o status é um valor válido do enum
-      if (Object.values(OrderStatusDto).includes(query.status)) {
+      if (Object.values(OrderStatus).includes(query.status)) {
         where.status = query.status;
       } else {
         throw new BadRequestException(`Status inválido: ${query.status}`);
@@ -109,9 +109,9 @@ export class OrdersService {
         .split(',')
         .map((s) => s.trim().toUpperCase())
         .filter((s) =>
-          Object.values(OrderStatusDto).includes(s as OrderStatusDto),
+          Object.values(OrderStatus).includes(s as OrderStatus),
         )
-        .map((s) => s as OrderStatusDto);
+        .map((s) => s as OrderStatus);
 
       if (statusArray.length > 0) {
         where.status = { in: statusArray };
@@ -679,7 +679,7 @@ async update(id: string, dto: UpdateOrderDto, userId: string, ) {
 }
 
 
-  async updateStatus(id: string, status: OrderStatusDto, userId: string) {
+  async updateStatus(id: string, status: OrderStatus, userId: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -720,7 +720,7 @@ async update(id: string, dto: UpdateOrderDto, userId: string, ) {
     });
 
     if (
-      status === OrderStatusDto.DELIVERED &&
+      status === OrderStatus.DELIVERED &&
       updatedOrder.deliveryAssignmentId
     ) {
       // Buscar todos os pedidos da mesma rota
@@ -767,11 +767,11 @@ async update(id: string, dto: UpdateOrderDto, userId: string, ) {
     const order = await this.findOne(id, userId);
 
     // Só pode cancelar pedidos pendentes ou confirmados
-    const status = order.status as OrderStatusDto;
+    const status = order.status as OrderStatus;
 
     if (
-      status !== OrderStatusDto.PENDING &&
-      status !== OrderStatusDto.CONFIRMED
+      status !== OrderStatus.PENDING &&
+      status !== OrderStatus.CONFIRMED
     ) {
       throw new BadRequestException(
         'Apenas pedidos pendentes ou confirmados podem ser cancelados',
@@ -780,7 +780,7 @@ async update(id: string, dto: UpdateOrderDto, userId: string, ) {
 
     const cancelledOrder = await prisma.order.update({
       where: { id },
-      data: { status: OrderStatusDto.CANCELLED },
+      data: { status: OrderStatus.CANCELLED },
       include: {
         branch: {
           select: {
@@ -1071,7 +1071,7 @@ const paymentsForMovement =
   const statuses: OrderStatus[] = [
     'PENDING',
     'CONFIRMED',
-    'PREPARING',
+    'IN_PROGRESS',
     'READY',
     'DELIVERING',
     'DELIVERED',

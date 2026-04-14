@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { CustomerType, Order, OrderChannel, Prisma, ServiceType } from '@prisma/client';
+import { CustomerType, Order, OrderChannel, OrderStatus, Prisma, ServiceType } from '@prisma/client';
 import { prisma } from '../../../lib/prisma';
 import {
   BulkCreateTablesDto,
@@ -17,7 +17,6 @@ import {
 } from './dto/index';
 import {
   DeliveryTypeDto,
-  OrderStatusDto,
 } from '../orders/dto/create-order-item.dto';
 import { TableStatus } from './types';
 import { OrdersService } from '../orders/orders.service';
@@ -77,7 +76,7 @@ export class TablesService {
         },
         orders: {
           where: {
-            status: { in: ['PREPARING', 'PENDING', 'CONFIRMED', 'READY'] },
+            status: { in: ['IN_PROGRESS', 'PENDING', 'CONFIRMED', 'READY'] },
           },
           include: {
             customer: {
@@ -128,7 +127,7 @@ export class TablesService {
         },
         orders: {
           where: {
-            status: { in: ['PREPARING', 'PENDING', 'CONFIRMED', 'READY'] },
+            status: { in: ['IN_PROGRESS', 'PENDING', 'CONFIRMED', 'READY'] },
           },
           include: {
             items: {
@@ -301,7 +300,7 @@ export class TablesService {
         data: {
           branchId: user.branchId,
           orderNumber,
-          status: OrderStatusDto.PENDING,
+          status: OrderStatus.PENDING,
           deliveryType: data.deliveryType,
           paymentStatus: 'PENDING',
           paidAmount: 0,
@@ -363,7 +362,7 @@ export class TablesService {
       include: {
         orders: {
           where: {
-            status: { in: ['PENDING', 'CONFIRMED', 'PREPARING', 'READY'] },
+            status: { in: ['PENDING', 'CONFIRMED', 'IN_PROGRESS', 'READY'] },
           },
           select: {
             id: true,
@@ -473,7 +472,7 @@ export class TablesService {
         include: {
           orders: {
             where: {
-              status: { in: ['PENDING', 'CONFIRMED', 'PREPARING', 'READY'] },
+              status: { in: ['PENDING', 'CONFIRMED', 'IN_PROGRESS', 'READY'] },
             },
           },
         },
@@ -547,10 +546,10 @@ export class TablesService {
         where: {
           status: {
             in: [
-              OrderStatusDto.PENDING,
-              OrderStatusDto.CONFIRMED,
-              OrderStatusDto.PREPARING,
-              OrderStatusDto.READY,
+              OrderStatus.PENDING,
+              OrderStatus.CONFIRMED,
+              OrderStatus.IN_PROGRESS,
+              OrderStatus.READY,
             ],
           },
         },
@@ -590,7 +589,7 @@ export class TablesService {
       data: {
         branchId: data.branchId,
         orderNumber: nextOrderNumber,
-        status: OrderStatusDto.PENDING,
+        status: OrderStatus.PENDING,
         deliveryType: DeliveryTypeDto.DINE_IN,
         customerId: data.customerId ?? null,
         customerType: CustomerType.GUEST,

@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { Customer, CustomerType, OrderChannel, Prisma, ServiceType, StockMovement } from '@prisma/client';
+import { Customer, CustomerType, DeliveryType, DispatchStatus, OrderChannel, OrderStatus, PaymentStatus, PreparationStatus, Prisma, ServiceType, StockMovement } from '@prisma/client';
 import { prisma } from '../../../lib/prisma';
 import { CouponsService } from '../coupons/coupons.service';
 import { ValidateCouponDto } from './dto/validate-coupon.dto';
@@ -26,7 +26,8 @@ import { GetOrdersQueryDto } from './dto/get-orders-query.dto';
 import console from 'console';
 import { UpdateOrderDto } from '../orders/dto/update-order.dto';
 import { NormalizedOrder } from '../orders/dto/order-normalized.type';
-import { DeliveryTypeDto, OrderStatusDto } from '../orders/dto/create-order-item.dto';
+import { DeliveryTypeDto } from '../orders/dto/create-order-item.dto';
+import { OrderAction, OrderStateMachineService } from './store-state-machine.service';
 interface PlanLimits {
   branches: number;
   users: number;
@@ -47,6 +48,8 @@ interface PlanFeatures {
 }
 type LatLng = { lat: number; lng: number };
 
+  const stateMachine = new OrderStateMachineService();
+
 const isValidCoord = (v: unknown): v is number =>
   typeof v === 'number' && !isNaN(v);
 @Injectable()
@@ -56,6 +59,35 @@ export class StoreService {
     private jwtService: JwtService,
     private couponsService: CouponsService,
   ) {}
+
+async moveOrder(orderId: string, action: OrderAction) {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+  });
+
+  if (!order) throw new NotFoundException('Pedido não encontrado');
+
+  const updates = stateMachine.moveByAction(order, action);
+
+  const updatedOrder = await prisma.order.update({
+    where: { id: orderId },
+    data: updates,
+    include: {
+      items: true,
+      customer: true,
+      deliveryPerson: true,
+    },
+  });
+
+  // 🔥 injeta transitions igual no kanban
+  const enrichedOrder = {
+    ...updatedOrder,
+    availableTransitions: stateMachine.getAvailableTransitions(updatedOrder),
+  };
+
+  return enrichedOrder;
+}
+
 
   /**
    * Obter dados da loja identificada por subdomain ou branchId
@@ -1534,7 +1566,23 @@ async createOrder(
       ingredientQuantities,
     );
 
-  // =========================================================
+    const isDelivery = deliveryType === DeliveryType.DELIVERY;
+    const isPickup = deliveryType === DeliveryType.PICKUP;
+    const isDineIn = deliveryType === DeliveryType.DINE_IN;
+  
+  const preparationStatus = PreparationStatus.PENDING;
+
+  const dispatchStatus = isDelivery
+    ? DispatchStatus.PENDING
+    : undefined;
+
+    const status = OrderStatus.PENDING;
+
+    const paymentStatus =
+    createOrderDto.serviceType === 'TAKEAWAY'
+      ? PaymentStatus.PENDING
+      : PaymentStatus.PENDING;
+    // =========================================================
   // TRANSAÇÃO
   // =========================================================
   const order = await prisma.$transaction(async (tx) => {
@@ -1549,8 +1597,10 @@ async createOrder(
     const createdOrder = await tx.order.create({
       data: {
         orderNumber,
-        status: OrderStatusDto.PENDING,
-
+        status,
+        preparationStatus,
+        dispatchStatus,
+        paymentStatus,
         branchId: branch.id,
 
         // 👇 NOVO PADRÃO

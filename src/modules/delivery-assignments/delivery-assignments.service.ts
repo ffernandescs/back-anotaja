@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { prisma } from '../../../lib/prisma';
-import { Prisma } from '@prisma/client';
+import { OrderStatus, Prisma } from '@prisma/client';
 import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
 import { RedisService } from '../websocket/redis.service';
 import { AutoCreateRoutesDto } from './dto/auto-create-routes.dto';
@@ -472,7 +472,7 @@ export class DeliveryAssignmentsService {
       deliveryType: 'DELIVERY',
       deliveryAssignmentId: null,
       status: {
-        in: ['PREPARING', 'READY'],
+        in: [OrderStatus.IN_PROGRESS, OrderStatus.READY],
       },
     };
 
@@ -851,7 +851,7 @@ export class DeliveryAssignmentsService {
       data: {
         deliveryAssignmentId: null,
         deliveryPersonId: null,
-        status: 'PREPARING',
+        status: OrderStatus.IN_PROGRESS,
       },
     });
 

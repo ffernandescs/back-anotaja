@@ -3,8 +3,8 @@ import { DeliveryService } from './delivery.service';
 import { Public } from '../../common/decorators/public.decorator';
 import { DeliveryLoginDto } from './dto/delivery-login.dto';
 import { DeliveryHeartbeatDto } from './dto/delivery-heartbeat.dto';
-import { OrderStatusDto } from '../orders/dto/create-order-item.dto';
 import { Request } from 'express';
+import { OrderStatus } from '@prisma/client';
 
 @Controller('delivery')
 export class DeliveryController {
@@ -75,7 +75,7 @@ export class DeliveryController {
   @Post('orders/:id/status')
   updateOrderStatus(
     @Param('id') orderId: string,
-    @Body('status') status: OrderStatusDto,
+    @Body('status') status:OrderStatus,
     @Headers('authorization') authorization?: string,
     @Req() req?: Request,
   ) {

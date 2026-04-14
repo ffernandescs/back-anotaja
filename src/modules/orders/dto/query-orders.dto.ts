@@ -1,6 +1,6 @@
 import { IsOptional, IsInt, Min, Max, IsString, IsEnum } from 'class-validator';
 import { Type } from 'class-transformer';
-import { OrderStatusDto } from './create-order-item.dto';
+import { OrderStatus } from '@prisma/client';
 
 export class QueryOrdersDto {
   /** Número da página (mínimo: 1, padrão: 1) */
@@ -34,8 +34,8 @@ export class QueryOrdersDto {
 
   /** Filtrar por status único */
   @IsOptional()
-  @IsEnum(OrderStatusDto)
-  status?: OrderStatusDto;
+  @IsEnum(OrderStatus)
+  status?: OrderStatus;
 
   /** Filtrar por múltiplos status (separados por vírgula) */
   @IsOptional()

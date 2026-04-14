@@ -944,10 +944,37 @@ enum CustomerType {
   GUEST
 }
 
+enum PreparationStatus {
+  PENDING
+  PREPARING
+  READY
+}
+
+enum DispatchStatus {
+  PENDING
+  WAITING_DRIVER
+  ASSIGNED
+  PICKED_UP
+  DELIVERED
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  READY
+  DELIVERING
+  DELIVERED
+  CANCELLED
+  COMPLETED
+  IN_PROGRESS
+}
+
 model Order {
   id                                                             String               @id @default(cuid())
   orderNumber       Int? // Número sequencial do pedido
   status                                                         OrderStatus          @default(PENDING)
+  preparationStatus PreparationStatus @default(PENDING)
+  dispatchStatus DispatchStatus @default(PENDING)
   deliveryType                                                   DeliveryType         @default(DELIVERY)
   paymentStatus                                                  String               @default("PENDING") // PENDING, PARTIAL, PAID
   paidAmount                                                     Int                  @default(0) // Valor já pago
@@ -1395,16 +1422,6 @@ model AdditionIngredient {
   ingredient                                                          Ingredient      @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
 
   @@unique([additionId,                                               ingredientId])
-}
-
-enum OrderStatus {
-  PENDING
-  CONFIRMED
-  PREPARING
-  READY
-  DELIVERING
-  DELIVERED
-  CANCELLED
 }
 
 enum DeliveryType {

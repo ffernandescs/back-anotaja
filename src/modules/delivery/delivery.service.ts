@@ -8,7 +8,6 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { prisma } from '../../../lib/prisma';
 import { DeliveryLoginDto } from './dto/delivery-login.dto';
-import { OrderStatusDto } from '../orders/dto/create-order-item.dto';
 import { OrderStatus } from '@prisma/client';
 import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
 
@@ -66,7 +65,7 @@ export class DeliveryService {
 
     const updatedOrder = await prisma.order.update({
       where: { id: orderId },
-      data: { status: OrderStatusDto.DELIVERED },
+      data: { status: OrderStatus.DELIVERED },
     });
 
     if (order.deliveryAssignmentId) {
@@ -86,7 +85,7 @@ export class DeliveryService {
     }
 
     this.wsGateway.emitOrderUpdate(
-      { id: order.id, status: OrderStatusDto.DELIVERED, branchId: order.branchId, deliveryPersonId },
+      { id: order.id, status: OrderStatus.DELIVERED, branchId: order.branchId, deliveryPersonId },
       'order:status_changed',
     );
 
@@ -136,7 +135,7 @@ export class DeliveryService {
 
     await prisma.order.updateMany({
       where: { id: { in: orderIds } },
-      data: { status: OrderStatusDto.DELIVERED },
+      data: { status: OrderStatus.DELIVERED },
     });
 
     const assignmentIds = Array.from(
@@ -164,7 +163,7 @@ export class DeliveryService {
 
     orders.forEach((o) => {
       this.wsGateway.emitOrderUpdate(
-        { id: o.id, status: OrderStatusDto.DELIVERED, branchId: o.branchId, deliveryPersonId },
+        { id: o.id, status: OrderStatus.DELIVERED, branchId: o.branchId, deliveryPersonId },
         'order:status_changed',
       );
     });
@@ -338,14 +337,14 @@ export class DeliveryService {
   async updateOrderStatus(
     token: string | undefined,
     orderId: string,
-    status: OrderStatusDto,
+    status: OrderStatus,
   ) {
     const { deliveryPersonId } = this.verifyDeliveryToken(token);
 
-    const allowedStatuses = [
-      OrderStatusDto.DELIVERING,
-      OrderStatusDto.DELIVERED,
-    ];
+  const allowedStatuses: OrderStatus[] = [
+    OrderStatus.DELIVERING,
+    OrderStatus.DELIVERED,
+  ];
 
     if (!allowedStatuses.includes(status)) {
       throw new ForbiddenException(
@@ -371,17 +370,17 @@ export class DeliveryService {
       throw new ForbiddenException('Pedido não pertence a este entregador');
     }
 
-    const statusFlow: OrderStatusDto[] = [
-      OrderStatusDto.PENDING,
-      OrderStatusDto.CONFIRMED,
-      OrderStatusDto.PREPARING,
-      OrderStatusDto.READY,
-      OrderStatusDto.DELIVERING,
-      OrderStatusDto.DELIVERED,
-      OrderStatusDto.CANCELLED,
+    const statusFlow: OrderStatus[] = [
+      OrderStatus.PENDING,
+      OrderStatus.CONFIRMED,
+      OrderStatus.IN_PROGRESS,
+      OrderStatus.READY,
+      OrderStatus.DELIVERING,
+      OrderStatus.DELIVERED,
+      OrderStatus.CANCELLED,
     ];
 
-    const currentIndex = statusFlow.indexOf(order.status as OrderStatusDto);
+    const currentIndex = statusFlow.indexOf(order.status as OrderStatus);
     const nextIndex = statusFlow.indexOf(status);
 
     if (currentIndex === -1 || nextIndex === -1 || nextIndex < currentIndex) {
@@ -389,7 +388,7 @@ export class DeliveryService {
     }
 
     // Se for despachar (DELIVERING) e houver rota, exigir que todos estejam READY
-    if (status === OrderStatusDto.DELIVERING && order.deliveryAssignmentId) {
+    if (status === OrderStatus.DELIVERING && order.deliveryAssignmentId) {
       const ordersFromRoute = await prisma.order.findMany({
         where: { deliveryAssignmentId: order.deliveryAssignmentId },
         select: { id: true, status: true },
@@ -407,7 +406,7 @@ export class DeliveryService {
     });
 
     if (
-      status === OrderStatusDto.DELIVERED &&
+      status === OrderStatus.DELIVERED &&
       updatedOrder.deliveryAssignmentId
     ) {
       const ordersFromRoute = await prisma.order.findMany({
@@ -475,7 +474,7 @@ export class DeliveryService {
 
     const updatedOrder = await prisma.order.update({
       where: { id: orderId },
-      data: { status: OrderStatusDto.DELIVERING },
+      data: { status: OrderStatus.DELIVERING },
     });
 
     if (order.deliveryAssignmentId) {
@@ -486,7 +485,7 @@ export class DeliveryService {
     }
 
     this.wsGateway.emitOrderUpdate(
-      { id: order.id, status: OrderStatusDto.DELIVERING, branchId: order.branchId, deliveryPersonId },
+      { id: order.id, status: OrderStatus.DELIVERING, branchId: order.branchId, deliveryPersonId },
       'order:status_changed',
     );
 
@@ -537,7 +536,7 @@ export class DeliveryService {
     // Atualizar pedidos para DELIVERING
     await prisma.order.updateMany({
       where: { id: { in: orderIds } },
-      data: { status: OrderStatusDto.DELIVERING },
+      data: { status: OrderStatus.DELIVERING },
     });
 
     // Atualizar assignments relacionados (se houver) para IN_PROGRESS
@@ -555,7 +554,7 @@ export class DeliveryService {
     // Emitir eventos WS por pedido e por rota
     orders.forEach((o) => {
       this.wsGateway.emitOrderUpdate(
-        { id: o.id, status: OrderStatusDto.DELIVERING, branchId: o.branchId, deliveryPersonId },
+        { id: o.id, status: OrderStatus.DELIVERING, branchId: o.branchId, deliveryPersonId },
         'order:status_changed',
       );
     });

@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Delete,
   Param,
   Body,
@@ -30,6 +31,8 @@ import { JwtCustomerAuthGuard } from '../../common/guards/jwt-customer.guard';
 import { GetOrdersQueryDto } from './dto/get-orders-query.dto';
 import { GetCustomer } from './decorators/get-customer.decorator';
 import { prisma } from 'lib/prisma';
+import { getKanbanOrders } from './store-kanban.query';
+import { OrderAction } from './store-state-machine.service';
 
 interface RequestWithUser extends Request {
   user: {
@@ -44,7 +47,23 @@ interface RequestWithUser extends Request {
 export class StoreController {
   constructor(private readonly storeService: StoreService) {}
 
-  /**
+  @Get('kanban')
+  @UseGuards(JwtAuthGuard)
+  async kanban(@Req() req: RequestWithUser & Request,) {
+    const userId = req?.user?.userId;
+    return getKanbanOrders(userId);
+  }
+
+  @Patch('orders/:id/move')
+  @UseGuards(JwtAuthGuard)
+  async moveOrder(
+    @Param('id') id: string,
+    @Body('action') action: OrderAction,
+  ) {
+    return this.storeService.moveOrder(id, action);
+  }
+
+    /**
    * Extrair subdomain do hostname ou header
    */
   private extractSubdomain(

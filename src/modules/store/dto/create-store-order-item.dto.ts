@@ -1,6 +1,7 @@
 import {
   CustomerType,
   OrderChannel,
+  OrderStatus,
   ServiceType,
 } from '@prisma/client';
 import { Type } from 'class-transformer';
@@ -15,7 +16,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { CreateOrderItemDto, DeliveryTypeDto, OrderStatusDto } from 'src/modules/orders/dto/create-order-item.dto';
+import { CreateOrderItemDto, DeliveryTypeDto } from 'src/modules/orders/dto/create-order-item.dto';
 import { OrderPaymentDto } from './create-store-order.dto';
 
 /**
@@ -23,8 +24,8 @@ import { OrderPaymentDto } from './create-store-order.dto';
  */
 export class CreateStoreOrderDto {
   @IsOptional()
-  @IsEnum(OrderStatusDto)
-  status?: OrderStatusDto;
+  @IsEnum(OrderStatus)
+  status?: OrderStatus;
 
   @IsEnum(DeliveryTypeDto)
   deliveryType!: DeliveryTypeDto;

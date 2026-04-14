@@ -174,7 +174,7 @@ export class DeliveryPersonsService {
         deliveryOrders: {
           where: {
             status: {
-              in: ['PREPARING', 'READY', 'DELIVERING'],
+              in: ['IN_PROGRESS', 'READY', 'DELIVERING'],
             },
           },
           select: {
@@ -263,7 +263,7 @@ export class DeliveryPersonsService {
       where: {
         deliveryPersonId: id,
         status: {
-          in: ['PREPARING', 'READY', 'DELIVERING'],
+          in: ['IN_PROGRESS', 'READY', 'DELIVERING'],
         },
       },
     });
