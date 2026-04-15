@@ -1236,11 +1236,7 @@ private async validateCustomer(
     payments: any[],
     branchId: string,
   ): Promise<void> {
-    if (!payments?.length)
-      throw new BadRequestException(
-        'Ao menos uma forma de pagamento é obrigatória',
-      );
-
+   
     const paymentMethodIds = payments.map((p) => p.paymentMethodId);
 
     const branchPaymentMethods = await prisma.branchPaymentMethod.findMany({
@@ -1260,6 +1256,7 @@ private async validateCustomer(
         );
     }
   }
+
 
   /**
    * Validar estoque disponível
@@ -1535,8 +1532,9 @@ async createOrder(
 
   const total = subtotal + deliveryFee + serviceFee - discount;
 
-  await this.validatePaymentMethods(payments, branch.id);
-
+  if (payments?.length) {
+    await this.validatePaymentMethods(payments, branch.id);
+  }
   // =========================================================
   // ESTOQUE
   // =========================================================
@@ -1576,7 +1574,7 @@ async createOrder(
     ? DispatchStatus.PENDING
     : undefined;
 
-    const status = createOrderDto.channel === OrderChannel.ONLINE
+    const status = (createOrderDto.channel === OrderChannel.ONLINE || createOrderDto.channel === OrderChannel.WAITER)
     ? OrderStatus.PENDING
     : OrderStatus.IN_PROGRESS;
 
@@ -1619,6 +1617,7 @@ async createOrder(
         discount,
         total,
         estimatedTime,
+        tableId: createOrderDto.tableId,
 
         couponId: appliedCouponId,
         customerAddressId: addressId,
@@ -1644,22 +1643,32 @@ async createOrder(
                              : undefined,
                          })),
                        },
-                       payments: {
-                         create: payments.map((p) => {
-                           const amount = p.amount;
-                           const amountGiven = p.amountGiven || (p.type === PaymentTypeDto.CASH ? amount : null);
-                           const calculatedChange = p.type === PaymentTypeDto.CASH && amountGiven && amountGiven > amount ? amountGiven - amount : 0;
-       
-                           return {
-                             type: p.type,
-                             amount,
-                             amountGiven,
-                             paymentMethodId: p.paymentMethodId,
-                             change: calculatedChange,
-                             status: 'PENDING',
-                           };
-                         }),
-                       },
+                       payments: payments
+                        ? {
+                            create: payments.map((p) => {
+                              const amount = p.amount;
+                              const amountGiven =
+                                p.amountGiven ||
+                                (p.type === PaymentTypeDto.CASH ? amount : null);
+
+                              const calculatedChange =
+                                p.type === PaymentTypeDto.CASH &&
+                                amountGiven &&
+                                amountGiven > amount
+                                  ? amountGiven - amount
+                                  : 0;
+
+                              return {
+                                type: p.type,
+                                amount,
+                                amountGiven,
+                                paymentMethodId: p.paymentMethodId,
+                                change: calculatedChange,
+                                status: 'PENDING',
+                              };
+                            }),
+                          }
+                        : undefined,
       },
     });
 
@@ -1962,117 +1971,6 @@ async createOrder(
     }
 
     return result;
-  }
-
-  /**
-   * Registrar movimentações de estoque
-   */
-  private async registerStockMovements(
-    branchId: string,
-    order: OrderForStock,
-    productQuantities: Map<string, number>,
-    optionQuantities: Map<string, number>,
-    ingredientQuantities: Map<string, number>,
-  ) {
-    const stockMovements: Prisma.PrismaPromise<StockMovement>[] = [];
-
-    // Produtos
-    if (productQuantities.size > 0) {
-      const products = await prisma.product.findMany({
-        where: { id: { in: Array.from(productQuantities.keys()) } },
-        select: {
-          id: true,
-          name: true,
-          stockControlEnabled: true,
-        },
-      });
-
-      for (const product of products) {
-        if (!product.stockControlEnabled) continue;
-        const quantity = productQuantities.get(product.id) || 0;
-        if (quantity <= 0) continue;
-
-        stockMovements.push(
-          prisma.stockMovement.create({
-            data: {
-              type: 'EXIT',
-              quantity,
-              variation: -quantity,
-              description: `Venda de produto - Pedido #${order.orderNumber ?? order.id.slice(0, 8)} - ${product.name}`,
-              productId: product.id,
-              branchId,
-            },
-          }),
-        );
-      }
-    }
-
-    // Opções de complemento
-    if (optionQuantities.size > 0) {
-      const options = await prisma.complementOption.findMany({
-        where: { id: { in: Array.from(optionQuantities.keys()) } },
-        select: {
-          id: true,
-          name: true,
-          stockControlEnabled: true,
-        },
-      });
-
-      for (const option of options) {
-        if (!option.stockControlEnabled) continue;
-        const quantity = optionQuantities.get(option.id) || 0;
-        if (quantity <= 0) continue;
-
-        stockMovements.push(
-          prisma.stockMovement.create({
-            data: {
-              type: 'EXIT',
-              quantity,
-              variation: -quantity,
-              description: `Consumo de opção de complemento - Pedido #${order.orderNumber ?? order.id.slice(0, 8)} - ${option.name}`,
-              optionId: option.id,
-              branchId,
-            },
-          }),
-        );
-      }
-    }
-
-    // Insumos da ficha técnica
-    if (ingredientQuantities.size > 0) {
-      const ingredients = await prisma.ingredient.findMany({
-        where: { id: { in: Array.from(ingredientQuantities.keys()) } },
-        select: {
-          id: true,
-          name: true,
-          stockControlEnabled: true,
-        },
-      });
-
-      for (const ingredient of ingredients) {
-        if (!ingredient.stockControlEnabled) continue;
-        const quantity = ingredientQuantities.get(ingredient.id) || 0;
-        if (quantity <= 0) continue;
-
-        stockMovements.push(
-          prisma.stockMovement.create({
-            data: {
-              type: 'EXIT',
-              quantity,
-              variation: -quantity,
-              description: `Consumo de insumo (ficha técnica) - Pedido #${order.orderNumber ?? order.id.slice(0, 8)} - ${ingredient.name}`,
-              ingredientId: ingredient.id,
-              branchId,
-            },
-          }),
-        );
-      }
-    }
-
-    if (stockMovements.length > 0) {
-      // Agora funciona porque são Prisma.PrismaPromise<StockMovement>
-      await prisma.$transaction(stockMovements);
-    }
   }
 
   /**

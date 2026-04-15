@@ -37,6 +37,7 @@
     "seed:owner:prod": "dotenv -e environments/.env.prod -- tsx prisma/seed-master-owner.ts",
     "seed:master:dev": "dotenv -e environments/.env.dev -- tsx prisma/seed-master.ts",
     "seed:master:prod": "dotenv -e environments/.env.prod -- tsx prisma/seed-master.ts",
+    "seed:add-settings:prod": "dotenv -e environments/.env.prod -- tsx prisma/seed-add-settings.ts",
     "seed:printers:dev": "dotenv -e environments/.env.dev -- tsx prisma/seed-printers.ts",
     "seed:printers:prod": "dotenv -e environments/.env.prod -- tsx prisma/seed-printers.ts",
     "prisma:push": "node scripts/prisma-push.js",

@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { CustomerType, Order, OrderChannel, OrderStatus, Prisma, ServiceType } from '@prisma/client';
+import { CustomerType, Order, OrderChannel, OrderStatus, Prisma, ServiceType, TableSessionStatus } from '@prisma/client';
 import { prisma } from '../../../lib/prisma';
 import {
   BulkCreateTablesDto,
@@ -19,11 +19,12 @@ import {
   DeliveryTypeDto,
 } from '../orders/dto/create-order-item.dto';
 import { TableStatus } from './types';
-import { OrdersService } from '../orders/orders.service';
 import { money } from '../../utils/money';
+
 @Injectable()
 export class TablesService {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor() {}
+
   /**
    * Busca todas as mesas de uma filial
    */
@@ -32,24 +33,16 @@ export class TablesService {
     includeMerged: boolean = false,
     status?: TableStatus,
   ) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-    });
-    if (!user) {
-      throw new NotFoundException('Usuário não encontrado');
-    }
-    const branchId = user.branchId;
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Usuário não encontrado');
+    if (!user.branchId) throw new NotFoundException('Filial não encontrada');
 
-    if(!branchId){
-      throw new NotFoundException('Filial não encontrada');
-    }
-    const whereCondition: Prisma.TableWhereInput = { branchId };
+    const whereCondition: Prisma.TableWhereInput = { branchId: user.branchId };
 
     if (!includeMerged) {
       whereCondition.status = { not: 'MERGED' };
     }
 
-    //Filtrar as mesas pelo status da mesa porem se vim ALL, nao filtrar pelo status
     if (status) {
       if (status === TableStatus.ALL) {
         delete whereCondition.status;
@@ -61,91 +54,52 @@ export class TablesService {
     return prisma.table.findMany({
       where: whereCondition,
       include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        customer: {
-          select: {
-            id: true,
-            name: true,
-            phone: true,
-          },
-        },
+        user: { select: { id: true, name: true } },
+        customer: { select: { id: true, name: true, phone: true } },
         orders: {
           where: {
             status: { in: ['IN_PROGRESS', 'PENDING', 'CONFIRMED', 'READY'] },
           },
           include: {
-            customer: {
-              select: { id: true, name: true, phone: true },
-            },
-            items: {
-              include: {
-                product: true,
-              },
-            },
+            customer: { select: { id: true, name: true, phone: true } },
+            items: { include: { product: true } },
             payments: true,
-            billSplit:true,
-            billSplitPersons:true
+            billSplit: true,
+            billSplitPersons: true,
           },
         },
       },
-      orderBy: {
-        number: 'asc',
-      },
+      orderBy: { number: 'asc' },
     });
   }
 
   /**
    * Busca uma mesa específica por ID
+   * Correção: usava user.id em vez de user.branchId
    */
   async getTableById(id: string, userId: string) {
-    const branch = await prisma.user.findUnique({
-      where: { id: userId },
-    });
-    if (!branch) {
-      throw new NotFoundException('Usuário não encontrado');
-    }
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Usuário não encontrado');
+
     const table = await prisma.table.findUnique({
-      where: { id, branchId: branch?.id },
+      where: { id, branchId: user.branchId ?? undefined },
       include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        customer: {
-          select: {
-            id: true,
-            name: true,
-            phone: true,
-          },
-        },
+        user: { select: { id: true, name: true } },
+        customer: { select: { id: true, name: true, phone: true } },
         orders: {
           where: {
             status: { in: ['IN_PROGRESS', 'PENDING', 'CONFIRMED', 'READY'] },
           },
           include: {
-            items: {
-              include: {
-                product: true
-              }
-            },
+            items: { include: { product: true } },
             customer: true,
-            
+            payments: true,
           },
         },
       },
     });
 
-    if (!table) {
-      throw new NotFoundException('Mesa não encontrada');
-    }
-
+    if (!table) throw new NotFoundException('Mesa não encontrada');
     return table;
   }
 
@@ -153,308 +107,325 @@ export class TablesService {
    * Cria uma nova mesa
    */
   async createTable(data: CreateTableDto, userId: string) {
-    const existing = await prisma.table.findFirst({
-      where: {
-        branchId: data.branchId,
-        number: data.number,
-      },
-    });
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Usuário não encontrado');
+    if (!user.branchId) throw new NotFoundException('Filial não encontrada');
 
-    if (existing) {
-      throw new BadRequestException('Já existe uma mesa com este número');
-    }
+    const existing = await prisma.table.findFirst({
+      where: { branchId: user.branchId, number: data.number },
+    });
+    if (existing) throw new BadRequestException('Já existe uma mesa com este número');
 
     return prisma.table.create({
       data: {
-        branchId: data.branchId,
+        branchId: user.branchId,
         number: data.number,
         identification: data.identification,
-        status: 'OPEN',
+        type: data.type ?? 'MESA',
+        isActive: true,
+        status: 'CLOSED',
         userId,
       },
     });
   }
 
   /**
-   * Atualiza uma mesa
+   * Atualiza dados da mesa (número, identificação, tipo, etc.)
+   * Correção: não cria mais pedido em toda atualização.
+   * Só cria sessão + pedido quando status muda de CLOSED/AVAILABLE → OCCUPIED.
    */
   async updateTable(tableId: string, data: UpdateTableDto, userId: string) {
-    const table = await prisma.table.findUnique({
-      where: { id: tableId },
-    });
-
-    if (!table) {
-      throw new NotFoundException('Mesa não encontrada');
-    }
+    const table = await prisma.table.findUnique({ where: { id: tableId } });
+    if (!table) throw new NotFoundException('Mesa não encontrada');
 
     if (data.number !== undefined && data.number !== table.number) {
       const existing = await prisma.table.findFirst({
-        where: {
-          branchId: table.branchId,
-          number: data.number,
-          id: { not: tableId },
-        },
+        where: { branchId: table.branchId, number: data.number, id: { not: tableId } },
       });
-
-      if (existing) {
-        throw new BadRequestException('Já existe uma mesa com este número');
-      }
-    }
-    if (data.status === TableStatus.ALL) {
-      throw new BadRequestException('Status inválido');
+      if (existing) throw new BadRequestException('Já existe uma mesa com este número');
     }
 
-    const { number, identification, status, numberOfPeople, customerId } = data;
+    const { number, identification, status, numberOfPeople, customerId, type, isActive } = data;
 
+    // ─── Abertura de mesa: cria sessão + pedido ──────────────────────────────
+    const isOpening =
+      status === TableStatus.OCCUPIED &&
+      ['CLOSED', 'AVAILABLE', 'CLEANING'].includes(table.status);
+
+    if (isOpening) {
+      return this._openTableWithSession({
+        tableId,
+        userId,
+        numberOfPeople: numberOfPeople ?? 1,
+        identification,
+        customerId,
+        orderData: data.order,
+        type,
+        isActive,
+        number,
+      });
+    }
+
+    // ─── Atualização simples (sem abrir) ─────────────────────────────────────
     return prisma.table.update({
       where: { id: tableId },
       data: {
         ...(number !== undefined ? { number } : {}),
         ...(identification !== undefined ? { identification } : {}),
-        ...(status !== undefined ? { status } : {}),
+        ...(status !== undefined && status !== TableStatus.ALL ? { status } : {}),
+        ...(type !== undefined ? { type } : {}),
+        ...(isActive !== undefined ? { isActive } : {}),
         ...(numberOfPeople !== undefined ? { numberofpeople: numberOfPeople } : {}),
-        customerId: customerId ?? null,
+        ...(customerId !== undefined ? { customerId: customerId ?? null } : {}),
         userId,
       },
+      include: { orders: true },
     });
   }
 
   /**
-   * Remove uma mesa
+   * Remove uma mesa (só se estiver disponível e sem sessões ativas)
    */
   async deleteTable(tableId: string) {
-    const table = await prisma.table.findUnique({
-      where: { id: tableId },
-    });
-
-    if (!table) {
-      throw new NotFoundException('Mesa não encontrada');
-    }
-
-    if (table.status !== 'CLOSED') {
+    const table = await prisma.table.findUnique({ where: { id: tableId } });
+    if (!table) throw new NotFoundException('Mesa não encontrada');
+    if (!['CLOSED', 'AVAILABLE'].includes(table.status)) {
       throw new BadRequestException('Só é possível remover mesas disponíveis');
     }
 
-    await prisma.table.delete({
-      where: { id: tableId },
-    });
+    await prisma.table.delete({ where: { id: tableId } });
   }
 
   /**
-   * Abre uma mesa e cria uma comanda
+   * Abre uma mesa via POST /tables/:id/open (endpoint legado)
+   * Redireciona para a lógica de sessão centralizada
    */
   async openTable(tableId: string, data: OpenTableDto, userId: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       include: { branch: true },
     });
+    if (!user) throw new NotFoundException('Usuário não encontrado');
+    if (!user.branchId) throw new ForbiddenException('Usuário não está associado a uma filial');
 
-    if (!user) {
-      throw new NotFoundException('Usuário não encontrado');
-    }
-
-    const table = await prisma.table.findUnique({
-      where: { id: tableId },
-    });
-
-    if (!table) {
-      throw new NotFoundException('Mesa não encontrada');
-    }
-
-    if (table.status === 'OPEN') {
+    const table = await prisma.table.findUnique({ where: { id: tableId } });
+    if (!table) throw new NotFoundException('Mesa não encontrada');
+    if (table.status === 'OCCUPIED' || table.status === 'OPEN') {
       throw new BadRequestException('Mesa já está ocupada');
     }
 
-    if (!user.branchId) {
-      throw new ForbiddenException('Usuário não está associado a uma filial');
+    // Validar produtos se foram enviados
+    if (data.items?.length) {
+      const productIds = data.items.map((i) => i.productId);
+      const products = await prisma.product.findMany({ where: { id: { in: productIds } } });
+      if (products.length !== productIds.length) {
+        throw new NotFoundException('Um ou mais produtos não foram encontrados');
+      }
     }
 
-    const productIds = data.items.map((item) => item.productId);
-
-    const products = await prisma.product.findMany({
-      where: { id: { in: productIds } },
+    return this._openTableWithSession({
+      tableId,
+      userId,
+      numberOfPeople: data.numberOfPeople,
+      customerId: data.customerId,
+      orderData: data,
     });
+  }
 
-    if (products.length !== productIds.length) {
-      throw new NotFoundException('Um ou mais produtos não foram encontrados');
-    }
+  /**
+   * ─── Lógica centralizada de abertura de mesa ─────────────────────────────
+   * Cria TableSession + Order em uma transação, atualiza activeSessionId.
+   */
+  private async _openTableWithSession(params: {
+    tableId: string;
+    userId: string;
+    numberOfPeople: number;
+    identification?: string;
+    customerId?: string;
+    orderData?: any;
+    type?: string;
+    isActive?: boolean;
+    number?: string;
+  }) {
+    const { tableId, userId, numberOfPeople, identification, customerId, orderData, type, isActive, number } = params;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { branch: true },
+    });
+    if (!user?.branchId) throw new ForbiddenException('Usuário não está associado a uma filial');
 
     const lastOrder = await prisma.order.findFirst({
       where: { branchId: user.branchId },
       orderBy: { orderNumber: 'desc' },
     });
+    const orderNumber = (lastOrder?.orderNumber ?? 0) + 1;
 
-    const orderNumber = lastOrder?.orderNumber ? lastOrder.orderNumber + 1 : 1;
-
-    const [updatedTable, order] = await prisma.$transaction([
-      prisma.table.update({
-        where: { id: tableId },
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. Criar sessão
+      const session = await tx.tableSession.create({
         data: {
-          status: 'OPEN',
-          numberofpeople: data.numberOfPeople,
-          userId: userId,
-          customerId: data.customerId,
+          tableId,
+          branchId: user.branchId!,
+          openedBy: userId,
+          numberOfPeople,
+          identification: identification?.trim() || null,
+          customerId: customerId ?? null,
+          status: TableSessionStatus.OPEN,
         },
-      }),
-      prisma.order.create({
+      });
+
+      // 2. Criar pedido vinculado à sessão
+      const order = await tx.order.create({
         data: {
-          branchId: user.branchId,
+          branchId: user.branchId!,
           orderNumber,
           status: OrderStatus.PENDING,
-          deliveryType: data.deliveryType,
+          deliveryType: orderData?.deliveryType ?? 'DINE_IN',
           paymentStatus: 'PENDING',
           paidAmount: 0,
-          customerId: data.customerId,
+          customerId: customerId ?? null,
           customerType: CustomerType.GUEST,
           serviceType: ServiceType.TABLE,
           channel: OrderChannel.PDV,
-          tableId: tableId,
-          subtotal: data.subtotal,
-          total: data.total,
-          serviceFee: data.serviceFee,
-          discount: data.discount,
-          notes: data.notes,
-          couponId: data.couponId,
-          items: {
-            create: data.items.map((item) => ({
-              productId: item.productId,
-              quantity: item.quantity,
-              price: money(item.price),
-              notes: item.notes || null,
-              preparationStatus: 'PENDING',
-              dispatchStatus: 'PENDING',
-              additions: item.additions
-                ? {
-                    create: item.additions.map((addition) => ({
-                      additionId: addition.additionId,
-                    })),
-                  }
-                : undefined,
-              complements: item.complements
-                ? {
-                    create: item.complements.map((complement) => ({
-                      complementId: complement.complementId,
-                      options: complement.options
-                        ? {
-                            create: complement.options.map((option) => ({
-                              optionId: option.optionId,
+          tableId,
+          tableSessionId: session.id,
+          subtotal: money(orderData?.subtotal ?? 0),
+          total: money(orderData?.total ?? 0),
+          serviceFee: money(orderData?.serviceFee ?? 0),
+          discount: money(orderData?.discount ?? 0),
+          notes: orderData?.notes ?? null,
+          couponId: orderData?.couponId ?? null,
+          ...(orderData?.items?.length
+            ? {
+                items: {
+                  create: orderData.items.map((item: any) => ({
+                    productId: item.productId,
+                    quantity: item.quantity,
+                    price: money(item.price),
+                    notes: item.notes ?? null,
+                    preparationStatus: 'PENDING',
+                    dispatchStatus: 'PENDING',
+                    ...(item.additions?.length
+                      ? { additions: { create: item.additions.map((a: any) => ({ additionId: a.additionId })) } }
+                      : {}),
+                    ...(item.complements?.length
+                      ? {
+                          complements: {
+                            create: item.complements.map((c: any) => ({
+                              complementId: c.complementId,
+                              ...(c.options?.length
+                                ? { options: { create: c.options.map((o: any) => ({ optionId: o.optionId })) } }
+                                : {}),
                             })),
-                          }
-                        : undefined,
-                    })),
-                  }
-                : undefined,
-            })),
-          },
+                          },
+                        }
+                      : {}),
+                  })),
+                },
+              }
+            : {}),
         },
-      }),
-    ]);
+      });
 
-    return { table: updatedTable, order };
+      // 3. Atualizar mesa: status + activeSessionId + dados denormalizados para display
+      const updatedTable = await tx.table.update({
+        where: { id: tableId },
+        data: {
+          status: 'OCCUPIED',
+          numberofpeople: numberOfPeople,
+          customerId: customerId ?? null,
+          activeSessionId: session.id,
+          userId,
+          attendantId: userId,
+          ...(number !== undefined ? { number } : {}),
+          ...(identification !== undefined ? { identification: identification?.trim() || null } : {}),
+          ...(type !== undefined ? { type: type as any } : {}),
+          ...(isActive !== undefined ? { isActive } : {}),
+        },
+        include: { orders: true },
+      });
+
+      return { table: updatedTable, order, session };
+    });
+
+    return result;
   }
 
   /**
-   * Fecha uma mesa
+   * Fecha a sessão ativa da mesa e manda para CLEANING
    */
   async closeTable(tableId: string, userId: string) {
     const table = await prisma.table.findUnique({
       where: { id: tableId },
       include: {
         orders: {
-          where: {
-            status: { in: ['PENDING', 'CONFIRMED', 'IN_PROGRESS', 'READY'] },
-          },
-          select: {
-            id: true,
-          },
+          where: { status: { in: ['PENDING', 'CONFIRMED', 'IN_PROGRESS', 'READY'] } },
+          select: { id: true },
         },
       },
     });
+    if (!table) throw new NotFoundException('Mesa não encontrada');
+    if (table.orders.length > 0) throw new BadRequestException('Mesa possui pedidos abertos');
 
-    if (!table) {
-      throw new NotFoundException('Mesa não encontrada');
-    }
+    const mergedTableIds = (
+      await prisma.table.findMany({ where: { status: 'MERGED' }, select: { id: true } })
+    ).map((t) => t.id);
 
-    if (table.orders.length > 0) {
-      throw new BadRequestException('Mesa possui comandas abertas');
-    }
+    await prisma.$transaction(async (tx) => {
+      // Fechar sessão ativa, se existir
+      if (table.activeSessionId) {
+        await tx.tableSession.update({
+          where: { id: table.activeSessionId },
+          data: {
+            status: TableSessionStatus.CLOSED,
+            closedBy: userId,
+            closedAt: new Date(),
+          },
+        });
+      }
 
-    const mergedTables = await prisma.table.findMany({
-      where: {
-        status: 'MERGED',
-      },
-      select: { id: true },
-    });
-
-    const mergedTableIds = mergedTables.map((t) => t.id);
-
-    await prisma.$transaction([
-      prisma.table.update({
+      await tx.table.update({
         where: { id: tableId },
         data: {
           status: 'CLEANING',
           numberofpeople: null,
-          userId: userId,
           customerId: null,
+          activeSessionId: null,
+          userId,
         },
-      }),
-      ...(mergedTableIds.length > 0
-        ? [
-            prisma.table.updateMany({
-              where: { id: { in: mergedTableIds } },
-              data: {
-                status: 'CLEANING',
-                numberofpeople: null,
-                userId: userId,
-                customerId: null,
-              },
-            }),
-          ]
-        : []),
-    ]);
+      });
+
+      if (mergedTableIds.length > 0) {
+        await tx.table.updateMany({
+          where: { id: { in: mergedTableIds } },
+          data: { status: 'CLEANING', numberofpeople: null, customerId: null, activeSessionId: null, userId },
+        });
+      }
+    });
   }
 
   /**
-   * Marca mesa como limpa
+   * Marca mesa como limpa e disponível
    */
   async markTableAsClean(tableId: string, userId: string) {
-    const table = await prisma.table.findUnique({
-      where: { id: tableId },
-    });
+    const table = await prisma.table.findUnique({ where: { id: tableId } });
+    if (!table) throw new NotFoundException('Mesa não encontrada');
 
-    if (!table) {
-      throw new NotFoundException('Mesa não encontrada');
-    }
-
-    const mergedTables = await prisma.table.findMany({
-      where: {
-        status: 'MERGED',
-      },
-      select: { id: true },
-    });
-
-    const mergedTableIds = mergedTables.map((t) => t.id);
+    const mergedTableIds = (
+      await prisma.table.findMany({ where: { status: 'MERGED' }, select: { id: true } })
+    ).map((t) => t.id);
 
     await prisma.$transaction([
       prisma.table.update({
         where: { id: tableId },
-        data: {
-          status: 'CLOSED',
-          numberofpeople: null,
-          userId: userId,
-          customerId: null,
-        },
+        data: { status: 'CLOSED', numberofpeople: null, customerId: null, activeSessionId: null, userId },
       }),
       ...(mergedTableIds.length > 0
         ? [
             prisma.table.updateMany({
               where: { id: { in: mergedTableIds } },
-              data: {
-                status: 'CLOSED',
-                numberofpeople: null,
-                userId: userId,
-                customerId: null,
-              },
+              data: { status: 'CLOSED', numberofpeople: null, customerId: null, activeSessionId: null, userId },
             }),
           ]
         : []),
@@ -462,242 +433,219 @@ export class TablesService {
   }
 
   /**
-   * Transfere uma mesa para outra
+   * Transfere os pedidos (e a sessão ativa) de uma mesa para outra
+   * Correção: aceita OCCUPIED além de OPEN
    */
   async transferTable(data: TransferTableDto, userId: string) {
-    // Buscar as mesas de origem e destino
     const [fromTableRaw, toTableRaw] = await Promise.all([
       prisma.table.findUnique({
         where: { id: data.fromTableId },
         include: {
           orders: {
-            where: {
-              status: { in: ['PENDING', 'CONFIRMED', 'IN_PROGRESS', 'READY'] },
-            },
+            where: { status: { in: ['PENDING', 'CONFIRMED', 'IN_PROGRESS', 'READY'] } },
           },
         },
       }),
-      prisma.table.findUnique({
-        where: { id: data.toTableId },
-      }),
+      prisma.table.findUnique({ where: { id: data.toTableId } }),
     ]);
 
-    // Verificar existência das mesas
-    if (!fromTableRaw || !toTableRaw) {
-      throw new NotFoundException('Mesa não encontrada');
-    }
+    if (!fromTableRaw || !toTableRaw) throw new NotFoundException('Mesa não encontrada');
 
-    // Garantir tipos não nulos para TypeScript
-    const fromTable: NonNullable<typeof fromTableRaw> = fromTableRaw;
-    const toTable: NonNullable<typeof toTableRaw> = toTableRaw;
+    const fromTable = fromTableRaw;
+    const toTable = toTableRaw;
 
-    // Validar status das mesas
-    if (fromTable.status !== 'OPEN') {
+    if (!['OPEN', 'OCCUPIED'].includes(fromTable.status)) {
       throw new BadRequestException('Mesa de origem não está ocupada');
     }
-
-    if (toTable.status !== 'CLOSED') {
+    if (!['CLOSED', 'AVAILABLE'].includes(toTable.status)) {
       throw new BadRequestException('Mesa de destino não está disponível');
     }
 
-    // Transação para mover pedidos e atualizar mesas
-    await prisma.$transaction([
-      // Atualizar todos os pedidos da mesa de origem para a mesa de destino
-      ...fromTable.orders.map((order) =>
-        prisma.order.update({
-          where: { id: order.id },
-          data: { tableId: data.toTableId },
-        }),
-      ),
+    await prisma.$transaction(async (tx) => {
+      // Mover pedidos para a mesa destino
+      await tx.order.updateMany({
+        where: { id: { in: fromTable.orders.map((o) => o.id) } },
+        data: { tableId: data.toTableId },
+      });
 
-      // Abrir a mesa de destino com os mesmos dados da origem
-      prisma.table.update({
+      // Transferir a sessão ativa para a mesa destino
+      if (fromTable.activeSessionId) {
+        await tx.tableSession.update({
+          where: { id: fromTable.activeSessionId },
+          data: { tableId: data.toTableId },
+        });
+      }
+
+      // Abrir mesa destino com os dados da origem
+      await tx.table.update({
         where: { id: data.toTableId },
         data: {
-          status: 'OPEN',
+          status: 'OCCUPIED',
+          numberofpeople: fromTable.numberofpeople,
+          customerId: fromTable.customerId,
+          activeSessionId: fromTable.activeSessionId,
+          userId,
         },
-      }),
+      });
 
-      // Fechar a mesa de origem
-      prisma.table.update({
+      // Fechar mesa origem
+      await tx.table.update({
         where: { id: data.fromTableId },
         data: {
           status: 'CLOSED',
           numberofpeople: null,
-          userId: userId,
           customerId: null,
+          activeSessionId: null,
+          userId,
         },
-      }),
-    ]);
+      });
+    });
   }
 
   /**
    * Junta múltiplas mesas
    */
- async mergeTables(data: MergeTablesDto, userId: string) {
-  if (data.tableIds.length < 2) {
-    throw new BadRequestException('Selecione ao menos 2 mesas');
-  }
+  async mergeTables(data: MergeTablesDto, userId: string) {
+    if (data.tableIds.length < 2) {
+      throw new BadRequestException('Selecione ao menos 2 mesas');
+    }
 
-  const tables = await prisma.table.findMany({
-    where: { id: { in: data.tableIds } },
-    include: {
-      orders: {
-        where: {
-          status: {
-            in: [
-              OrderStatus.PENDING,
-              OrderStatus.CONFIRMED,
-              OrderStatus.IN_PROGRESS,
-              OrderStatus.READY,
-            ],
+    const tables = await prisma.table.findMany({
+      where: { id: { in: data.tableIds } },
+      include: {
+        orders: {
+          where: {
+            status: { in: [OrderStatus.PENDING, OrderStatus.CONFIRMED, OrderStatus.IN_PROGRESS, OrderStatus.READY] },
           },
+          include: { items: true },
         },
-        include: { items: true },
       },
-    },
-  });
-
-  const targetTable = tables.find((t) => t.id === data.targetTableId);
-
-  if (!targetTable) {
-    throw new NotFoundException('Mesa de destino não encontrada');
-  }
-
-  const occupiedTables = tables.filter(
-    (t) =>
-      (t.status === 'OPEN' || t.status === 'OCCUPIED') &&
-      t.orders.length > 0,
-  );
-
-  const existingOrder = targetTable.orders?.[0];
-
-  // =========================
-  // MAIN ORDER
-  // =========================
-  let mainOrder = existingOrder;
-
-  if (!mainOrder) {
-    const lastOrder = await prisma.order.findFirst({
-      where: { branchId: data.branchId },
-      orderBy: { orderNumber: 'desc' },
     });
 
-    const nextOrderNumber = (lastOrder?.orderNumber ?? 0) + 1;
+    const targetTable = tables.find((t) => t.id === data.targetTableId);
+    if (!targetTable) throw new NotFoundException('Mesa de destino não encontrada');
 
-    mainOrder = await prisma.order.create({
-      data: {
-        branchId: data.branchId,
-        orderNumber: nextOrderNumber,
-        status: OrderStatus.PENDING,
-        deliveryType: DeliveryTypeDto.DINE_IN,
-        customerId: data.customerId ?? null,
-        customerType: CustomerType.GUEST,
-        serviceType: ServiceType.TABLE,
-        channel: OrderChannel.PDV,
-        tableId: data.targetTableId,
-        subtotal: 0,
-        total: 0,
-        serviceFee: 0,
-        discount: 0,
-      },
-      include: { items: true, customer: true },
-    });
-  }
-
-  // =========================
-  // ORDERS TO MERGE
-  // =========================
-  const otherOrders = occupiedTables
-    .filter((t) => t.id !== data.targetTableId)
-    .flatMap((t) => t.orders);
-
-  // =========================
-  // TRANSACTION (IMPORTANTE)
-  // =========================
-  await prisma.$transaction(async (tx) => {
-    // mover itens
-    for (const order of otherOrders) {
-      await tx.orderItem.updateMany({
-        where: { orderId: order.id },
-        data: { orderId: mainOrder!.id },
-      });
-    }
-
-    const mergedTableIds = data.tableIds.filter(
-      (id) => id !== data.targetTableId,
+    const occupiedTables = tables.filter(
+      (t) => ['OPEN', 'OCCUPIED'].includes(t.status) && t.orders.length > 0,
     );
 
-    if (mergedTableIds.length > 0) {
-      await tx.order.update({
-        where: { id: mainOrder!.id },
+    const existingOrder = targetTable.orders?.[0];
+    let mainOrder = existingOrder;
+
+    if (!mainOrder) {
+      const lastOrder = await prisma.order.findFirst({
+        where: { branchId: data.branchId },
+        orderBy: { orderNumber: 'desc' },
+      });
+      const nextOrderNumber = (lastOrder?.orderNumber ?? 0) + 1;
+
+      // Cria ou reutiliza sessão da mesa destino
+      let sessionId = targetTable.activeSessionId;
+      if (!sessionId) {
+        const session = await prisma.tableSession.create({
+          data: {
+            tableId: data.targetTableId,
+            branchId: data.branchId,
+            openedBy: userId,
+            numberOfPeople: tables.reduce((sum, t) => sum + (t.numberofpeople ?? 0), 0),
+            customerId: data.customerId ?? null,
+            status: TableSessionStatus.OPEN,
+          },
+        });
+        sessionId = session.id;
+      }
+
+      mainOrder = await prisma.order.create({
         data: {
-          notes: `Mesas unificadas: ${mergedTableIds.join(', ')}`,
+          branchId: data.branchId,
+          orderNumber: nextOrderNumber,
+          status: OrderStatus.PENDING,
+          deliveryType: DeliveryTypeDto.DINE_IN,
+          customerId: data.customerId ?? null,
+          customerType: CustomerType.GUEST,
+          serviceType: ServiceType.TABLE,
+          channel: OrderChannel.PDV,
+          tableId: data.targetTableId,
+          tableSessionId: sessionId,
+          subtotal: 0,
+          total: 0,
+          serviceFee: 0,
+          discount: 0,
         },
+        include: { items: true, customer: true },
       });
     }
 
-    const totalPeople = tables.reduce(
-      (sum, t) => sum + (t.numberofpeople ?? 0),
-      0,
-    );
+    const otherOrders = occupiedTables
+      .filter((t) => t.id !== data.targetTableId)
+      .flatMap((t) => t.orders);
 
-    const hasOrders = occupiedTables.length > 0 || !!mainOrder;
+    await prisma.$transaction(async (tx) => {
+      // Mover itens dos outros pedidos para o pedido principal
+      for (const order of otherOrders) {
+        await tx.orderItem.updateMany({
+          where: { orderId: order.id },
+          data: { orderId: mainOrder!.id },
+        });
+      }
 
-    const newUserId =
-      targetTable.userId ?? occupiedTables[0]?.userId ?? null;
+      const mergedTableIds = data.tableIds.filter((id) => id !== data.targetTableId);
+      const totalPeople = tables.reduce((sum, t) => sum + (t.numberofpeople ?? 0), 0);
+      const hasOrders = occupiedTables.length > 0 || !!mainOrder;
 
-    const newCustomerId =
-      targetTable.customerId ?? occupiedTables[0]?.customerId ?? null;
+      if (mergedTableIds.length > 0) {
+        await tx.order.update({
+          where: { id: mainOrder!.id },
+          data: { notes: `Mesas unificadas: ${mergedTableIds.join(', ')}` },
+        });
+      }
 
-    // atualizar mesa principal
-    await tx.table.update({
-      where: { id: data.targetTableId },
-      data: {
-        status: hasOrders ? 'OPEN' : 'CLOSED',
-        numberofpeople: totalPeople > 0 ? totalPeople : null,
-        userId: newUserId,
-        customerId: newCustomerId,
-      },
+      // Fechar sessões das mesas secundárias
+      const secondaryTables = tables.filter((t) => mergedTableIds.includes(t.id));
+      for (const st of secondaryTables) {
+        if (st.activeSessionId) {
+          await tx.tableSession.update({
+            where: { id: st.activeSessionId },
+            data: { status: TableSessionStatus.CLOSED, closedBy: userId, closedAt: new Date() },
+          });
+        }
+      }
+
+      // Atualizar mesa principal
+      await tx.table.update({
+        where: { id: data.targetTableId },
+        data: {
+          status: hasOrders ? 'OCCUPIED' : 'CLOSED',
+          numberofpeople: totalPeople > 0 ? totalPeople : null,
+          userId: targetTable.userId ?? occupiedTables[0]?.userId ?? userId,
+          customerId: data.customerId ?? targetTable.customerId ?? occupiedTables[0]?.customerId ?? null,
+          activeSessionId: mainOrder ? (targetTable.activeSessionId ?? null) : null,
+        },
+      });
+
+      // Marcar mesas secundárias como MERGED
+      await tx.table.updateMany({
+        where: { id: { in: mergedTableIds } },
+        data: { status: 'MERGED', numberofpeople: null, customerId: null, activeSessionId: null, userId },
+      });
     });
 
-    // atualizar mesas secundárias
-    await tx.table.updateMany({
-      where: { id: { in: mergedTableIds } },
-      data: {
-        status: 'MERGED',
-        numberofpeople: null,
-        userId,
-        customerId: null,
-      },
-    });
-  });
-
-  return { order: mainOrder };
-}
+    return { order: mainOrder };
+  }
 
   /**
    * Reserva uma mesa
    */
   async reserveTable(tableId: string, data: ReserveTableDto) {
-    const table = await prisma.table.findUnique({
-      where: { id: tableId },
-    });
-
-    if (!table) {
-      throw new NotFoundException('Mesa não encontrada');
-    }
-
-    if (table.status !== 'CLOSED') {
+    const table = await prisma.table.findUnique({ where: { id: tableId } });
+    if (!table) throw new NotFoundException('Mesa não encontrada');
+    if (!['CLOSED', 'AVAILABLE'].includes(table.status)) {
       throw new BadRequestException('Mesa não está disponível');
     }
 
     await prisma.table.update({
       where: { id: tableId },
-      data: {
-        status: 'RESERVED',
-        numberofpeople: data.numberOfPeople,
-      },
+      data: { status: 'RESERVED', numberofpeople: data.numberOfPeople },
     });
   }
 
@@ -705,20 +653,12 @@ export class TablesService {
    * Cancela reserva de uma mesa
    */
   async cancelReservation(tableId: string) {
-    const table = await prisma.table.findUnique({
-      where: { id: tableId },
-    });
-
-    if (!table) {
-      throw new NotFoundException('Mesa não encontrada');
-    }
+    const table = await prisma.table.findUnique({ where: { id: tableId } });
+    if (!table) throw new NotFoundException('Mesa não encontrada');
 
     await prisma.table.update({
       where: { id: tableId },
-      data: {
-        status: 'CLOSED',
-        numberofpeople: null,
-      },
+      data: { status: 'CLOSED', numberofpeople: null },
     });
   }
 
@@ -726,48 +666,31 @@ export class TablesService {
    * Cria múltiplas mesas de uma vez
    */
   async bulkCreateTables(data: BulkCreateTablesDto, userId: string) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-    });
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Usuário não encontrado');
 
-    if (!user) {
-      throw new NotFoundException('Usuário não encontrado');
-    }
+    const { startNumber, quantity, numberofpeople, identification, type } = data;
 
-    const { startNumber, quantity, numberofpeople, identification } = data;
-
-    const tablesToCreate: Array<{
-      branchId: string;
-      number: string;
-      status: TableStatus;
-      numberofpeople?: number;
-      identification?: string;
-      userId: string;
-    }> = [];
+    const tablesToCreate: Prisma.TableCreateManyInput[] = [];
 
     let created = 0;
     let skipped = 0;
 
     for (let i = 0; i < quantity; i++) {
       const tableNumber = String(startNumber + i);
-
       const existing = await prisma.table.findFirst({
-        where: {
-          branchId: user.branchId ?? '',
-          number: tableNumber,
-        },
+        where: { branchId: user.branchId ?? '', number: tableNumber },
         select: { id: true },
       });
 
-      if (existing) {
-        skipped++;
-        continue;
-      }
+      if (existing) { skipped++; continue; }
 
       tablesToCreate.push({
         branchId: user.branchId ?? '',
         number: tableNumber,
-        status: TableStatus.AVAILABLE,
+        status: 'CLOSED',
+        type: type ?? 'MESA',
+        isActive: true,
         numberofpeople,
         identification,
         userId: user.id,
@@ -775,55 +698,35 @@ export class TablesService {
     }
 
     if (tablesToCreate.length > 0) {
-      await prisma.table.createMany({
-        data: tablesToCreate,
-      });
-
+      await prisma.table.createMany({ data: tablesToCreate });
       created = tablesToCreate.length;
     }
 
-    return {
-      created,
-      skipped,
-      total: quantity,
-    };
+    return { created, skipped, total: quantity };
   }
 
-  async updateTableStatus(
-    tableId: string,
-    status: TableStatus,
-    userId: string,
-  ) {
-    // Busca a mesa
-    const table = await prisma.table.findUnique({
-      where: { id: tableId },
-    });
+  async updateTableStatus(tableId: string, status: TableStatus, _userId: string) {
+    const table = await prisma.table.findUnique({ where: { id: tableId } });
+    if (!table) throw new NotFoundException('Mesa não encontrada');
+    if (status === TableStatus.ALL) throw new BadRequestException('Status inválido');
 
-    if (!table) {
-      throw new NotFoundException('Mesa não encontrada');
-    }
-
-    if (status === TableStatus.ALL) {
-      throw new BadRequestException('Status inválido');
-    }
-    // Atualiza o status da mesa
     const updatedTable = await prisma.table.update({
       where: { id: tableId },
       data: { status },
     });
 
-    // Busca o pedido ativo, se existir
     let activeOrder: Order | null = null;
-    if (updatedTable.activeOrderId) {
-      activeOrder = await this.ordersService.findOne(
-        updatedTable.activeOrderId,
-        userId,
-      ); // ✅ tipagem explícita
+    if (updatedTable.activeSessionId) {
+      // Busca o pedido mais recente da sessão ativa
+      activeOrder = await prisma.order.findFirst({
+        where: {
+          tableSessionId: updatedTable.activeSessionId,
+          status: { in: ['PENDING', 'CONFIRMED', 'IN_PROGRESS', 'READY'] },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
     }
 
-    return {
-      table: updatedTable,
-      activeOrder,
-    };
+    return { table: updatedTable, activeOrder };
   }
 }

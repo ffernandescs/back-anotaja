@@ -207,8 +207,7 @@ async function seed() {
     ['orders', 'Pedidos', 'pdv', '/admin/sales/orders', 1],
     ['kanban', 'Kanban', 'pdv', '/admin/sales/kanban', 2],
 
-    ['commands', 'Comandas', 'salon', '/admin/sales/commands', 1],
-    ['tables', 'Mesas', 'salon', '/admin/sales/tables', 2],
+    ['salon_floor', 'Mesas e Comandas', 'salon', '/admin/sales/tables', 1],
 
     ['kds', 'KDS', 'kitchen', '/admin/sales/kds', 1],
 
@@ -241,6 +240,7 @@ async function seed() {
     ['settings_announcements', 'Avisos', 'my_company', '/admin/administration/settings/announcements', 4],
     ['settings_subscription', 'Assinatura', 'my_company', '/admin/administration/settings/payments', 5],
     ['settings_plans', 'Planos', 'my_company', '/admin/administration/settings/subscription', 6],
+    ['settings_tables', 'Mesas e Comandas', 'my_company', '/admin/administration/settings/tables', 7],
 
     // DESEMPENHO
     ['performance_customers', 'Clientes', 'performance', '/admin/performance/clientes', 1],
@@ -395,12 +395,12 @@ async function seed() {
       isTrial: false,
       description: 'Para pizzarias e restaurantes pequenos - Gerencie operação',
       features: [
-        ...['dashboard', 'pdv', 'orders', 'kanban', 'salon', 'commands', 'tables', 'kitchen', 'kds'],
+        ...['dashboard', 'pdv', 'orders', 'kanban', 'salon', 'salon_floor', 'kitchen', 'kds'],
         ...['menu', 'categories', 'products', 'complements', 'complement_options', 'stock'],
         ...['delivery_orders', 'delivery_areas', 'delivery_persons'],
         ...['cash', 'financial', 'payment_methods', 'coupons'],
         ...['customers', 'performance', 'sales_analysis', 'performance_customers'],
-        ...['administration', 'users', 'my_company', 'settings_profile', 'settings_hours', 'settings_service_fee'],
+        ...['administration', 'users', 'my_company', 'settings_profile', 'settings_hours', 'settings_service_fee', 'settings_tables'],
       ],
     },
     {

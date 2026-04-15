@@ -573,6 +573,7 @@ model Branch {
   customerPoints             CustomerPoints[]
   announcements              Announcement[]
   tables                     Table[]
+  tableSessions              TableSession[]
   paymentMethods             BranchPaymentMethod[]
   billSplits                 BillSplit[]
   complementOptions          ComplementOption[]
@@ -723,9 +724,11 @@ model User {
   branch             Branch?             @relation(fields: [branchId], references: [id], onDelete: Cascade)
   orders             Order[]
   cashMovements      CashMovement[]
-  openedCashSessions CashSession[]       @relation("OpenedByUser")
-  closedCashSessions CashSession[]       @relation("ClosedByUser")
-  pointsTransactions PointsTransaction[] @relation("PointsTransactions")
+  openedCashSessions  CashSession[]    @relation("OpenedByUser")
+  closedCashSessions  CashSession[]    @relation("ClosedByUser")
+  openedTableSessions TableSession[]   @relation("SessionOpenedBy")
+  closedTableSessions TableSession[]   @relation("SessionClosedBy")
+  pointsTransactions  PointsTransaction[] @relation("PointsTransactions")
   customerPoints     CustomerPoints?     @relation("CustomerPoints")
   refreshTokens      RefreshToken[]
   notificationReads  NotificationRead[]
@@ -893,6 +896,7 @@ model Customer {
   orders           Order[]
   branch           Branch            @relation(fields: [branchId], references: [id], onDelete: Cascade)
   tables           Table[]
+  tableSessions    TableSession[]
   billSplitPersons BillSplitPerson[]
 
   @@unique([phone, branchId])
@@ -996,12 +1000,14 @@ model Order {
   customerAddressId                                              String?
   deliveryPersonId  String? // Entregador associado ao pedido
   tableNumber       String? // Para pedidos "Comer no local"
-  tableId                                                        String?
+  tableId           String?
+  tableSessionId    String? // Sessão de mesa à qual este pedido pertence
   createdAt                                                      DateTime             @default(now())
   updatedAt                                                      DateTime             @updatedAt
 
   customerAddress                                                CustomerAddress?    @relation(fields: [customerAddressId], references: [id], onDelete: SetNull)
   table                                                          Table?              @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  tableSession      TableSession?       @relation(fields: [tableSessionId], references: [id], onDelete: SetNull)
   branch                                                         Branch              @relation(fields: [branchId], references: [id], onDelete: Cascade)
   user                                                           User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
   coupon                                                         Coupon?             @relation(fields: [couponId], references: [id], onDelete: SetNull)
@@ -1447,15 +1453,26 @@ enum DayOfWeek {
 }
 
 enum TableStatus {
-  OPEN
-  CLOSED
-  RESERVED
-  OCCUPIED
-  CLEANING
-  MERGED
-  AVAILABLE
-  CLOSING
-  ALL
+  OCCUPIED  // Mesa/Comanda em uso (estado principal de uso)
+  CLOSING   // Aguardando pagamento (fechamento de conta)
+  CLEANING  // Em limpeza — transição entre sessões
+  CLOSED    // Disponível para nova sessão
+  RESERVED  // Reservada
+  MERGED    // Incorporada a outra mesa
+  // Mantidos por compatibilidade retroativa — não usar em código novo
+  OPEN      // @deprecated usar OCCUPIED
+  AVAILABLE // @deprecated usar CLOSED
+}
+
+enum TableSessionStatus {
+  OPEN     // Sessão ativa — aceitando pedidos
+  CLOSING  // Aguardando pagamento
+  CLOSED   // Sessão encerrada
+}
+
+enum TableType {
+  MESA
+  COMANDA
 }
 
 // Mesas do estabelecimento
@@ -1463,21 +1480,27 @@ model Table {
   id                                                                 String       @id @default(cuid())
   number         String // Número da mesa (ex: "1", "2", "Mesa VIP")
   status                                                             TableStatus  @default(CLOSED) // FECHADA, ABERTA, FECHANDO_CONTA, PAGA
+  type           TableType    @default(MESA) // MESA ou COMANDA
+  isActive       Boolean      @default(true) // Ativo/Inativo para gestão
   numberofpeople Int? // Quantidade de pessoas na mesa
   identification String? // Identificação opcional da mesa
-  userId         String // Atendente responsável pela mesa
-  customerId     String? // Cliente associado à mesa
-  branchId                                                           String
-  orderId                                                            String?
-  activeOrderId                                                      String?
-  attendantId    String? // Atendente responsável pela mesa
-  createdAt                                                          DateTime     @default(now())
-  updatedAt                                                          DateTime     @updatedAt
-  branch                                                             Branch      @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  billSplits     BillSplit[] // Divisões de conta da mesa
-  user                                                               User        @relation(fields: [userId], references: [id])
-  customer                                                           Customer?   @relation(fields: [customerId], references: [id])
-  orders                                                             Order[]
+  userId            String  // Atendente responsável pela mesa
+  customerId        String? // Cliente associado à mesa (denormalizado da sessão ativa para display rápido)
+  branchId          String
+  activeSessionId   String? // ID da TableSession ativa — null quando fechada
+  attendantId       String? // Atendente responsável pela mesa
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  branch        Branch         @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  billSplits    BillSplit[]    // Divisões de conta da mesa
+  user          User           @relation(fields: [userId], references: [id])
+  customer      Customer?      @relation(fields: [customerId], references: [id])
+  orders        Order[]
+  // Relação nomeada para evitar ambiguidade com activeSession
+  sessions      TableSession[] @relation("TableHistory")
+  // Ponteiro rápido para a sessão ativa (FK sem cascade — a sessão sobrevive mesmo se removida daqui)
+  activeSession TableSession?  @relation("TableActiveSession", fields: [activeSessionId], references: [id], onDelete: SetNull)
 
   @@unique([branchId, number]) // Número da mesa deve ser único por filial
 }
@@ -1504,17 +1527,19 @@ model BillSplit {
   branchId                                             String
   userId                                               String
   splitType                                            BillSplitType      @default(SINGLE)
-  tableId        String? // Mesa associada (se houver)
+  tableId          String? // Mesa associada (se houver)
+  tableSessionId   String? // Sessão de mesa associada
   numberOfPeople Int // Quantidade total de pessoas
   status                                               BillSplitStatus    @default(IN_PROGRESS) // IN_PROGRESS, COMPLETED, CANCELLED
   createdAt                                            DateTime           @default(now())
   updatedAt                                            DateTime           @updatedAt
 
-  branch                                               Branch            @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  user                                                 User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  table                                                Table?            @relation(fields: [tableId], references: [id], onDelete: SetNull)
-  persons                                              BillSplitPerson[]
-  orders                                               Order[]
+  branch        Branch         @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  table         Table?         @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  tableSession  TableSession?  @relation(fields: [tableSessionId], references: [id], onDelete: SetNull)
+  persons       BillSplitPerson[]
+  orders        Order[]
 }
 
 enum BillSplitPersonStatus {
@@ -1872,4 +1897,44 @@ model PaymentGatewayConfig {
 
   @@unique([branchId, gatewayType])
   @@map("payment_gateway_configs")
+}
+
+// ─── SESSÃO DE MESA / COMANDA ─────────────────────────────────────────────────
+// Registra cada ocupação de uma mesa ou comanda.
+// Uma mesa pode ter N sessões ao longo do tempo (histórico).
+// Cada sessão agrupa todos os pedidos feitos durante uma única ocupação.
+//
+// Decisão de design: Mesa e Comanda permanecem no mesmo model Table (type discriminator)
+// porque compartilham 100% dos atributos e operações. A sessão é o que diferencia
+// uma ocupação da outra e guarda o contexto transitório (pessoas, cliente, etc.).
+model TableSession {
+  id             String             @id @default(cuid())
+  tableId        String
+  branchId       String
+  openedBy       String             // userId do atendente que abriu
+  closedBy       String?            // userId do atendente que fechou
+  numberOfPeople Int                @default(1)
+  identification String?            // ex: "Aniversário", "Reunião João"
+  customerId     String?
+  status         TableSessionStatus @default(OPEN)
+  openedAt       DateTime           @default(now())
+  closedAt       DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  // "TableHistory": todas as sessões desta mesa (back-relation de Table.sessions)
+  table          Table         @relation("TableHistory", fields: [tableId], references: [id], onDelete: Cascade)
+  // "TableActiveSession": back-relation de Table.activeSession (uma sessão pode ser a ativa de no máximo uma mesa)
+  tableAsActive  Table[]       @relation("TableActiveSession")
+  branch         Branch        @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  openedByUser   User          @relation("SessionOpenedBy", fields: [openedBy], references: [id])
+  closedByUser   User?         @relation("SessionClosedBy", fields: [closedBy], references: [id])
+  customer       Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  orders         Order[]
+  billSplits     BillSplit[]
+
+  @@index([tableId, status])
+  @@index([branchId, status])
+  @@index([branchId, openedAt])
+  @@map("table_sessions")
 }

@@ -10,12 +10,15 @@ export interface MergeTablesDto {
   customerId?: string;
 }
 export enum TableStatus {
-  OPEN = 'OPEN',
-  CLOSED = 'CLOSED',
-  RESERVED = 'RESERVED',
-  OCCUPIED = 'OCCUPIED',
-  CLEANING = 'CLEANING',
-  MERGED = 'MERGED',
-  AVAILABLE = 'AVAILABLE',
-  ALL = 'ALL',
+  OCCUPIED  = 'OCCUPIED',   // Em uso
+  CLOSING   = 'CLOSING',    // Aguardando pagamento
+  CLEANING  = 'CLEANING',   // Em limpeza
+  CLOSED    = 'CLOSED',     // Disponível
+  RESERVED  = 'RESERVED',   // Reservada
+  MERGED    = 'MERGED',     // Incorporada a outra mesa
+  // Mantidos para compatibilidade — não usar em código novo
+  OPEN      = 'OPEN',       // @deprecated → usar OCCUPIED
+  AVAILABLE = 'AVAILABLE',  // @deprecated → usar CLOSED
+  // Sentinel para queries — nunca persiste no banco
+  ALL       = 'ALL',
 }

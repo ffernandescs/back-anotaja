@@ -84,7 +84,6 @@ export class TablesController {
    * Cria uma nova mesa
    */
   @Post()
-  
   async createTable(
     @Body() createTableDto: CreateTableDto,
     @Req() req: RequestWithUser,

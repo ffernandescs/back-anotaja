@@ -1,4 +1,5 @@
-import { IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsEnum, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { TableType } from './create-table.dto';
 
 export class BulkCreateTablesDto {
   @IsNumber()
@@ -24,4 +25,8 @@ export class BulkCreateTablesDto {
   @IsOptional()
   @Min(1)
   quantity!: number;
+
+  @IsEnum(TableType)
+  @IsOptional()
+  type?: TableType;
 }

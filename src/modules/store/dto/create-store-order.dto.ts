@@ -9,6 +9,7 @@ import {
   IsOptional,
   IsString,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { CreateOrderItemDto, DeliveryTypeDto } from 'src/modules/orders/dto/create-order-item.dto';
@@ -108,6 +109,10 @@ export class CreateStoreOrderDto {
 
   @IsOptional()
   @IsString()
+  tableId?: string; // Para pedidos de mesa
+
+  @IsOptional()
+  @IsString()
   customerPhone?: string;
 
   @IsOptional()
@@ -131,10 +136,11 @@ export class CreateStoreOrderDto {
   // PAYMENTS
   // =====================================================
 
+  @ValidateIf((o) => o.channel !== OrderChannel.WAITER)
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => OrderPaymentDto)
-  payments!: OrderPaymentDto[];
+  payments?: OrderPaymentDto[];
 
   // =====================================================
   // OPTIONAL FIELDS
