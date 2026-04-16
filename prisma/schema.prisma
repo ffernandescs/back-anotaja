@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -1572,17 +1569,35 @@ enum PaymentMethodType {
   CREDIT
   DEBIT
   PIX
-  BOLETO
-  MEAL_VOUCHER // VA
-  FOOD_VOUCHER // VE
-  OTHER
   ONLINE
+  FOOD_VOUCHER
+  MEAL_VOUCHER
+  BOLETO
+  PICPAY
+  CREDIT_NOTE
+  BANK_TRANSFER
+  CHECK
+  CRYPTO
+  APPLE_PAY
+  GOOGLE_PAY
+  SAMSUNG_PAY 
+  PAYPAL
+  MERCADO_PAGO 
+  PAGSEGURO
+  ELO
+  HIPERCARD
+  AMEX
+  DINERS
+  DISCOVER
+  JCB 
+  AURA 
+  OTHER
 }
 
 model PaymentMethod {
   id             String                 @id @default(cuid())
   name           String
-  type           PaymentMethodType      @default(CASH)
+  type PaymentMethodType @unique
   icon           String                 @default("CreditCard")
   isActive       Boolean                @default(true)
   branchPayments BranchPaymentMethod[]
@@ -1899,14 +1914,6 @@ model PaymentGatewayConfig {
   @@map("payment_gateway_configs")
 }
 
-// ─── SESSÃO DE MESA / COMANDA ─────────────────────────────────────────────────
-// Registra cada ocupação de uma mesa ou comanda.
-// Uma mesa pode ter N sessões ao longo do tempo (histórico).
-// Cada sessão agrupa todos os pedidos feitos durante uma única ocupação.
-//
-// Decisão de design: Mesa e Comanda permanecem no mesmo model Table (type discriminator)
-// porque compartilham 100% dos atributos e operações. A sessão é o que diferencia
-// uma ocupação da outra e guarda o contexto transitório (pessoas, cliente, etc.).
 model TableSession {
   id             String             @id @default(cuid())
   tableId        String

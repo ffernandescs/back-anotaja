@@ -4,50 +4,226 @@
 
 import { prisma } from '../lib/prisma';
 import bcrypt from 'bcryptjs';
-import { BillingPeriod, PlanType } from '@prisma/client';
+import { BillingPeriod, PaymentMethodType, PlanType } from '@prisma/client';
 
-export enum PaymentMethodType {
-  CASH = 'CASH',
-  CREDIT = 'CREDIT',
-  DEBIT = 'DEBIT',
-  PIX = 'PIX',
-  BOLETO = 'BOLETO',
-  MEAL_VOUCHER = 'MEAL_VOUCHER',
-  FOOD_VOUCHER = 'FOOD_VOUCHER',
-  OTHER = 'OTHER',
-  ONLINE = 'ONLINE',
-}
 
-const paymentMethods = [
+
+
+export const paymentMethods = [
   {
     id: PaymentMethodType.CASH,
     name: 'Dinheiro',
     isActive: true,
     type: PaymentMethodType.CASH,
+    icon: 'cash',
   },
+
   {
     id: PaymentMethodType.CREDIT,
     name: 'Cartão de Crédito',
     isActive: true,
     type: PaymentMethodType.CREDIT,
+    icon: 'visa',
   },
+
   {
     id: PaymentMethodType.DEBIT,
     name: 'Cartão de Débito',
     isActive: true,
     type: PaymentMethodType.DEBIT,
+    icon: 'mastercard',
   },
+
   {
     id: PaymentMethodType.PIX,
     name: 'PIX',
     isActive: true,
     type: PaymentMethodType.PIX,
+    icon: 'pix',
   },
+
   {
     id: PaymentMethodType.ONLINE,
     name: 'Pagamento Online',
     isActive: true,
     type: PaymentMethodType.ONLINE,
+    icon: 'paypal',
+  },
+
+  {
+    id: PaymentMethodType.FOOD_VOUCHER,
+    name: 'Vale Alimentação',
+    isActive: true,
+    type: PaymentMethodType.FOOD_VOUCHER,
+    icon: 'visa',
+  },
+
+  {
+    id: PaymentMethodType.MEAL_VOUCHER,
+    name: 'Vale Refeição',
+    isActive: true,
+    type: PaymentMethodType.MEAL_VOUCHER,
+    icon: 'visa',
+  },
+
+  {
+    id: PaymentMethodType.BOLETO,
+    name: 'Boleto Bancário',
+    isActive: true,
+    type: PaymentMethodType.BOLETO,
+    icon: 'pagseguro',
+  },
+
+  {
+    id: PaymentMethodType.PICPAY,
+    name: 'PicPay',
+    isActive: true,
+    type: PaymentMethodType.PICPAY,
+    icon: 'picpay',
+  },
+
+  {
+    id: PaymentMethodType.CREDIT_NOTE,
+    name: 'Nota de Crédito',
+    isActive: true,
+    type: PaymentMethodType.CREDIT_NOTE,
+    icon: 'nubank',
+  },
+
+  // {
+  //   id: PaymentMethodType.BANK_TRANSFER,
+  //   name: 'Transferência Bancária',
+  //   isActive: true,
+  //   type: PaymentMethodType.BANK_TRANSFER,
+  //   icon: 'bank-transfer',
+  // },
+
+  // {
+  //   id: PaymentMethodType.CHECK,
+  //   name: 'Cheque',
+  //   isActive: true,
+  //   type: PaymentMethodType.CHECK,
+  //   icon: 'boost',
+  // },
+
+  // {
+  //   id: PaymentMethodType.CRYPTO,
+  //   name: 'Criptomoeda',
+  //   isActive: true,
+  //   type: PaymentMethodType.CRYPTO,
+  //   icon: 'bitcoin',
+  // },
+
+  // {
+  //   id: PaymentMethodType.APPLE_PAY,
+  //   name: 'Apple Pay',
+  //   isActive: true,
+  //   type: PaymentMethodType.APPLE_PAY,
+  //   icon: 'apple-pay',
+  // },
+
+  // {
+  //   id: PaymentMethodType.GOOGLE_PAY,
+  //   name: 'Google Pay',
+  //   isActive: true,
+  //   type: PaymentMethodType.GOOGLE_PAY,
+  //   icon: 'google-pay',
+  // },
+
+  // {
+  //   id: PaymentMethodType.SAMSUNG_PAY,
+  //   name: 'Samsung Pay',
+  //   isActive: true,
+  //   type: PaymentMethodType.SAMSUNG_PAY,
+  //   icon: 'samsung-pay',
+  // },
+
+  // {
+  //   id: PaymentMethodType.PAYPAL,
+  //   name: 'PayPal',
+  //   isActive: true,
+  //   type: PaymentMethodType.PAYPAL,
+  //   icon: 'paypal',
+  // },
+
+  {
+    id: PaymentMethodType.MERCADO_PAGO,
+    name: 'Mercado Pago',
+    isActive: true,
+    type: PaymentMethodType.MERCADO_PAGO,
+    icon: 'mercadopago',
+  },
+
+  {
+    id: PaymentMethodType.PAGSEGURO,
+    name: 'PagSeguro',
+    isActive: true,
+    type: PaymentMethodType.PAGSEGURO,
+    icon: 'pagseguro',
+  },
+
+  // {
+  //   id: PaymentMethodType.ELO,
+  //   name: 'Cartão Elo',
+  //   isActive: true,
+  //   type: PaymentMethodType.ELO,
+  //   icon: 'elo',
+  // },
+
+  // {
+  //   id: PaymentMethodType.HIPERCARD,
+  //   name: 'Hipercard',
+  //   isActive: true,
+  //   type: PaymentMethodType.HIPERCARD,
+  //   icon: 'hipercard',
+  // },
+
+  // {
+  //   id: PaymentMethodType.AMEX,
+  //   name: 'American Express',
+  //   isActive: true,
+  //   type: PaymentMethodType.AMEX,
+  //   icon: 'americanexpress',
+  // },
+
+  // {
+  //   id: PaymentMethodType.DINERS,
+  //   name: 'Diners Club',
+  //   isActive: true,
+  //   type: PaymentMethodType.DINERS,
+  //   icon: 'dinersclub',
+  // },
+
+  // {
+  //   id: PaymentMethodType.DISCOVER,
+  //   name: 'Master',
+  //   isActive: true,
+  //   type: PaymentMethodType.DISCOVER,
+  //   icon: 'discover',
+  // },
+
+  // {
+  //   id: PaymentMethodType.JCB,
+  //   name: 'JCB',
+  //   isActive: true,
+  //   type: PaymentMethodType.JCB,
+  //   icon: 'jcb',
+  // },
+
+  // {
+  //   id: PaymentMethodType.AURA,
+  //   name: 'Aura',
+  //   isActive: true,
+  //   type: PaymentMethodType.AURA,
+  //   icon: 'aura',
+  // },
+
+  {
+    id: PaymentMethodType.OTHER,
+    name: 'Outro',
+    isActive: true,
+    type: PaymentMethodType.OTHER,
+    icon: 'default',
   },
 ];
 
@@ -71,17 +247,24 @@ async function seed() {
   // ======================================================
   // PAYMENT METHODS
   // ======================================================
-  for (const method of paymentMethods) {
-    await prisma.paymentMethod.upsert({
-      where: { id: method.id },
-      update: {},
-      create: {
-        ...method,
-      },
-    });
-  }
-  console.log(`✅ ${await prisma.paymentMethod.count()} métodos de pagamento criados`);
-
+for (const method of paymentMethods) {
+  await prisma.paymentMethod.upsert({
+    where: {
+      type: method.type, // 👈 isso precisa ser @unique no schema
+    },
+    update: {
+      name: method.name,
+      isActive: method.isActive,
+      icon: method.icon,
+    },
+    create: {
+      type: method.type,
+      name: method.name,
+      isActive: method.isActive,
+      icon: method.icon,
+    },
+  });
+}
   // ======================================================
   // MENU GROUPS
   // ======================================================
@@ -98,19 +281,25 @@ async function seed() {
   ];
 
   for (let i = 0; i < groupsData.length; i++) {
+    const title = groupsData[i];
+
     const existingGroup = await prisma.menuGroup.findFirst({
-      where: { title: groupsData[i] }
+      where: { title },
     });
 
     if (existingGroup) {
       await prisma.menuGroup.update({
         where: { id: existingGroup.id },
-        data: { displayOrder: i + 1, active: true },
+        data: {
+          displayOrder: i + 1,
+          active: true,
+          title, // garante sync caso mude no seed
+        },
       });
     } else {
       await prisma.menuGroup.create({
         data: {
-          title: groupsData[i],
+          title,
           displayOrder: i + 1,
           active: true,
         },
@@ -188,10 +377,16 @@ async function seed() {
     if (groupId) {
       await prisma.featureMenuGroup.upsert({
         where: {
-          featureId_groupId: { featureId: feature.id, groupId },
+          featureId_groupId: {
+            featureId: feature.id,
+            groupId,
+          },
         },
         update: {},
-        create: { featureId: feature.id, groupId },
+        create: {
+          featureId: feature.id,
+          groupId,
+        },
       });
     }
   }
@@ -640,6 +835,7 @@ async function seed() {
   console.log('  • Analytics Enterprise (R$ 49/mês)');
   console.log('  • Suporte prioritário (R$ 29/mês)');
   console.log('\n✅ Seed finalizado com sucesso!\n');
+
 }
 
 seed()

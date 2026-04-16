@@ -41,7 +41,7 @@ export class PaymentMethodsService {
   }
 
   async findAll() {
-    return prisma.paymentMethod.findMany({ where: { isActive: true } });
+    return prisma.paymentMethod.findMany();
   }
 
   async findOne(id: string) {

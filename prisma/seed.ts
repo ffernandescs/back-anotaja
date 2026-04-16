@@ -415,10 +415,15 @@ async function seedTablesForBranch(branchId: string, userId: string) {
 
     if (!existingTable) {
       await prisma.table.create({
-        data: {
-          ...tables[i],
-        },
-      });
+  data: {
+    branchId: tables[i].branchId,
+    number: tables[i].number,
+    numberofpeople: tables[i].numberofpeople,
+    identification: tables[i].identification,
+    status: "AVAILABLE",
+    userId: tables[i].userId,
+  },
+});
     }
   }
 }
@@ -4128,30 +4133,11 @@ function generateRandomDocument(length = 14) {
   return Array.from({ length }, () => Math.floor(Math.random() * 10)).join('');
 }
 
-function generateCompanyEmail(name: string) {
-  const slug = name
-    .toLowerCase()
-    .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9-]/g, '');
-
-  return `${slug}-${Date.now()}@anotaja.com`;
-}
-
 function generateUniquePhone() {
   return `11${Math.floor(900000000 + Math.random() * 99999999)}`;
 }
 
-function generateSubdomain(name: string) {
-  const slug = name
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]/g, '');
-
-  return `${slug}-${Date.now()}`;
-}
-
-async function main() {
+export async function main() {
   console.log('🌱 Iniciando seed do banco de dados...');
 
   // Limpar banco de dados
