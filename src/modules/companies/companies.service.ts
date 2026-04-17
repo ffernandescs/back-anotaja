@@ -293,12 +293,16 @@ export class CompaniesService {
         // 8️⃣ Criar subscription trial automaticamente
         const now = new Date();
         const trialDays = trialPlan.trialDays ?? 7;
-        
-        // ✅ Calcular data de término do trial com horário no final do dia
-        // Isso garante que o usuário tenha os dias COMPLETOS de trial
-        const trialEndDate = new Date(now);
-        trialEndDate.setDate(now.getDate() + trialDays);
-        trialEndDate.setHours(23, 59, 59, 999); // Final do dia
+
+        // ✅ Trial termina exatamente `trialDays * 24h` após o cadastro.
+        // Não manipular setHours(23,59,59) pois:
+        //  - Isso empurra o fim para 23:59 do fuso local do servidor,
+        //    tornando a janela real > 7 dias.
+        //  - O frontend usa Math.ceil na diferença em ms, resultando em
+        //    "8 dias" ao invés de 7.
+        //  - O mesmo timestamp é enviado ao Stripe via `trial_end`,
+        //    mantendo a fonte da verdade consistente.
+        const trialEndDate = new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000);
 
         const subscription = await prisma.subscription.create({
           data: {

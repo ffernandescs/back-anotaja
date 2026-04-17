@@ -23,6 +23,7 @@ import {
   MergeTablesDto,
   ReserveTableDto,
   BulkCreateTablesDto,
+  RequestBillDto,
 } from './dto/index';
 import { UpdateTableStatusDto } from './dto/update-table-status.dto';
 import { TableStatus } from './types';
@@ -257,6 +258,25 @@ export class TablesController {
       success: true,
       message: 'Reserva cancelada com sucesso',
     };
+  }
+
+  /**
+   * POST /tables/:id/request-bill
+   * Solicita fechamento de conta (transiciona mesa para CLOSING)
+   */
+  @Post(':id/request-bill')
+  async requestBill(
+    @Param('id') id: string,
+    @Body() requestBillDto: RequestBillDto,
+    @Req() req: RequestWithUser,
+  ) {
+    const result = await this.tablesService.requestBill(
+      id,
+      requestBillDto,
+      req.user.userId,
+    );
+
+    return result;
   }
 
   @Post('bulk')

@@ -270,11 +270,9 @@ for (const method of paymentMethods) {
   // ======================================================
   const groupsData = [
     'Dashboard',
-    'Vendas',
+    'Operação', // PDV, Salão, Cozinha, Delivery
     'Cardápio',
-    'Delivery',
     'Financeiro',
-    'Relatórios',
     'Clientes',
     'Desempenho',
     'Administração',
@@ -313,37 +311,36 @@ for (const method of paymentMethods) {
     groups.find((g) => g.title === title)?.id;
 
   // ======================================================
-  // FEATURES PRINCIPAIS (com ICONS)
+  // MAIN FEATURES (com icons)
   // Formato: [key, name, group, href, icon]
+  // Organizado para sistema de delivery PDV multitenant
   // ======================================================
-  const mainFeatures: Array<[string, string, string, string, string | null]> = [
+  const mainFeatures: Array<[string, string, string, string | null, string]> = [
+    // DASHBOARD
     ['dashboard', 'Dashboard', 'Dashboard', '/admin/dashboard', 'LayoutGrid'],
 
-    // VENDAS (core do sistema)
-    ['pdv', 'PDV', 'Vendas', '/admin/pdv', 'ShoppingCart'],
-    ['salon', 'Salão', 'Vendas', '/admin/salon', 'Wine'],
-    ['kitchen', 'Cozinha', 'Vendas', '/admin/kitchen', 'ChefHat'],
+    // OPERAÇÃO (core do sistema - PDV, Salão, Cozinha, Delivery)
+    ['pdv', 'PDV', 'Operação', '/admin/pdv', 'ShoppingCart'],
+    ['salon', 'Salão', 'Operação', '/admin/salon', 'Wine'],
+    ['kitchen', 'Cozinha', 'Operação', '/admin/kitchen', 'ChefHat'],
+    ['delivery_orders', 'Delivery', 'Operação', '/admin/delivery/orders', 'Truck'],
 
-    // CARDÁPIO (driver de conversão)
+    // CARDÁPIO (gerenciamento de produtos)
     ['menu', 'Cardápio', 'Cardápio', '/admin/menu', 'BookOpen'],
 
-    // DELIVERY (add-on complexo)
-    ['delivery_orders', 'Pedidos de Delivery', 'Delivery', '/admin/delivery/orders', 'Truck'],
-
-    // FINANCEIRO
+    // FINANCEIRO (gestão financeira)
+    ['financial', 'Financeiro', 'Financeiro', '/admin/financial', 'DollarSign'],
     ['cash', 'Caixa', 'Financeiro', '/admin/financial/cash', 'Wallet'],
-    ['financial', 'Gestão Financeira', 'Financeiro', '/admin/financial', 'DollarSign'],
 
-    // CLIENTES
+    // CLIENTES (CRM)
     ['customers', 'Clientes', 'Clientes', '/admin/customers', 'Users'],
 
-    // DESEMPENHO
+    // DESEMPENHO (relatórios)
     ['performance', 'Desempenho', 'Desempenho', '/admin/performance', 'TrendingUp'],
 
-    // ADMINISTRAÇÃO
+    // ADMINISTRAÇÃO (configurações da empresa)
     ['administration', 'Administração', 'Administração', '/admin/administration', 'Settings'],
-    ['configuracoes', 'Configurações', 'Administração', '/admin/administration/settings', null],
-    ['my_company', 'Minha Empresa', 'Administração', '/admin/administration/my-company', null],
+    ['my_company', 'Minha Empresa', 'Administração', '/admin/administration/my-company', 'Building2'],
   ];
 
   const featureMap = new Map<string, string>();
@@ -396,15 +393,24 @@ for (const method of paymentMethods) {
   // ======================================================
   // SUBFEATURES (sem icons)
   // Formato: [key, name, parentKey, href, displayOrder]
+  // Organizado para sistema de delivery PDV multitenant
   // ======================================================
   const subFeatures: Array<[string, string, string | null, string | null, number]> = [
-    // VENDAS
+    // OPERAÇÃO - PDV
     ['orders', 'Pedidos', 'pdv', '/admin/sales/orders', 1],
     ['kanban', 'Kanban', 'pdv', '/admin/sales/kanban', 2],
 
+    // OPERAÇÃO - SALÃO
     ['salon_floor', 'Mesas e Comandas', 'salon', '/admin/sales/tables', 1],
 
+    // OPERAÇÃO - COZINHA
     ['kds', 'KDS', 'kitchen', '/admin/sales/kds', 1],
+
+    // OPERAÇÃO - DELIVERY
+    ['delivery_areas', 'Áreas de Entrega', 'delivery_orders', '/admin/delivery/areas', 1],
+    ['delivery_persons', 'Entregadores', 'delivery_orders', '/admin/delivery/persons', 2],
+    ['delivery_routes', 'Rotas de Entrega', 'delivery_orders', '/admin/delivery/routes', 3],
+    ['delivery_assignments', 'Atribuições', 'delivery_orders', '/admin/delivery/assignments', 4],
 
     // CARDÁPIO
     ['categories', 'Categorias', 'menu', '/admin/menu/categories', 1],
@@ -413,20 +419,25 @@ for (const method of paymentMethods) {
     ['complement_options', 'Opções de Complemento', 'menu', '/admin/menu/complement-options', 4],
     ['stock', 'Estoque', 'menu', '/admin/menu/stock', 5],
 
-    // DELIVERY
-    ['delivery_areas', 'Áreas de Entrega', 'delivery_orders', '/admin/delivery/areas', 1],
-    ['delivery_persons', 'Entregadores', 'delivery_orders', '/admin/delivery/persons', 2],
-    ['delivery_routes', 'Rotas de Entrega', 'delivery_orders', '/admin/delivery/routes', 3],
-    ['delivery_assignments', 'Atribuições', 'delivery_orders', '/admin/delivery/assignments', 4],
-
     // FINANCEIRO
-    ['payment_methods', 'Métodos de Pagamento', 'financial', '/admin/financial/methods', 1],
+    ['financial_reports', 'Relatórios Financeiros', 'financial', '/admin/financial/reports', 1],
     ['coupons', 'Cupons', 'financial', '/admin/financial/coupons', 2],
+    ['cash_flow', 'Fluxo de Caixa', 'cash', '/admin/financial/cash', 1],
+
+    // CLIENTES
+    ['customer_list', 'Lista de Clientes', 'customers', '/admin/customers', 1],
+    ['customer_loyalty', 'Fidelização', 'customers', '/admin/customers/loyalty', 2],
+
+    // DESEMPENHO
+    ['sales_analysis', 'Vendas', 'performance', '/admin/performance/vendas', 1],
+    ['performance_customers', 'Clientes', 'performance', '/admin/performance/clientes', 2],
+    ['performance_products', 'Produtos', 'performance', '/admin/performance/produtos', 3],
 
     // ADMINISTRAÇÃO
     ['users', 'Usuários', 'administration', '/admin/users', 1],
     ['branches', 'Filiais', 'administration', '/admin/administration/branches', 2],
     ['groups', 'Grupos', 'administration', '/admin/administration/groups', 3],
+    ['roles', 'Permissões', 'administration', '/admin/administration/roles', 4],
 
     // MINHA EMPRESA
     ['settings_profile', 'Perfil da Empresa', 'my_company', '/admin/administration/settings/profile', 1],
@@ -436,10 +447,7 @@ for (const method of paymentMethods) {
     ['settings_subscription', 'Assinatura', 'my_company', '/admin/administration/settings/payments', 5],
     ['settings_plans', 'Planos', 'my_company', '/admin/administration/settings/subscription', 6],
     ['settings_tables', 'Mesas e Comandas', 'my_company', '/admin/administration/settings/tables', 7],
-
-    // DESEMPENHO
-    ['performance_customers', 'Clientes', 'performance', '/admin/performance/clientes', 1],
-    ['sales_analysis', 'Vendas', 'performance', '/admin/performance/vendas', 2],
+    ['settings_integrations', 'Integrações', 'my_company', '/admin/administration/settings/integrations', 8],
   ];
 
   for (const [subKey, featureName, parentKey, href, displayOrder] of subFeatures) {

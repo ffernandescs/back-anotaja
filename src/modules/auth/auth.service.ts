@@ -323,7 +323,11 @@ export class AuthService {
         },
         branch: {
           include:{
-            paymentMethods: true,
+            paymentMethods: {
+              include: {
+                paymentMethod: true
+              }
+            },
             orders: {
               include: {
                 customer: {

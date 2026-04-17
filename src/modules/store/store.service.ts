@@ -519,14 +519,16 @@ async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPer
     throw new BadRequestException('items são obrigatórios');
   }
 
-  if (!dto.payments?.length) {
+  // Payments não é obrigatório para TABLE ou COMANDA (mesa/comanda)
+  const isTableOrComanda = dto.serviceType === 'TABLE' || dto.serviceType === 'COMANDA';
+  if (!isTableOrComanda && !dto.payments?.length) {
     throw new BadRequestException('payments são obrigatórios');
   }
 
   return {
     deliveryType: dto.deliveryType,
     items: dto.items,
-    payments: dto.payments,
+    payments: dto.payments || [],
   };
 }
   /**
@@ -919,11 +921,11 @@ async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPer
       throw new NotFoundException('CEP não encontrado');
     }
 
-    // Prefer dados preenchidos pelo cliente para maior precisão
-    const street = extra?.street || viaCepData.logradouro || '';
-    const neighborhood = extra?.neighborhood || viaCepData.bairro || '';
-    const city = extra?.city || viaCepData.localidade || '';
-    const state = extra?.state || viaCepData.uf || '';
+    // Priorizar dados do ViaCEP quando disponíveis, usar extra apenas como fallback
+    const street = viaCepData.logradouro || extra?.street || '';
+    const neighborhood = viaCepData.bairro || extra?.neighborhood || '';
+    const city = viaCepData.localidade || extra?.city || '';
+    const state = viaCepData.uf || extra?.state || '';
     const number = extra?.number;
 
     const coords = await this.geocodeAddress(street, number, city, state, sanitizedCep, neighborhood);
@@ -1565,9 +1567,23 @@ async createOrder(
     );
 
     const isDelivery = deliveryType === DeliveryType.DELIVERY;
-    const isPickup = deliveryType === DeliveryType.PICKUP;
-    const isDineIn = deliveryType === DeliveryType.DINE_IN;
-  
+  const isPickup = deliveryType === DeliveryType.PICKUP;
+  const isDineIn = deliveryType === DeliveryType.DINE_IN;
+
+  // =========================================================
+  // VALIDAÇÃO DE MESA - IMPEDIR NOVOS PEDIDOS EM CLOSING
+  // =========================================================
+  if (createOrderDto.tableId && isDineIn) {
+    const table = await prisma.table.findUnique({
+      where: { id: createOrderDto.tableId },
+      select: { status: true },
+    });
+
+    if (table && table.status === 'CLOSING') {
+      throw new BadRequestException('Não é possível adicionar novos pedidos. A mesa está em fechamento de conta.');
+    }
+  }
+
   const preparationStatus = PreparationStatus.PENDING;
 
   const dispatchStatus = isDelivery
@@ -3158,7 +3174,7 @@ async updateOrder(
         channel: updateOrderDto.serviceType === "TAKEAWAY" ? OrderChannel.ONLINE : OrderChannel.PDV,
         serviceType: updateOrderDto.serviceType || ServiceType.TAKEAWAY,
         customerType: updateOrderDto.customerId ? CustomerType.REGISTERED : CustomerType.GUEST,
-
+        status: updateOrderDto.status ? updateOrderDto.status as OrderStatus : existingOrder.status,
 
         customerId: customer?.id ?? null,
         customerAddressId: addressId,

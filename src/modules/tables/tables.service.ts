@@ -12,6 +12,7 @@ import {
   MergeTablesDto,
   OpenTableDto,
   ReserveTableDto,
+  RequestBillDto,
   TransferTableDto,
   UpdateTableDto,
 } from './dto/index';
@@ -354,6 +355,8 @@ export class TablesService {
 
   /**
    * Fecha a sessão ativa da mesa e manda para CLEANING
+   * Aceita mesas em OCCUPIED ou CLOSING
+   * Se estiver em CLOSING, permite fechar mesmo com pedidos (desde que não estejam ativos)
    */
   async closeTable(tableId: string, userId: string) {
     const table = await prisma.table.findUnique({
@@ -366,7 +369,11 @@ export class TablesService {
       },
     });
     if (!table) throw new NotFoundException('Mesa não encontrada');
-    if (table.orders.length > 0) throw new BadRequestException('Mesa possui pedidos abertos');
+    
+    // Se não estiver em CLOSING, verifica se há pedidos ativos
+    if (table.status !== 'CLOSING' && table.orders.length > 0) {
+      throw new BadRequestException('Mesa possui pedidos abertos. Solicite o fechamento de conta primeiro.');
+    }
 
     const mergedTableIds = (
       await prisma.table.findMany({ where: { status: 'MERGED' }, select: { id: true } })
@@ -419,13 +426,13 @@ export class TablesService {
     await prisma.$transaction([
       prisma.table.update({
         where: { id: tableId },
-        data: { status: 'CLOSED', numberofpeople: null, customerId: null, activeSessionId: null, userId },
+        data: { status: 'AVAILABLE', numberofpeople: null, customerId: null, activeSessionId: null, userId },
       }),
       ...(mergedTableIds.length > 0
         ? [
             prisma.table.updateMany({
               where: { id: { in: mergedTableIds } },
-              data: { status: 'CLOSED', numberofpeople: null, customerId: null, activeSessionId: null, userId },
+              data: { status: 'AVAILABLE', numberofpeople: null, customerId: null, activeSessionId: null, userId },
             }),
           ]
         : []),
@@ -660,6 +667,58 @@ export class TablesService {
       where: { id: tableId },
       data: { status: 'CLOSED', numberofpeople: null },
     });
+  }
+
+  /**
+   * Solicita fechamento de conta (transiciona mesa para CLOSING)
+   */
+  async requestBill(tableId: string, data: RequestBillDto, userId: string) {
+    const table = await prisma.table.findUnique({
+      where: { id: tableId },
+      include: {
+        activeSession: true,
+        orders: {
+          where: {
+            status: { in: ['PENDING', 'CONFIRMED', 'IN_PROGRESS', 'READY'] },
+          },
+        },
+      },
+    });
+
+    if (!table) throw new NotFoundException('Mesa não encontrada');
+    if (!['OCCUPIED', 'OPEN'].includes(table.status)) {
+      throw new BadRequestException('Mesa não está ocupada');
+    }
+    if (!table.activeSessionId) {
+      throw new BadRequestException('Mesa não possui sessão ativa');
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // Transiciona mesa para CLOSING
+      await tx.table.update({
+        where: { id: tableId },
+        data: {
+          status: 'CLOSING',
+          userId,
+        },
+      });
+
+      // Transiciona sessão ativa para CLOSING
+      if (table.activeSessionId) {
+        await tx.tableSession.update({
+          where: { id: table.activeSessionId },
+          data: {
+            status: TableSessionStatus.CLOSING,
+          },
+        });
+      }
+    });
+
+    return {
+      success: true,
+      message: 'Conta solicitada com sucesso',
+      tableId,
+    };
   }
 
   /**
