@@ -1722,13 +1722,14 @@ async createOrder(
     ? DispatchStatus.PENDING
     : undefined;
 
-    const status = (createOrderDto.channel === OrderChannel.ONLINE || createOrderDto.channel === OrderChannel.WAITER)
-    ? OrderStatus.PENDING
-    : OrderStatus.IN_PROGRESS;
+    const status = createOrderDto.pixPaid
+      ? OrderStatus.IN_PROGRESS
+      : (createOrderDto.channel === OrderChannel.ONLINE || createOrderDto.channel === OrderChannel.WAITER)
+        ? OrderStatus.PENDING
+        : OrderStatus.IN_PROGRESS;
 
-    const paymentStatus =
-    createOrderDto.serviceType === ServiceType.TAKEAWAY
-      ? PaymentStatus.PENDING
+    const paymentStatus = createOrderDto.pixPaid
+      ? PaymentStatus.PAID
       : PaymentStatus.PENDING;
     // =========================================================
   // TRANSAÇÃO
@@ -1812,7 +1813,7 @@ async createOrder(
                                 amountGiven,
                                 paymentMethodId: p.paymentMethodId,
                                 change: calculatedChange,
-                                status: 'PENDING',
+                                status: createOrderDto.pixPaid ? PaymentStatus.PAID : PaymentStatus.PENDING,
                               };
                             }),
                           }
@@ -3497,5 +3498,91 @@ if (!fullOrder) {
     }));
 
     return grouped;
+  }
+
+  // ── PIX Automático (Mercado Pago) ───────────────────────────────────────
+
+  async createPixPayment(dto: {
+    branchId: string;
+    amount: number;
+    description?: string;
+    payerEmail?: string;
+  }) {
+    const config = await prisma.generalConfig.findUnique({
+      where: { branchId: dto.branchId },
+    });
+
+    if (!config?.mercadoPagoAccessToken) {
+      throw new BadRequestException(
+        'Token do Mercado Pago não configurado. Configure em Configurações > Pagamentos.',
+      );
+    }
+
+    const idempotencyKey = `pix-${dto.branchId}-${Date.now()}`;
+
+    const response = await fetch('https://api.mercadopago.com/v1/payments', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.mercadoPagoAccessToken}`,
+        'X-Idempotency-Key': idempotencyKey,
+      },
+      body: JSON.stringify({
+        transaction_amount: Math.round(dto.amount) / 100,
+        payment_method_id: 'pix',
+        payer: {
+          email: dto.payerEmail || 'cliente@anotaja.com.br',
+        },
+        description: dto.description || 'Pedido online',
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new BadRequestException(
+        (err as any)?.message ?? 'Erro ao gerar pagamento PIX no Mercado Pago.',
+      );
+    }
+
+    const data: any = await response.json();
+
+    return {
+      paymentId: String(data.id),
+      qrCode: data.point_of_interaction?.transaction_data?.qr_code ?? null,
+      qrCodeBase64: data.point_of_interaction?.transaction_data?.qr_code_base64 ?? null,
+      status: data.status,
+      expiresAt: data.date_of_expiration ?? null,
+    };
+  }
+
+  async getPixPaymentStatus(paymentId: string, branchId: string) {
+    const config = await prisma.generalConfig.findUnique({
+      where: { branchId },
+    });
+
+    if (!config?.mercadoPagoAccessToken) {
+      throw new BadRequestException('Token do Mercado Pago não configurado.');
+    }
+
+    const response = await fetch(
+      `https://api.mercadopago.com/v1/payments/${paymentId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${config.mercadoPagoAccessToken}`,
+        },
+      },
+    );
+
+    if (!response.ok) {
+      throw new BadRequestException('Erro ao consultar status do pagamento.');
+    }
+
+    const data: any = await response.json();
+
+    return {
+      paymentId: String(data.id),
+      status: data.status as 'pending' | 'approved' | 'rejected' | 'cancelled' | 'in_process',
+      statusDetail: data.status_detail ?? null,
+    };
   }
 }

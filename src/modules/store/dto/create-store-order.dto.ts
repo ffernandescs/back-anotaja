@@ -2,6 +2,7 @@ import { CustomerType, OrderChannel, OrderStatus, ServiceType } from '@prisma/cl
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsEnum,
   IsInt,
   IsNotEmpty,
@@ -21,6 +22,8 @@ export enum PaymentTypeDto {
   CREDIT = 'CREDIT',
   DEBIT = 'DEBIT',
   PIX = 'PIX',
+  PIX_MANUAL = 'PIX_MANUAL',
+  PIX_AUTOMATIC = 'PIX_AUTOMATIC',
   BOLETO = 'BOLETO',
   MEAL_VOUCHER = 'MEAL_VOUCHER',
   FOOD_VOUCHER = 'FOOD_VOUCHER',
@@ -159,4 +162,8 @@ export class CreateStoreOrderDto {
   @IsInt()
   @Min(0)
   discount?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  pixPaid?: boolean;
 }

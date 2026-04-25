@@ -588,4 +588,23 @@ export class StoreController {
       finalBranchId,
     );
   }
+
+  // ── PIX Automático (Mercado Pago) ─────────────────────────────────────────
+
+  @Public()
+  @Post('pix/create')
+  async createPixPayment(
+    @Body() body: { branchId: string; amount: number; description?: string; payerEmail?: string },
+  ) {
+    return this.storeService.createPixPayment(body);
+  }
+
+  @Public()
+  @Get('pix/:paymentId/status')
+  async getPixPaymentStatus(
+    @Param('paymentId') paymentId: string,
+    @Query('branchId') branchId: string,
+  ) {
+    return this.storeService.getPixPaymentStatus(paymentId, branchId);
+  }
 }
