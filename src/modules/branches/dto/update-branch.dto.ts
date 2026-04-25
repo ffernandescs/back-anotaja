@@ -20,5 +20,8 @@ export class UpdateBranchDto extends PartialType(CreateBranchDto) {
     hideFreightCalculation?: boolean;
     autoCompleteOrders?: boolean;
     tableCount?: number;
+    soundEnabled?: boolean;
+    notificationSound?: string;
+    browserNotificationsEnabled?: boolean;
   };
 }

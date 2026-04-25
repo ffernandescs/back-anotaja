@@ -442,7 +442,8 @@ for (const method of paymentMethods) {
     ['delivery_assignments', 'Atribuições',      'delivery_zones', '/admin/delivery/assignments', 4],
 
     // NOTIFICAÇÕES
-    ['announcements', 'Avisos', 'notifications', '/admin/administration/settings/announcements', 1],
+    ['announcements',         'Avisos',           'notifications', '/admin/administration/settings/announcements',  1],
+    ['notification_settings', 'Sons e Alertas',   'notifications', '/admin/administration/settings/notifications', 2],
 
     // RELATÓRIO (sub-itens opcionais)
     ['sales_analysis',       'Vendas',   'relatorio', '/admin/performance/vendas',    1],

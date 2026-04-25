@@ -49,6 +49,7 @@ model Company {
   document            String            @unique
   email               String            @unique
   phone               String            @unique
+  segment             String?
   active              Boolean           @default(true)
   onboardingStep      OnboardingStep    @default(SCHEDULE)
   onboardingCompleted Boolean           @default(false)
@@ -705,34 +706,34 @@ model CashMovement {
 }
 
 model User {
-  id                 String               @id @default(cuid())
-  name               String
-  email              String?              @unique
-  phone              String               @unique
-  password           String?
-  groupId            String?
-  active             Boolean              @default(true)
-  companyId          String?
-  branchId           String?
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
+  id                  String               @id @default(cuid())
+  name                String
+  email               String?              @unique
+  phone               String               @unique
+  password            String?
+  groupId             String?
+  active              Boolean              @default(true)
+  companyId           String?
+  branchId            String?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
 
-  group              Group?              @relation(fields: [groupId], references: [id], onDelete: SetNull)
-  company            Company?            @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  branch             Branch?             @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  orders             Order[]
-  cashMovements      CashMovement[]
-  openedCashSessions  CashSession[]    @relation("OpenedByUser")
-  closedCashSessions  CashSession[]    @relation("ClosedByUser")
-  openedTableSessions TableSession[]   @relation("SessionOpenedBy")
-  closedTableSessions TableSession[]   @relation("SessionClosedBy")
+  group               Group?              @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  company             Company?            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  branch              Branch?             @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  orders              Order[]
+  cashMovements       CashMovement[]
+  openedCashSessions  CashSession[]       @relation("OpenedByUser")
+  closedCashSessions  CashSession[]       @relation("ClosedByUser")
+  openedTableSessions TableSession[]      @relation("SessionOpenedBy")
+  closedTableSessions TableSession[]      @relation("SessionClosedBy")
   pointsTransactions  PointsTransaction[] @relation("PointsTransactions")
-  customerPoints     CustomerPoints?     @relation("CustomerPoints")
-  refreshTokens      RefreshToken[]
-  notificationReads  NotificationRead[]
-  tables             Table[]
-  billSplits         BillSplit[]
-  permissions        Permission[]
+  customerPoints      CustomerPoints?     @relation("CustomerPoints")
+  refreshTokens       RefreshToken[]
+  notificationReads   NotificationRead[]
+  tables              Table[]
+  billSplits          BillSplit[]
+  permissions         Permission[]
 }
 
 model RefreshToken {
@@ -972,53 +973,53 @@ enum OrderStatus {
 }
 
 model Order {
-  id                                                             String               @id @default(cuid())
+  id                                                                      String               @id @default(cuid())
   orderNumber       Int? // Número sequencial do pedido
-  status                                                         OrderStatus          @default(PENDING)
-  preparationStatus PreparationStatus @default(PENDING)
-  dispatchStatus DispatchStatus @default(PENDING)
-  deliveryType                                                   DeliveryType         @default(DELIVERY)
-  paymentStatus                                                  String               @default("PENDING") // PENDING, PARTIAL, PAID
-  paidAmount                                                     Int                  @default(0) // Valor já pago
-  total                                                          Int
-  subtotal                                                       Int
-  deliveryFee                                                    Int                  @default(0)
-  serviceFee                                                     Int                  @default(0) // Taxa de serviço (10% para pedidos de mesa)
-  discount                                                       Int                  @default(0)
-  channel      OrderChannel
-  serviceType  ServiceType
-  customerType CustomerType
+  status                                                                  OrderStatus          @default(PENDING)
+  preparationStatus                                                       PreparationStatus    @default(PENDING)
+  dispatchStatus                                                          DispatchStatus       @default(PENDING)
+  deliveryType                                                            DeliveryType         @default(DELIVERY)
+  paymentStatus                                                           String               @default("PENDING") // PENDING, PARTIAL, PAID
+  paidAmount                                                              Int                  @default(0) // Valor já pago
+  total                                                                   Int
+  subtotal                                                                Int
+  deliveryFee                                                             Int                  @default(0)
+  serviceFee                                                              Int                  @default(0) // Taxa de serviço (10% para pedidos de mesa)
+  discount                                                                Int                  @default(0)
+  channel                                                                 OrderChannel
+  serviceType                                                             ServiceType
+  customerType                                                            CustomerType
   estimatedTime     Int? // Tempo estimado de entrega em minutos
-  customerId                                                     String?
-  customer                                                       Customer?           @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  notes                                                          String?
-  branchId                                                       String
-  userId                                                         String?
-  couponId                                                       String?
-  customerAddressId                                              String?
+  customerId                                                              String?
+  customer                                                                Customer?           @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  notes                                                                   String?
+  branchId                                                                String
+  userId                                                                  String?
+  couponId                                                                String?
+  customerAddressId                                                       String?
   deliveryPersonId  String? // Entregador associado ao pedido
   tableNumber       String? // Para pedidos "Comer no local"
-  tableId           String?
+  tableId                                                                 String?
   tableSessionId    String? // Sessão de mesa à qual este pedido pertence
-  createdAt                                                      DateTime             @default(now())
-  updatedAt                                                      DateTime             @updatedAt
+  createdAt                                                               DateTime             @default(now())
+  updatedAt                                                               DateTime             @updatedAt
 
-  customerAddress                                                CustomerAddress?    @relation(fields: [customerAddressId], references: [id], onDelete: SetNull)
-  table                                                          Table?              @relation(fields: [tableId], references: [id], onDelete: SetNull)
-  tableSession      TableSession?       @relation(fields: [tableSessionId], references: [id], onDelete: SetNull)
-  branch                                                         Branch              @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  user                                                           User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
-  coupon                                                         Coupon?             @relation(fields: [couponId], references: [id], onDelete: SetNull)
-  deliveryPerson                                                 DeliveryPerson?     @relation(fields: [deliveryPersonId], references: [id], onDelete: SetNull)
-  deliveryAssignment                                             DeliveryAssignment? @relation(fields: [deliveryAssignmentId], references: [id], onDelete: SetNull)
-  deliveryAssignmentId                                           String?
-  billSplitId                                                    String?
-  billSplit                                                      BillSplit?          @relation(fields: [billSplitId], references: [id], onDelete: SetNull)
-  items                                                          OrderItem[]
+  customerAddress                                                         CustomerAddress?    @relation(fields: [customerAddressId], references: [id], onDelete: SetNull)
+  table                                                                   Table?              @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  tableSession                                                            TableSession?       @relation(fields: [tableSessionId], references: [id], onDelete: SetNull)
+  branch                                                                  Branch              @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  user                                                                    User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
+  coupon                                                                  Coupon?             @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  deliveryPerson                                                          DeliveryPerson?     @relation(fields: [deliveryPersonId], references: [id], onDelete: SetNull)
+  deliveryAssignment                                                      DeliveryAssignment? @relation(fields: [deliveryAssignmentId], references: [id], onDelete: SetNull)
+  deliveryAssignmentId                                                    String?
+  billSplitId                                                             String?
+  billSplit                                                               BillSplit?          @relation(fields: [billSplitId], references: [id], onDelete: SetNull)
+  items                                                                   OrderItem[]
   payments             OrderPayment[] // Pagamentos realizados
-  cashMovements                                                  CashMovement[]
-  pointsTransactions                                             PointsTransaction[]
-  billSplitPersons                                               BillSplitPerson[]
+  cashMovements                                                           CashMovement[]
+  pointsTransactions                                                      PointsTransaction[]
+  billSplitPersons                                                        BillSplitPerson[]
 
   @@unique([orderNumber, branchId]) // Número único por filial
 }
@@ -1475,30 +1476,30 @@ enum TableType {
 
 // Mesas do estabelecimento
 model Table {
-  id                                                                 String       @id @default(cuid())
+  id                                                                                                        String          @id @default(cuid())
   number         String // Número da mesa (ex: "1", "2", "Mesa VIP")
-  status                                                             TableStatus  @default(CLOSED) // FECHADA, ABERTA, FECHANDO_CONTA, PAGA
-  type           TableType    @default(MESA) // MESA ou COMANDA
-  isActive       Boolean      @default(true) // Ativo/Inativo para gestão
+  status                                                                                                    TableStatus     @default(CLOSED) // FECHADA, ABERTA, FECHANDO_CONTA, PAGA
+  type                                                                                                      TableType       @default(MESA) // MESA ou COMANDA
+  isActive                                                                                                  Boolean         @default(true) // Ativo/Inativo para gestão
   numberofpeople Int? // Quantidade de pessoas na mesa
   identification String? // Identificação opcional da mesa
   userId            String  // Atendente responsável pela mesa
   customerId        String? // Cliente associado à mesa (denormalizado da sessão ativa para display rápido)
-  branchId          String
+  branchId                                                                                                  String
   activeSessionId   String? // ID da TableSession ativa — null quando fechada
   attendantId       String? // Atendente responsável pela mesa
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  createdAt                                                                                                 DateTime        @default(now())
+  updatedAt                                                                                                 DateTime        @updatedAt
 
-  branch        Branch         @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branch                                                                                                    Branch         @relation(fields: [branchId], references: [id], onDelete: Cascade)
   billSplits    BillSplit[]    // Divisões de conta da mesa
-  user          User           @relation(fields: [userId], references: [id])
-  customer      Customer?      @relation(fields: [customerId], references: [id])
-  orders        Order[]
+  user                                                                                                      User           @relation(fields: [userId], references: [id])
+  customer                                                                                                  Customer?      @relation(fields: [customerId], references: [id])
+  orders                                                                                                    Order[]
   // Relação nomeada para evitar ambiguidade com activeSession
-  sessions      TableSession[] @relation("TableHistory")
+  sessions                                                                                                  TableSession[] @relation("TableHistory")
   // Ponteiro rápido para a sessão ativa (FK sem cascade — a sessão sobrevive mesmo se removida daqui)
-  activeSession TableSession?  @relation("TableActiveSession", fields: [activeSessionId], references: [id], onDelete: SetNull)
+  activeSession                                                                                             TableSession?  @relation("TableActiveSession", fields: [activeSessionId], references: [id], onDelete: SetNull)
 
   @@unique([branchId, number]) // Número da mesa deve ser único por filial
 }
@@ -1520,24 +1521,24 @@ enum BillSplitType {
 }
 
 model BillSplit {
-  id                                                   String             @id @default(cuid())
-  orderId                                              String
-  branchId                                             String
-  userId                                               String
-  splitType                                            BillSplitType      @default(SINGLE)
+  id                                                     String             @id @default(cuid())
+  orderId                                                String
+  branchId                                               String
+  userId                                                 String
+  splitType                                              BillSplitType      @default(SINGLE)
   tableId          String? // Mesa associada (se houver)
   tableSessionId   String? // Sessão de mesa associada
   numberOfPeople Int // Quantidade total de pessoas
-  status                                               BillSplitStatus    @default(IN_PROGRESS) // IN_PROGRESS, COMPLETED, CANCELLED
-  createdAt                                            DateTime           @default(now())
-  updatedAt                                            DateTime           @updatedAt
+  status                                                 BillSplitStatus    @default(IN_PROGRESS) // IN_PROGRESS, COMPLETED, CANCELLED
+  createdAt                                              DateTime           @default(now())
+  updatedAt                                              DateTime           @updatedAt
 
-  branch        Branch         @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  table         Table?         @relation(fields: [tableId], references: [id], onDelete: SetNull)
-  tableSession  TableSession?  @relation(fields: [tableSessionId], references: [id], onDelete: SetNull)
-  persons       BillSplitPerson[]
-  orders        Order[]
+  branch                                                 Branch            @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  user                                                   User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  table                                                  Table?            @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  tableSession                                           TableSession?     @relation(fields: [tableSessionId], references: [id], onDelete: SetNull)
+  persons                                                BillSplitPerson[]
+  orders                                                 Order[]
 }
 
 enum BillSplitPersonStatus {
@@ -1598,7 +1599,7 @@ enum PaymentMethodType {
 model PaymentMethod {
   id             String                 @id @default(cuid())
   name           String
-  type PaymentMethodType @unique
+  type           PaymentMethodType      @unique
   icon           String                 @default("CreditCard")
   isActive       Boolean                @default(true)
   branchPayments BranchPaymentMethod[]
@@ -1757,17 +1758,17 @@ model PrintConfig {
 }
 
 model GeneralConfig {
-  id                                                                                                     String    @id @default(cuid())
-  branchId                                                                                               String
+  id                                                                                                                                                                              String    @id @default(cuid())
+  branchId                                                                                                                                                                        String
 
   // Configurações de impressão
-  showItemNumber                                                                                         Boolean   @default(true)
-  showComplementPrice                                                                                    Boolean   @default(true)
-  showComplementName                                                                                     Boolean   @default(true)
-  useLargerFontForProduction                                                                             Boolean   @default(true)
-  multiplyOptionsByQuantity                                                                              Boolean   @default(false)
-  printCancellationReceipt                                                                               Boolean   @default(false)
-  printRatingQRCode                                                                                      Boolean   @default(true)
+  showItemNumber                                                                                                                                                                  Boolean   @default(true)
+  showComplementPrice                                                                                                                                                             Boolean   @default(true)
+  showComplementName                                                                                                                                                              Boolean   @default(true)
+  useLargerFontForProduction                                                                                                                                                      Boolean   @default(true)
+  multiplyOptionsByQuantity                                                                                                                                                       Boolean   @default(false)
+  printCancellationReceipt                                                                                                                                                        Boolean   @default(false)
+  printRatingQRCode                                                                                                                                                               Boolean   @default(true)
 
   // Configurações de mensagem
   standardRouteMessage      String?   // Mensagem para via padrão delivery, retirada e no local
@@ -1776,61 +1777,71 @@ model GeneralConfig {
   tableClosingQRCode        String?   // QR Code na mensagem da via de fechamento de mesa ou comanda
 
   // Configurações de taxa de serviço
-  enableServiceFee                                                                                       Boolean   @default(false) // Se a taxa de serviço está habilitada
-  serviceFeePercentage                                                                                   Int       @default(10) // Porcentagem da taxa de serviço (padrão 10%)
+  enableServiceFee                                                                                                                                                                Boolean   @default(false) // Se a taxa de serviço está habilitada
+  serviceFeePercentage                                                                                                                                                            Int       @default(10) // Porcentagem da taxa de serviço (padrão 10%)
 
   // Configurações de gestão de mesas
-  tableCount                                                                                             Int       @default(10) // Quantidade de mesas do estabelecimento
+  tableCount                                                                                                                                                                      Int       @default(10) // Quantidade de mesas do estabelecimento
 
   // Configurações de tipos de pedido
-  enableDelivery                                                                                         Boolean   @default(true) // Habilita pedidos de entrega
-  enableDineIn                                                                                           Boolean   @default(true) // Habilita pedidos para comer no local
-  enablePickup                                                                                           Boolean   @default(true) // Habilita pedidos para retirar no local
+  enableDelivery                                                                                                                                                                  Boolean   @default(true) // Habilita pedidos de entrega
+  enableDineIn                                                                                                                                                                    Boolean   @default(true) // Habilita pedidos para comer no local
+  enablePickup                                                                                                                                                                    Boolean   @default(true) // Habilita pedidos para retirar no local
 
   // Configurações gerais do cardápio
-  sendOrdersByWhatsApp                                                                                   Boolean   @default(false) // Enviar pedidos pelo WhatsApp
-  showPromotionsScreen                                                                                   Boolean   @default(false) // Mostrar tela de promoções ao iniciar cardápio
-  showMenuFooter                                                                                         Boolean   @default(true) // Mostrar rodapé do cardápio
-  verifyNewCustomerPhone                                                                                 Boolean   @default(false) // Verificar o telefone dos novos clientes
-  hideOrderStatus                                                                                        Boolean   @default(false) // Não mostrar status do pedido no cardápio
-  hideStoreAddress                                                                                       Boolean   @default(false) // Esconder endereço do estabelecimento no cardápio
-  simplifiedAddressInput                                                                                 Boolean   @default(false) // Entrada de endereço simplificada
-  referencePointRequired                                                                                 Boolean   @default(false) // Ponto de referência obrigatório no endereço do cliente
-  showCategoriesScreen                                                                                   Boolean   @default(true) // Mostrar tela de categorias no site
-  hideFreightCalculation                                                                                 Boolean   @default(false) // Esconder opção de calcular frete no início do catálogo
-  autoCompleteOrders                                                                                     Boolean   @default(false) // Finalizar pedidos automaticamente após 24 horas
-  autoAcceptOrders                                                                                       Boolean   @default(false) // Aceitar pedidos automaticamente ao chegar
-  estimatedPreparationTime                                                                               Int       @default(45)    // Tempo estimado de preparo em minutos
-  allowSplitPayment                                                                                      Boolean   @default(false) // Permitir divisão de pagamento (Split/Conta dividida)
+  sendOrdersByWhatsApp                                                                                                                                                            Boolean   @default(false) // Enviar pedidos pelo WhatsApp
+  showPromotionsScreen                                                                                                                                                            Boolean   @default(false) // Mostrar tela de promoções ao iniciar cardápio
+  showMenuFooter                                                                                                                                                                  Boolean   @default(true) // Mostrar rodapé do cardápio
+  verifyNewCustomerPhone                                                                                                                                                          Boolean   @default(false) // Verificar o telefone dos novos clientes
+  hideOrderStatus                                                                                                                                                                 Boolean   @default(false) // Não mostrar status do pedido no cardápio
+  hideStoreAddress                                                                                                                                                                Boolean   @default(false) // Esconder endereço do estabelecimento no cardápio
+  simplifiedAddressInput                                                                                                                                                          Boolean   @default(false) // Entrada de endereço simplificada
+  referencePointRequired                                                                                                                                                          Boolean   @default(false) // Ponto de referência obrigatório no endereço do cliente
+  showCategoriesScreen                                                                                                                                                            Boolean   @default(true) // Mostrar tela de categorias no site
+  hideFreightCalculation                                                                                                                                                          Boolean   @default(false) // Esconder opção de calcular frete no início do catálogo
+  autoCompleteOrders                                                                                                                                                              Boolean   @default(false) // Finalizar pedidos automaticamente após 24 horas
+  autoAcceptOrders                                                                                                                                                                Boolean   @default(false) // Aceitar pedidos automaticamente ao chegar
+  estimatedPreparationTime                                                                                                                                                        Int       @default(45) // Tempo estimado de preparo em minutos
+  allowSplitPayment                                                                                                                                                               Boolean   @default(false) // Permitir divisão de pagamento (Split/Conta dividida)
+  soundEnabled                                                                                                                                                                    Boolean   @default(true) // Tocar som ao receber novo pedido
+  notificationSound                                                                                      String?   // Som de notificação selecionado (default, bell, chime, etc.)
+  browserNotificationsEnabled                                                                                                                                                     Boolean   @default(false) // Notificações push do navegador para novos pedidos
+
+  // Configurações de PIX
+  pixMode                   String?   // disabled | manual | automatic
+  pixKeyType                String?   // cpf | cnpj | phone | email | random
+  pixKey                    String?
+  pixHolderName             String?
+  mercadoPagoAccessToken    String?
 
   // Informações do Estabelecimento (mantidos para compatibilidade)
-  companyName                                                                                            String?
-  cnpj                                                                                                   String?
-  address                                                                                                String?
-  phone                                                                                                  String?
-  email                                                                                                  String?
+  companyName                                                                                                                                                                     String?
+  cnpj                                                                                                                                                                            String?
+  address                                                                                                                                                                         String?
+  phone                                                                                                                                                                           String?
+  email                                                                                                                                                                           String?
 
   // Configurações legacy (mantidos para compatibilidade)
-  showTaxInfo                                                                                            Boolean   @default(true)
-  showCustomerInfo                                                                                       Boolean   @default(true)
-  showOrderDetails                                                                                       Boolean   @default(true)
-  showPaymentInfo                                                                                        Boolean   @default(true)
-  showTimestamp                                                                                          Boolean   @default(true)
-  headerMessage                                                                                          String?
-  footerMessage                                                                                          String?
-  thankYouMessage                                                                                        String?
-  maxCharactersPerLine                                                                                   Int       @default(40)
-  fontSize                                                                                               String    @default("medium")
-  logoUrl                                                                                                String?
-  showTaxNumber                                                                                          Boolean   @default(true)
-  showFiscalInfo                                                                                         Boolean   @default(true)
-  showOrderNumber                                                                                        Boolean   @default(true)
-  showTableNumber                                                                                        Boolean   @default(true)
+  showTaxInfo                                                                                                                                                                     Boolean   @default(true)
+  showCustomerInfo                                                                                                                                                                Boolean   @default(true)
+  showOrderDetails                                                                                                                                                                Boolean   @default(true)
+  showPaymentInfo                                                                                                                                                                 Boolean   @default(true)
+  showTimestamp                                                                                                                                                                   Boolean   @default(true)
+  headerMessage                                                                                                                                                                   String?
+  footerMessage                                                                                                                                                                   String?
+  thankYouMessage                                                                                                                                                                 String?
+  maxCharactersPerLine                                                                                                                                                            Int       @default(40)
+  fontSize                                                                                                                                                                        String    @default("medium")
+  logoUrl                                                                                                                                                                         String?
+  showTaxNumber                                                                                                                                                                   Boolean   @default(true)
+  showFiscalInfo                                                                                                                                                                  Boolean   @default(true)
+  showOrderNumber                                                                                                                                                                 Boolean   @default(true)
+  showTableNumber                                                                                                                                                                 Boolean   @default(true)
 
-  createdAt                                                                                              DateTime  @default(now())
-  updatedAt                                                                                              DateTime  @updatedAt
+  createdAt                                                                                                                                                                       DateTime  @default(now())
+  updatedAt                                                                                                                                                                       DateTime  @updatedAt
 
-  branch                                                                                                 Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branch                                                                                                                                                                          Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
   @@unique([branchId])
   @@map("general_configs")
@@ -1918,33 +1929,33 @@ model PaymentGatewayConfig {
 }
 
 model TableSession {
-  id             String             @id @default(cuid())
-  tableId        String
-  branchId       String
+  id                                                                     String              @id @default(cuid())
+  tableId                                                                String
+  branchId                                                               String
   openedBy       String             // userId do atendente que abriu
   closedBy       String?            // userId do atendente que fechou
-  numberOfPeople Int                @default(1)
+  numberOfPeople                                                         Int                 @default(1)
   identification String?            // ex: "Aniversário", "Reunião João"
-  customerId     String?
-  status         TableSessionStatus @default(OPEN)
-  openedAt       DateTime           @default(now())
-  closedAt       DateTime?
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
+  customerId                                                             String?
+  status                                                                 TableSessionStatus  @default(OPEN)
+  openedAt                                                               DateTime            @default(now())
+  closedAt                                                               DateTime?
+  createdAt                                                              DateTime            @default(now())
+  updatedAt                                                              DateTime            @updatedAt
 
   // "TableHistory": todas as sessões desta mesa (back-relation de Table.sessions)
-  table          Table         @relation("TableHistory", fields: [tableId], references: [id], onDelete: Cascade)
+  table                                                                  Table              @relation("TableHistory", fields: [tableId], references: [id], onDelete: Cascade)
   // "TableActiveSession": back-relation de Table.activeSession (uma sessão pode ser a ativa de no máximo uma mesa)
-  tableAsActive  Table[]       @relation("TableActiveSession")
-  branch         Branch        @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  openedByUser   User          @relation("SessionOpenedBy", fields: [openedBy], references: [id])
-  closedByUser   User?         @relation("SessionClosedBy", fields: [closedBy], references: [id])
-  customer       Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  orders         Order[]
-  billSplits     BillSplit[]
+  tableAsActive                                                          Table[]            @relation("TableActiveSession")
+  branch                                                                 Branch             @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  openedByUser                                                           User               @relation("SessionOpenedBy", fields: [openedBy], references: [id])
+  closedByUser                                                           User?              @relation("SessionClosedBy", fields: [closedBy], references: [id])
+  customer                                                               Customer?          @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  orders                                                                 Order[]
+  billSplits                                                             BillSplit[]
 
-  @@index([tableId, status])
-  @@index([branchId, status])
-  @@index([branchId, openedAt])
+  @@index([tableId,                                                      status])
+  @@index([branchId,                                                     status])
+  @@index([branchId,                                                     openedAt])
   @@map("table_sessions")
 }

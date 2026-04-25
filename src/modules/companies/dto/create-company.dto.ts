@@ -64,5 +64,9 @@ export class CreateCompanyDto {
   @IsString()
   reference?: string;
 
+  @IsOptional()
+  @IsString()
+  segment?: string;
+
   // Latitude e Longitude opcionais
 }

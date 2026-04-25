@@ -131,6 +131,18 @@ export class CreateGeneralConfigDto {
   @IsOptional()
   @IsBoolean()
   allowSplitPayment?: boolean = false;
+
+  @IsOptional()
+  @IsBoolean()
+  soundEnabled?: boolean = true;
+
+  @IsOptional()
+  @IsString()
+  notificationSound?: string = 'default';
+
+  @IsOptional()
+  @IsBoolean()
+  browserNotificationsEnabled?: boolean = false;
 }
 
 export class UpdateGeneralConfigDto extends CreateGeneralConfigDto {}

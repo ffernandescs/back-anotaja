@@ -35,6 +35,7 @@ export class CompaniesService {
       phone,
       password,
       companyName,
+      segment,
       street,
       number,
       complement,
@@ -45,7 +46,7 @@ export class CompaniesService {
       reference,
     } = dto;
 
-    // ✅ Validações básicas
+    // Validações básicas
     if (!name || !document || !email || !phone || !password || !companyName) {
       throw new BadRequestException(
         'Todos os campos obrigatórios da empresa devem ser preenchidos.',
@@ -163,6 +164,7 @@ export class CompaniesService {
             document,
             email,
             phone,
+            segment,
             active: true,
             onboardingCompleted: false,
             onboardingStep: 'SCHEDULE',
