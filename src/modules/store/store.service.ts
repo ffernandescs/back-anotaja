@@ -392,7 +392,8 @@ async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPer
         ratingsCount: branch.ratingsCount,
         productsCount: branch._count.products,
         categoriesCount: branch._count.categories,
-        generalConfig: generalConfig || undefined
+        generalConfig: generalConfig || undefined,
+        isOpen: branch.isOpen,
       },
       subscription: subscription ? {
         status: subscription.status,

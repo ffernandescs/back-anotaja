@@ -426,6 +426,7 @@ for (const method of paymentMethods) {
     // FUNCIONAMENTO (Operação)
     ['settings_payment', 'Pagamento', 'funcionamento_op', '/admin/administration/settings/payment', 1],
     ['settings_hours',   'Horários',  'funcionamento_op', '/admin/administration/settings/hours',   2],
+    ['settings_type_orders',   'Tipo de pedido',  'funcionamento_op', '/admin/administration/settings/type-orders',   3],
 
     // CARDÁPIO
     ['categories',       'Categorias',  'cardapio', '/admin/menu/categories',       1],

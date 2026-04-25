@@ -45,6 +45,7 @@ export class StoreHomepageDto {
     ratingsCount?: number;
     productsCount: number;
     categoriesCount: number;
+    isOpen?: boolean;
     generalConfig?: {
       enableDelivery?: boolean;
       enableDineIn?: boolean;
