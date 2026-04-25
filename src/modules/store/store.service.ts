@@ -1723,10 +1723,10 @@ async createOrder(
     : undefined;
 
     const status = createOrderDto.pixPaid
-      ? OrderStatus.IN_PROGRESS
+      ? OrderStatus.CONFIRMED
       : (createOrderDto.channel === OrderChannel.ONLINE || createOrderDto.channel === OrderChannel.WAITER)
         ? OrderStatus.PENDING
-        : OrderStatus.IN_PROGRESS;
+        : OrderStatus.CONFIRMED;
 
     const paymentStatus = createOrderDto.pixPaid
       ? PaymentStatus.PAID
