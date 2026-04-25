@@ -135,6 +135,11 @@ async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPer
     }
   }
 
+  this.webSocketGateway.emitOrderUpdate(
+    { ...updatedOrder },
+    'order:status_changed',
+  );
+
   return {
     ...updatedOrder,
     availableTransitions: stateMachine.getAvailableTransitions(updatedOrder),
@@ -1201,6 +1206,57 @@ private async validateCustomer(
   }
 
   /**
+   * Retorna o preço efetivo do produto considerando promoção ativa
+   */
+  private getEffectiveProductPrice(product: {
+    price: number;
+    hasPromotion?: boolean | null;
+    promotionalPrice?: number | null;
+    promotionalType?: string | null;
+    promotionalPeriodType?: string | null;
+    promotionalStartDate?: Date | null;
+    promotionalEndDate?: Date | null;
+    promotionalDays?: string | null;
+  }): number {
+    if (!product.hasPromotion || !product.promotionalPrice) return product.price;
+
+    const now = new Date();
+
+    if (product.promotionalPeriodType === 'DATE_RANGE') {
+      if (product.promotionalStartDate && product.promotionalEndDate) {
+        const start = new Date(product.promotionalStartDate);
+        const end = new Date(product.promotionalEndDate);
+        start.setHours(0, 0, 0, 0);
+        end.setHours(23, 59, 59, 999);
+        if (now < start || now > end) return product.price;
+      }
+    }
+
+    if (product.promotionalPeriodType === 'DAYS_OF_WEEK') {
+      if (product.promotionalDays) {
+        try {
+          const dayNames = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+          const todayKey = dayNames[now.getDay()];
+          const days: string[] = JSON.parse(product.promotionalDays);
+          if (Array.isArray(days) && days.length > 0 && !days.includes(todayKey)) {
+            return product.price;
+          }
+        } catch {
+          return product.price;
+        }
+      }
+    }
+
+    const promoPrice = product.promotionalPrice;
+    if (product.promotionalType === 'FIXED') return promoPrice;
+    if (product.promotionalType === 'PERCENTAGE') {
+      return product.price - (product.price * promoPrice) / 100;
+    }
+
+    return product.price;
+  }
+
+  /**
    * Calcular subtotal dos itens
    */
   private calculateSubtotal(
@@ -1215,7 +1271,7 @@ private async validateCustomer(
       if (!product || !product.active)
         throw new NotFoundException(`Produto ${item.productId} não encontrado`);
 
-      let itemPrice = product.price;
+      let itemPrice = this.getEffectiveProductPrice(product);
 
       if (item.complements?.length) {
         for (const complement of item.complements) {
