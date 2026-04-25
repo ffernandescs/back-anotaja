@@ -518,6 +518,7 @@ model Branch {
   logoUrl                    String?
   bannerUrl                  String?
   active                     Boolean                      @default(true)
+  isOpen                     Boolean                      @default(true)
   // Cor primária da loja (hex: #000000)
   primaryColor               String?                      @default("#3B82F6")
   // Horários de funcionamento (JSON: { monday: { open: "08:00", close: "22:00" }, ... })
@@ -1798,6 +1799,8 @@ model GeneralConfig {
   showCategoriesScreen                                                                                   Boolean   @default(true) // Mostrar tela de categorias no site
   hideFreightCalculation                                                                                 Boolean   @default(false) // Esconder opção de calcular frete no início do catálogo
   autoCompleteOrders                                                                                     Boolean   @default(false) // Finalizar pedidos automaticamente após 24 horas
+  autoAcceptOrders                                                                                       Boolean   @default(false) // Aceitar pedidos automaticamente ao chegar
+  estimatedPreparationTime                                                                               Int       @default(45)    // Tempo estimado de preparo em minutos
   allowSplitPayment                                                                                      Boolean   @default(false) // Permitir divisão de pagamento (Split/Conta dividida)
 
   // Informações do Estabelecimento (mantidos para compatibilidade)

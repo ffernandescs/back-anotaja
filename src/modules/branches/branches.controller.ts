@@ -124,6 +124,11 @@ export class BranchesController {
     );
   }
 
+  @Patch('toggle-status')
+  toggleStatus(@Req() req: RequestWithUser) {
+    return this.branchesService.toggleStatus(req.user.userId);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string, @Req() req: RequestWithUser) {
     return this.branchesService.findOne(id, req.user.userId);
@@ -198,6 +203,8 @@ export class BranchesController {
       showCategoriesScreen?: boolean;
       hideFreightCalculation?: boolean;
       autoCompleteOrders?: boolean;
+      autoAcceptOrders?: boolean;
+      estimatedPreparationTime?: number;
       tableCount?: number;
     },
     @Req() req: RequestWithUser,

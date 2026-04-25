@@ -136,7 +136,7 @@ export class CreateStoreOrderDto {
   // PAYMENTS
   // =====================================================
 
-  @ValidateIf((o) => o.channel !== OrderChannel.WAITER)
+  @ValidateIf((o) => o.serviceType !== ServiceType.TABLE && o.serviceType !== ServiceType.COMANDA)
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => OrderPaymentDto)

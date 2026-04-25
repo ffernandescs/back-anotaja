@@ -506,6 +506,7 @@ async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPer
         longitude: branch.longitude,
         rating: branch.rating,
         ratingsCount: branch.ratingsCount,
+        isOpen: branch.isOpen,
       },
     };
   }
@@ -1712,18 +1713,50 @@ async createOrder(
     throw new InternalServerErrorException('Pedido inválido para emissão');
   }
 
+  // =========================================================
+  // AUTO-ACCEPT: confirma automaticamente se habilitado
+  // =========================================================
+  let finalOrder: typeof fullOrder = fullOrder;
+
+  if (fullOrder.status === OrderStatus.PENDING) {
+    const generalConfig = await prisma.generalConfig.findUnique({
+      where: { branchId: branch.id },
+      select: { autoAcceptOrders: true, estimatedPreparationTime: true },
+    });
+
+    if (generalConfig?.autoAcceptOrders) {
+      const updates = stateMachine.moveByAction(fullOrder, OrderAction.CONFIRM);
+      const confirmed = await prisma.order.update({
+        where: { id: fullOrder.id },
+        data: {
+          ...updates,
+          ...(generalConfig.estimatedPreparationTime
+            ? { estimatedTime: generalConfig.estimatedPreparationTime }
+            : {}),
+        },
+        include: {
+          customer: true,
+          deliveryPerson: true,
+          items: { include: { product: true, complements: { include: { complement: true, options: { include: { option: true } } } } } },
+          payments: true,
+        },
+      });
+      finalOrder = confirmed;
+    }
+  }
+
   this.webSocketGateway.emitOrderUpdate(
     {
-      ...fullOrder,
-      fromPDV: fullOrder.channel === OrderChannel.PDV ? true : false,
-      availableTransitions: stateMachine.getAvailableTransitions(fullOrder),
+      ...finalOrder,
+      fromPDV: finalOrder.channel === OrderChannel.PDV ? true : false,
+      availableTransitions: stateMachine.getAvailableTransitions(finalOrder),
     },
     'order:created',
   );
 
   return {
     success: true,
-    order: fullOrder,
+    order: finalOrder,
   };
 }
 

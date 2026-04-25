@@ -516,6 +516,25 @@ export class BranchesService {
     return branch;
   }
 
+  async toggleStatus(userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { branch: true },
+    });
+
+    if (!user?.branch) {
+      throw new NotFoundException('Filial não encontrada');
+    }
+
+    const updated = await prisma.branch.update({
+      where: { id: user.branch.id },
+      data: { isOpen: !user.branch.isOpen },
+      select: { id: true, isOpen: true },
+    });
+
+    return updated;
+  }
+
   async updateCurrent(userId: string, updateBranchDto: UpdateBranchDto) {
     // Buscar usuário com company
     const user = await prisma.user.findUnique({
@@ -1296,6 +1315,8 @@ export class BranchesService {
       showCategoriesScreen?: boolean;
       hideFreightCalculation?: boolean;
       autoCompleteOrders?: boolean;
+      autoAcceptOrders?: boolean;
+      estimatedPreparationTime?: number;
       tableCount?: number;
     },
     userId: string,
