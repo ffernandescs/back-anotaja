@@ -301,12 +301,19 @@ export class ProductsService {
     data: UpdateProductAdvancedOptionsDto,
     userId: string,
   ) {
+    console.log('updateAdvancedOptions - productId:', productId, 'data:', data);
+
     // Garantir que o produto existe e pertence à branch
     await this.findOne(productId, userId);
 
-    // Preparar dados para o Prisma
+    // Preparar dados para o Prisma - mapear apenas campos válidos
     const updateData: Prisma.ProductUpdateInput = {
-      ...data,
+      active: data.active,
+      featured: data.featured,
+      hasPromotion: data.hasPromotion,
+      promotionalPrice: data.promotionalPrice,
+      promotionalType: data.promotionalType,
+      promotionalPeriodType: data.promotionalPeriodType,
       promotionalStartDate: data.promotionalStartDate
         ? new Date(data.promotionalStartDate)
         : null,
@@ -316,9 +323,22 @@ export class ProductsService {
       promotionalDays: data.promotionalDays
         ? JSON.stringify(data.promotionalDays)
         : null,
+      weight: data.weight,
+      preparationTime: data.preparationTime,
+      minStock: data.minStock,
+      tags: data.tags,
+      displayOrder: data.displayOrder,
+      filterMetadata: data.filterMetadata,
+      installmentEnabled: data.installmentEnabled,
+      maxInstallments: data.maxInstallments,
+      minInstallmentValue: data.minInstallmentValue,
+      installmentInterestRate: data.installmentInterestRate,
+      installmentOnPromotionalPrice: data.installmentOnPromotionalPrice,
     };
 
-    return prisma.product.update({
+    console.log('updateAdvancedOptions - updateData:', updateData);
+
+    const result = await prisma.product.update({
       where: { id: productId },
       data: updateData,
       include: {
@@ -326,6 +346,9 @@ export class ProductsService {
         branch: { select: { id: true, branchName: true } },
       },
     });
+
+    console.log('updateAdvancedOptions - result:', result);
+    return result;
   }
 
   async remove(id: string, userId: string) {

@@ -75,7 +75,6 @@ export class UpdateProductAdvancedOptionsDto {
       o.promotionalPeriodType === PromotionalPeriodType.DAYS_OF_WEEK,
   )
   @IsArray()
-  @ArrayNotEmpty()
   @IsString({ each: true })
   @IsOptional()
   promotionalDays?: string[] | null;

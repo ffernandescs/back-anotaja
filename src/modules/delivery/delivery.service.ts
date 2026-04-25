@@ -297,29 +297,56 @@ export class DeliveryService {
     };
   }
 
+  private async enrichPayments(payments: any[]): Promise<any[]> {
+    if (!payments || payments.length === 0) return payments;
+
+    const ids = [...new Set(payments.map((p) => p.paymentMethodId).filter(Boolean))];
+    if (ids.length === 0) return payments;
+
+    const methods = await prisma.branchPaymentMethod.findMany({
+      where: { id: { in: ids } },
+      include: { paymentMethod: { select: { name: true, type: true } } },
+    });
+
+    const methodMap = new Map(methods.map((m) => [m.id, m.paymentMethod?.name ?? null]));
+
+    return payments.map((p) => ({
+      ...p,
+      methodName: methodMap.get(p.paymentMethodId) ?? null,
+    }));
+  }
+
   async getOrders(token?: string, status?: string) {
     const { deliveryPersonId } = this.verifyDeliveryToken(token);
 
     const where: any = { deliveryPersonId };
     if (status) {
-      where.status = status;
+      const statuses = status.split(',').map((s) => s.trim()).filter(Boolean);
+      where.status = statuses.length === 1 ? statuses[0] : { in: statuses };
     }
 
-    return prisma.order.findMany({
+    const orders = await prisma.order.findMany({
       where,
       orderBy: { updatedAt: 'desc' },
       include: {
         customer: true,
-        customerAddress:true,
-        payments:true
-      }
+        customerAddress: true,
+        payments: true,
+      },
     });
+
+    return Promise.all(
+      orders.map(async (order) => ({
+        ...order,
+        payments: await this.enrichPayments(order.payments),
+      })),
+    );
   }
 
   async getAssignments(token?: string) {
     const { deliveryPersonId } = this.verifyDeliveryToken(token);
 
-    return prisma.deliveryAssignment.findMany({
+    const assignments = await prisma.deliveryAssignment.findMany({
       where: { deliveryPersonId },
       orderBy: { createdAt: 'desc' },
       include: {
@@ -327,11 +354,23 @@ export class DeliveryService {
           include: {
             customer: true,
             customerAddress: true,
-            payments:true
-          }
+            payments: true,
+          },
         },
       },
     });
+
+    return Promise.all(
+      assignments.map(async (assignment) => ({
+        ...assignment,
+        orders: await Promise.all(
+          assignment.orders.map(async (order) => ({
+            ...order,
+            payments: await this.enrichPayments(order.payments),
+          })),
+        ),
+      })),
+    );
   }
 
   async updateOrderStatus(

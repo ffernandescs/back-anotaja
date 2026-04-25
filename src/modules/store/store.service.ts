@@ -81,6 +81,60 @@ async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPer
     },
   });
 
+  // 🚚 Auto-criar/agrupar em roteiro ao iniciar entrega
+  if (action === 'START_DELIVERY') {
+    const effectiveDeliveryPersonId = (updates as any).deliveryPersonId || updatedOrder.deliveryPersonId;
+
+    if (effectiveDeliveryPersonId && updatedOrder.branchId) {
+      if (!updatedOrder.deliveryAssignmentId) {
+        let assignment = await prisma.deliveryAssignment.findFirst({
+          where: {
+            deliveryPersonId: effectiveDeliveryPersonId,
+            branchId: updatedOrder.branchId,
+            status: 'IN_PROGRESS',
+          },
+        });
+
+        if (!assignment) {
+          const hora = new Date().toLocaleTimeString('pt-BR', {
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZone: 'America/Sao_Paulo',
+          });
+          assignment = await prisma.deliveryAssignment.create({
+            data: {
+              name: `Rota Express - ${hora}`,
+              branchId: updatedOrder.branchId,
+              deliveryPersonId: effectiveDeliveryPersonId,
+              status: 'IN_PROGRESS',
+              startedAt: new Date(),
+              route: '[]',
+            },
+          });
+
+          this.webSocketGateway.emitDeliveryRouteUpdate({
+            event: 'route:created',
+            assignment,
+            branchId: updatedOrder.branchId,
+            deliveryPersonId: effectiveDeliveryPersonId,
+          });
+        }
+
+        await prisma.order.update({
+          where: { id: orderId },
+          data: { deliveryAssignmentId: assignment.id },
+        });
+
+        this.webSocketGateway.emitDeliveryRouteUpdate({
+          event: 'route:updated',
+          assignment: { ...assignment, orderId },
+          branchId: updatedOrder.branchId,
+          deliveryPersonId: effectiveDeliveryPersonId,
+        });
+      }
+    }
+  }
+
   return {
     ...updatedOrder,
     availableTransitions: stateMachine.getAvailableTransitions(updatedOrder),
@@ -202,6 +256,20 @@ async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPer
               },
               orderBy: { displayOrder: 'asc' },
             },
+            relatedProducts: {
+              include: {
+                relatedProduct: {
+                  select: {
+                    id: true,
+                    name: true,
+                    price: true,
+                    image: true,
+                    active: true,
+                  },
+                },
+              },
+              orderBy: { priority: 'asc' },
+            },
           },
           orderBy: [{ featured: 'desc' }, { createdAt: 'desc' }],
         },
@@ -319,17 +387,7 @@ async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPer
         ratingsCount: branch.ratingsCount,
         productsCount: branch._count.products,
         categoriesCount: branch._count.categories,
-        generalConfig: generalConfig
-          ? {
-              enableDelivery: generalConfig.enableDelivery,
-              enableDineIn: generalConfig.enableDineIn,
-              enablePickup: generalConfig.enablePickup,
-            }
-          : {
-              enableDelivery: true,
-              enableDineIn: true,
-              enablePickup: true,
-            },
+        generalConfig: generalConfig || undefined
       },
       subscription: subscription ? {
         status: subscription.status,
@@ -349,6 +407,7 @@ async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPer
           description: product.description,
           price: product.price,
           promotionalPrice: product.promotionalPrice,
+          promotionalType: product.promotionalType,
           promotionalPeriodType: product.promotionalPeriodType,
           promotionalStartDate:
             product.promotionalStartDate?.toISOString() || null,
@@ -357,17 +416,32 @@ async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPer
           image: product.image,
           featured: product.featured,
           active: product.active,
+          hasPromotion: product.hasPromotion,
+          weight: product.weight,
+          preparationTime: product.preparationTime,
           stockControlEnabled: product.stockControlEnabled,
           minStock: product.minStock,
           currentStock: product.stockControlEnabled
             ? productStockMap.get(product.id) || 0
             : null,
+          tags: product.tags,
+          displayOrder: product.displayOrder,
           installmentEnabled: product.installmentEnabled,
           maxInstallments: product.maxInstallments,
           minInstallmentValue: product.minInstallmentValue,
           installmentInterestRate: product.installmentInterestRate,
           installmentOnPromotionalPrice: product.installmentOnPromotionalPrice,
           filterMetadata: product.filterMetadata,
+          categoryId: product.categoryId,
+          createdAt: product.createdAt.toISOString(),
+          updatedAt: product.updatedAt.toISOString(),
+          relatedProducts: product.relatedProducts?.map((rp) => ({
+            id: rp.relatedProduct.id,
+            name: rp.relatedProduct.name,
+            price: rp.relatedProduct.price,
+            image: rp.relatedProduct.image,
+            active: rp.relatedProduct.active,
+          })),
           additions: product.additions.map((addition) => ({
             id: addition.id,
             name: addition.name,
@@ -472,7 +546,7 @@ async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPer
     }
     const company = branch.company;
 
-    const address = await prisma.companyAddress.findUnique({
+    const address = await prisma.branchAddress.findUnique({
       where: { id: branch.addressId || undefined },
     });
     if (!address) {

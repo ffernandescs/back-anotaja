@@ -270,12 +270,12 @@ for (const method of paymentMethods) {
   // ======================================================
   const groupsData = [
     'Dashboard',
-    'Operação', // PDV, Salão, Cozinha, Delivery
+    'Operação',
     'Cardápio',
-    'Financeiro',
-    'Clientes',
-    'Desempenho',
-    'Administração',
+    'Funcionamento',
+    'Clientes e Crescimento',
+    'Equipes',
+    'Sistema',
   ];
 
   for (let i = 0; i < groupsData.length; i++) {
@@ -317,30 +317,41 @@ for (const method of paymentMethods) {
   // ======================================================
   const mainFeatures: Array<[string, string, string, string | null, string]> = [
     // DASHBOARD
-    ['dashboard', 'Dashboard', 'Dashboard', '/admin/dashboard', 'LayoutGrid'],
+    ['dashboard', 'Dashboard', 'Dashboard', '/admin/dashboard', 'LayoutDashboard'],
 
-    // OPERAÇÃO (core do sistema - PDV, Salão, Cozinha, Delivery)
-    ['pdv', 'PDV', 'Operação', '/admin/pdv', 'ShoppingCart'],
-    ['salon', 'Salão', 'Operação', '/admin/salon', 'Wine'],
-    ['kitchen', 'Cozinha', 'Operação', '/admin/kitchen', 'ChefHat'],
-    ['delivery_orders', 'Delivery', 'Operação', '/admin/delivery/orders', 'Truck'],
+    // OPERAÇÃO
+    ['pedidos',         'Pedidos',       'Operação', null,                              'ClipboardList'],
+    ['caixa_pdv',       'Caixa PDV',     'Operação', null,                              'ShoppingCart'],
+    ['salon',           'Salão',         'Operação', null,                              'UtensilsCrossed'],
+    ['kitchen',         'Cozinha',       'Operação', '/admin/kitchen',                  'ChefHat'],
+    ['funcionamento_op','Funcionamento', 'Operação', null,                              'Clock'],
 
-    // CARDÁPIO (gerenciamento de produtos)
-    ['menu', 'Cardápio', 'Cardápio', '/admin/menu', 'BookOpen'],
+    // CARDÁPIO
+    ['cardapio', 'Cardápio', 'Cardápio', null, 'BookOpen'],
 
-    // FINANCEIRO (gestão financeira)
-    ['financial', 'Financeiro', 'Financeiro', '/admin/financial', 'DollarSign'],
-    ['cash', 'Caixa', 'Financeiro', '/admin/financial/cash', 'Wallet'],
+    // FUNCIONAMENTO
+    ['my_restaurant',  'Meu restaurante',    'Funcionamento', '/admin/administration/settings/profile', 'Building2'],
+    ['delivery_zones', 'Taxas de Entrega',   'Funcionamento', null,                                     'Truck'],
+    ['notifications',  'Notificações',       'Funcionamento', '/admin/notifications',                   'Bell'],
 
-    // CLIENTES (CRM)
-    ['customers', 'Clientes', 'Clientes', '/admin/customers', 'Users'],
+    // CLIENTES E CRESCIMENTO
+    ['customers',  'Clientes',  'Clientes e Crescimento', '/admin/customers',            'Users'],
+    ['loyalty',    'Fidelidade','Clientes e Crescimento', '/admin/loyalty',              'Star'],
+    ['coupons',    'Cupons',    'Clientes e Crescimento', '/admin/financial/coupons',    'Tag'],
+    ['relatorio',  'Relatório', 'Clientes e Crescimento', '/admin/performance/clientes', 'BarChart2'],
 
-    // DESEMPENHO (relatórios)
-    ['performance', 'Desempenho', 'Desempenho', '/admin/performance', 'TrendingUp'],
+    // EQUIPES
+    ['users',            'Usuários',    'Equipes', '/admin/users',                                   'Users'],
+    ['delivery_persons', 'Entregadores','Equipes', '/admin/delivery/persons',                        'Bike'],
+    ['printers',         'Impressoras', 'Equipes', '/admin/administration/settings/printers',        'Printer'],
 
-    // ADMINISTRAÇÃO (configurações da empresa)
-    ['administration', 'Administração', 'Administração', '/admin/administration', 'Settings'],
-    ['my_company', 'Minha Empresa', 'Administração', '/admin/administration/my-company', 'Building2'],
+    // SISTEMA
+    ['subscription',      'Assinatura',               'Sistema', '/admin/administration/settings/payments',     'CreditCard'],
+    ['branches',          'Filiais',                  'Sistema', '/admin/administration/branches',              'Building2'],
+    ['groups_access',     'Grupos de Acesso',          'Sistema', '/admin/administration/groups',               'Shield'],
+    ['help',              'Ajuda',                    'Sistema', '/admin/help',                                 'HelpCircle'],
+    ['advanced_settings', 'Configurações Avançadas',  'Sistema', '/admin/administration/settings/advanced',    'Settings'],
+    ['contact',           'Fale Conosco',              'Sistema', '/admin/contact',                             'MessageCircle'],
   ];
 
   const featureMap = new Map<string, string>();
@@ -396,58 +407,45 @@ for (const method of paymentMethods) {
   // Organizado para sistema de delivery PDV multitenant
   // ======================================================
   const subFeatures: Array<[string, string, string | null, string | null, number]> = [
-    // OPERAÇÃO - PDV
-    ['orders', 'Pedidos', 'pdv', '/admin/sales/orders', 1],
-    ['kanban', 'Kanban', 'pdv', '/admin/sales/kanban', 2],
+    // PEDIDOS
+    ['orders', 'Histórico de Pedidos', 'pedidos', '/admin/sales/orders', 1],
+    ['kanban', 'Kanban de Pedidos',    'pedidos', '/admin/sales/kanban', 2],
 
-    // OPERAÇÃO - SALÃO
-    ['salon_floor', 'Mesas e Comandas', 'salon', '/admin/sales/tables', 1],
+    // CAIXA PDV
+    ['pdv',  'PDV',               'caixa_pdv', '/admin/pdv',              1],
+    ['cash', 'Abrir/Fechar Caixa','caixa_pdv', '/admin/financial/cash',   2],
 
-    // OPERAÇÃO - COZINHA
+    // SALÃO
+    ['salon_tables',       'Mesas/Comandas',   'salon', '/admin/sales/tables',                               1],
+    ['settings_service_fee','Taxa de Serviço', 'salon', '/admin/administration/settings/service-fee',        2],
+    ['settings_tables',    'Config. Mesas',    'salon', '/admin/administration/settings/tables',             3],
+
+    // COZINHA
     ['kds', 'KDS', 'kitchen', '/admin/sales/kds', 1],
 
-    // OPERAÇÃO - DELIVERY
-    ['delivery_areas', 'Áreas de Entrega', 'delivery_orders', '/admin/delivery/areas', 1],
-    ['delivery_persons', 'Entregadores', 'delivery_orders', '/admin/delivery/persons', 2],
-    ['delivery_routes', 'Rotas de Entrega', 'delivery_orders', '/admin/delivery/routes', 3],
-    ['delivery_assignments', 'Atribuições', 'delivery_orders', '/admin/delivery/assignments', 4],
+    // FUNCIONAMENTO (Operação)
+    ['settings_payment', 'Pagamento', 'funcionamento_op', '/admin/administration/settings/payment', 1],
+    ['settings_hours',   'Horários',  'funcionamento_op', '/admin/administration/settings/hours',   2],
 
     // CARDÁPIO
-    ['categories', 'Categorias', 'menu', '/admin/menu/categories', 1],
-    ['products', 'Produtos', 'menu', '/admin/menu/products', 2],
-    ['complements', 'Complementos', 'menu', '/admin/menu/complements', 3],
-    ['complement_options', 'Opções de Complemento', 'menu', '/admin/menu/complement-options', 4],
-    ['stock', 'Estoque', 'menu', '/admin/menu/stock', 5],
+    ['categories',       'Categorias',  'cardapio', '/admin/menu/categories',       1],
+    ['products',         'Produtos',    'cardapio', '/admin/menu/products',          2],
+    ['complements',      'Complementos','cardapio', '/admin/menu/complements',       3],
+    ['complement_options','Opções',     'cardapio', '/admin/menu/complement-options',4],
+    ['stock',            'Estoque',     'cardapio', '/admin/menu/stock',             5],
 
-    // FINANCEIRO
-    ['financial_reports', 'Relatórios Financeiros', 'financial', '/admin/financial/reports', 1],
-    ['coupons', 'Cupons', 'financial', '/admin/financial/coupons', 2],
-    ['cash_flow', 'Fluxo de Caixa', 'cash', '/admin/financial/cash', 1],
+    // TAXAS DE ENTREGA
+    ['delivery_areas',       'Áreas de Entrega', 'delivery_zones', '/admin/delivery/areas',       1],
+    ['delivery_rate_test',   'Teste de Frete',   'delivery_zones', '/admin/delivery/rate-test',   2],
+    ['delivery_routes',      'Rotas',            'delivery_zones', '/admin/delivery/routes',      3],
+    ['delivery_assignments', 'Atribuições',      'delivery_zones', '/admin/delivery/assignments', 4],
 
-    // CLIENTES
-    ['customer_list', 'Lista de Clientes', 'customers', '/admin/customers', 1],
-    ['customer_loyalty', 'Fidelização', 'customers', '/admin/customers/loyalty', 2],
+    // NOTIFICAÇÕES
+    ['announcements', 'Avisos', 'notifications', '/admin/administration/settings/announcements', 1],
 
-    // DESEMPENHO
-    ['sales_analysis', 'Vendas', 'performance', '/admin/performance/vendas', 1],
-    ['performance_customers', 'Clientes', 'performance', '/admin/performance/clientes', 2],
-    ['performance_products', 'Produtos', 'performance', '/admin/performance/produtos', 3],
-
-    // ADMINISTRAÇÃO
-    ['users', 'Usuários', 'administration', '/admin/users', 1],
-    ['branches', 'Filiais', 'administration', '/admin/administration/branches', 2],
-    ['groups', 'Grupos', 'administration', '/admin/administration/groups', 3],
-    ['roles', 'Permissões', 'administration', '/admin/administration/roles', 4],
-
-    // MINHA EMPRESA
-    ['settings_profile', 'Perfil da Empresa', 'my_company', '/admin/administration/settings/profile', 1],
-    ['settings_hours', 'Horários', 'my_company', '/admin/administration/settings/hours', 2],
-    ['settings_service_fee', 'Taxa de Serviço', 'my_company', '/admin/administration/settings/service-fee', 3],
-    ['settings_announcements', 'Avisos', 'my_company', '/admin/administration/settings/announcements', 4],
-    ['settings_subscription', 'Assinatura', 'my_company', '/admin/administration/settings/payments', 5],
-    ['settings_plans', 'Planos', 'my_company', '/admin/administration/settings/subscription', 6],
-    ['settings_tables', 'Mesas e Comandas', 'my_company', '/admin/administration/settings/tables', 7],
-    ['settings_integrations', 'Integrações', 'my_company', '/admin/administration/settings/integrations', 8],
+    // RELATÓRIO (sub-itens opcionais)
+    ['sales_analysis',       'Vendas',   'relatorio', '/admin/performance/vendas',    1],
+    ['performance_customers','Clientes', 'relatorio', '/admin/performance/clientes',  2],
   ];
 
   for (const [subKey, featureName, parentKey, href, displayOrder] of subFeatures) {
@@ -584,11 +582,11 @@ for (const method of paymentMethods) {
       description: 'Para lanchonetes e botecos - O essencial para vender',
       features: [
         'dashboard',
-        'pdv', 'orders', 'kanban',
-        'menu', 'categories', 'products', 'complements', 'complement_options',
-        'cash',
+        'pedidos', 'orders', 'kanban',
+        'caixa_pdv', 'pdv', 'cash',
+        'cardapio', 'categories', 'products', 'complements', 'complement_options',
         'customers',
-        'configuracoes', 'settings_profile',
+        'my_restaurant',
       ],
     },
     {
@@ -598,12 +596,17 @@ for (const method of paymentMethods) {
       isTrial: false,
       description: 'Para pizzarias e restaurantes pequenos - Gerencie operação',
       features: [
-        ...['dashboard', 'pdv', 'orders', 'kanban', 'salon', 'salon_floor', 'kitchen', 'kds'],
-        ...['menu', 'categories', 'products', 'complements', 'complement_options', 'stock'],
-        ...['delivery_orders', 'delivery_areas', 'delivery_persons'],
-        ...['cash', 'financial', 'payment_methods', 'coupons'],
-        ...['customers', 'performance', 'sales_analysis', 'performance_customers'],
-        ...['administration', 'users', 'my_company', 'settings_profile', 'settings_hours', 'settings_service_fee', 'settings_tables'],
+        ...['dashboard'],
+        ...['pedidos', 'orders', 'kanban'],
+        ...['caixa_pdv', 'pdv', 'cash'],
+        ...['salon', 'salon_tables', 'settings_service_fee', 'settings_tables'],
+        ...['kitchen', 'kds'],
+        ...['funcionamento_op', 'settings_payment', 'settings_hours'],
+        ...['cardapio', 'categories', 'products', 'complements', 'complement_options', 'stock'],
+        ...['my_restaurant', 'delivery_zones', 'delivery_areas', 'notifications'],
+        ...['customers', 'loyalty', 'coupons', 'relatorio', 'sales_analysis', 'performance_customers'],
+        ...['users', 'delivery_persons'],
+        ...['subscription'],
       ],
     },
     {
