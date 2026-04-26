@@ -5,6 +5,7 @@ import ms from 'ms'; // ✅ default import
 import { AuthModule } from '../auth/auth.module';
 import { WebSocketModule } from '../websocket/websocket.module';
 import { CouponsModule } from '../coupons/coupons.module';
+import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { StoreController } from './store.controller';
 import { StoreService } from './store.service';
 
@@ -13,6 +14,7 @@ import { StoreService } from './store.service';
     WebSocketModule,
     AuthModule,
     CouponsModule,
+    WhatsAppModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService): JwtModuleOptions => {

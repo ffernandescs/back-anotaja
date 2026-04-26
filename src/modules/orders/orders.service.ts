@@ -10,6 +10,7 @@ import { PaginatedResponseDto } from '../../common/dto/paginated-response.dto';
 import { QueryOrdersDto } from './dto/query-orders.dto';
 import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
 import { PrinterService } from '../printer/printer.service';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { prisma } from '../../../lib/prisma';
 import { DeliveryTypeDto } from './dto/create-order-item.dto';
 import { OrderStatus, Prisma, CashMovementType, PaymentMethodType, DeliveryType, OrderItem, StockMovement, OrderChannel, ServiceType, CustomerType } from '@prisma/client';
@@ -26,6 +27,7 @@ export class OrdersService {
     private webSocketGateway: OrdersWebSocketGateway,
     private printerService: PrinterService,
     private storeService: StoreService,
+    private whatsappService: WhatsAppService,
   ) {
   }
 
@@ -48,7 +50,6 @@ export class OrdersService {
     const branchId = user.branchId;
     // Chamar storeService.createOrder com branchId (sem subdomain para admin/PDV)
     const result = await this.storeService.createOrder(createOrderDto, undefined, branchId);
-
 
     return result;
   }
@@ -73,7 +74,6 @@ export class OrdersService {
 
     // Chamar storeService.createOrder com branchId (sem subdomain para admin/PDV)
     const result = await this.storeService.createOrder(createOrderDto, undefined, branchId);
-
 
     return result;
   }
@@ -685,6 +685,7 @@ async update(id: string, dto: UpdateOrderDto, userId: string, ) {
       select: {
         id: true,
         group: true,
+        branchId: true,
       },
     });
 
@@ -692,9 +693,25 @@ async update(id: string, dto: UpdateOrderDto, userId: string, ) {
       throw new NotFoundException('Usuário não encontrado');
     }
 
-    // Verificar se o pedido existe e se o usuário tem permissão
+    // Buscar pedido atual para comparação
+    const existingOrder = await prisma.order.findUnique({
+      where: { id },
+      include: {
+        branch: true,
+        customer: true,
+        customerAddress: true,
+        items: {
+          include: {
+            product: true,
+          },
+        },
+        deliveryPerson: true,
+      },
+    });
 
-    
+    if (!existingOrder) {
+      throw new NotFoundException('Pedido não encontrado');
+    }
 
     const updatedOrder = await prisma.order.update({
       where: { id },
@@ -716,6 +733,9 @@ async update(id: string, dto: UpdateOrderDto, userId: string, ) {
             },
           },
         },
+        customer: true,
+        customerAddress: true,
+        deliveryPerson: true,
       },
     });
 
@@ -758,6 +778,21 @@ async update(id: string, dto: UpdateOrderDto, userId: string, ) {
     // Emitir evento de mudança de status via WebSocket com payload completo
     const fullStatusOrder = await this.findOne(updatedOrder.id, userId);
     this.webSocketGateway.emitOrderUpdate(fullStatusOrder, 'order:status_changed');
+
+    // ─── WhatsApp Notifications ─────────────────────────────────────
+    // Notify customer about status change
+    if (existingOrder.status !== status && existingOrder.branchId) {
+      await this.notifyCustomer(existingOrder.branchId, updatedOrder, status);
+    }
+
+    // Notify delivery person when status changes to DELIVERING
+    if (status === OrderStatus.DELIVERING && updatedOrder.deliveryPerson?.phone) {
+      await this.notifyDeliveryPerson(
+        existingOrder.branchId,
+        updatedOrder,
+        updatedOrder.deliveryPerson.phone,
+      );
+    }
 
     return updatedOrder;
   }
@@ -1237,4 +1272,162 @@ const paymentsForMovement =
     orders: createdOrders.length,
   };
 }
+
+  // ─── WhatsApp Notifications ─────────────────────────────────────
+
+  private async sendWhatsAppNotification(
+    branchId: string,
+    phone: string,
+    message: string,
+  ) {
+    try {
+      await this.whatsappService.sendMessage(branchId, phone, message);
+      console.log(`[WhatsApp] Message sent to ${phone}`);
+    } catch (error) {
+      console.error(`[WhatsApp] Failed to send message to ${phone}:`, error);
+      // Don't throw error - notification failure shouldn't break order flow
+    }
+  }
+
+  private formatOrderMessage(order: any, type: 'confirmation' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled'): string {
+    const orderNumber = order.orderNumber || order.id.slice(0, 8);
+    const customerName = order.customer?.name || 'Cliente';
+    const total = order.total?.toFixed(2) || '0.00';
+    const items = order.items?.map((i: any) => `${i.quantity}x ${i.product?.name}`).join(', ') || '';
+    const branchName = order.branch?.branchName || 'Loja';
+
+    switch (type) {
+      case 'confirmation':
+        return `📱 *Confirmação de Pedido*
+
+Olá ${customerName}!
+
+Seu pedido #${orderNumber} foi *recebido* e está sendo preparado.
+
+🛒 *Itens:* ${items}
+💰 *Total:* R$ ${total}
+
+📍 ${branchName}
+
+Agradecemos pela preferência!`;
+
+      case 'ready':
+        return `✅ *Pedido Pronto!*
+
+Olá ${customerName}!
+
+Seu pedido #${orderNumber} está *pronto* para retirada.
+
+📍 ${branchName}
+
+Agradecemos pela preferência!`;
+
+      case 'out_for_delivery':
+        return `🚀 *Pedido em Rota!*
+
+Olá ${customerName}!
+
+Seu pedido #${orderNumber} *saiu para entrega*.
+
+📍 ${branchName}
+
+Agradecemos pela preferência!`;
+
+      case 'delivered':
+        return `✅ *Pedido Entregue!*
+
+Olá ${customerName}!
+
+Seu pedido #${orderNumber} foi *entregue* com sucesso.
+
+📍 ${branchName}
+
+Agradecemos pela preferência!`;
+
+      case 'cancelled':
+        return `❌ *Pedido Cancelado*
+
+Olá ${customerName}!
+
+Seu pedido #${orderNumber} foi *cancelado*.
+
+📍 ${branchName}
+
+Se tiver alguma dúvida, entre em contato conosco.`;
+
+      default:
+        return '';
+    }
+  }
+
+  private async notifyCustomer(branchId: string, order: any, status: OrderStatus) {
+    const config = await (prisma as any).whatsAppConfig.findUnique({
+      where: { branchId },
+    });
+
+    if (!config?.enabled || !order.customer?.phone) {
+      return;
+    }
+
+    let shouldSend = false;
+    let messageType: 'confirmation' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled' = 'confirmation';
+
+    switch (status) {
+      case OrderStatus.CONFIRMED:
+        shouldSend = config.orderConfirmationEnabled;
+        messageType = 'confirmation';
+        break;
+      case OrderStatus.READY:
+        shouldSend = config.orderReadyEnabled;
+        messageType = 'ready';
+        break;
+      case OrderStatus.DELIVERING:
+        shouldSend = config.orderReadyEnabled;
+        messageType = 'out_for_delivery';
+        break;
+      case OrderStatus.DELIVERED:
+        shouldSend = config.orderReadyEnabled;
+        messageType = 'delivered';
+        break;
+      case OrderStatus.CANCELLED:
+        shouldSend = config.deliveryCancelEnabled;
+        messageType = 'cancelled';
+        break;
+      default:
+        shouldSend = false;
+    }
+
+    if (shouldSend) {
+      const message = this.formatOrderMessage(order, messageType);
+      await this.sendWhatsAppNotification(branchId, order.customer.phone, message);
+    }
+  }
+
+  private async notifyDeliveryPerson(branchId: string, order: any, deliveryPersonPhone: string) {
+    const config = await (prisma as any).whatsAppConfig.findUnique({
+      where: { branchId },
+    });
+
+    if (!config?.enabled || !config?.deliveryStartEnabled || !deliveryPersonPhone) {
+      return;
+    }
+
+    const orderNumber = order.orderNumber || order.id.slice(0, 8);
+    const customerName = order.customer?.name || 'Cliente';
+    const customerPhone = order.customer?.phone || '';
+    const customerAddress = order.customerAddress?.fullAddress || order.customerAddress?.street || 'Endereço não informado';
+    const total = order.total?.toFixed(2) || '0.00';
+
+    const message = `🏍️ *Nova Entrega*
+
+📦 *Pedido:* #${orderNumber}
+👤 *Cliente:* ${customerName}
+📱 *Telefone:* ${customerPhone}
+📍 *Endereço:* ${customerAddress}
+💰 *Total:* R$ ${total}
+
+Inicie a entrega!`;
+
+    await this.sendWhatsAppNotification(branchId, deliveryPersonPhone, message);
+  }
 }

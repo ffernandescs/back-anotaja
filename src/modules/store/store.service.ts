@@ -12,6 +12,7 @@ import { CouponsService } from '../coupons/coupons.service';
 import { ValidateCouponDto } from './dto/validate-coupon.dto';
 import { SubscriptionStatusDto } from '../subscription/dto/create-subscription.dto';
 import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { CalculateDeliveryFeeDto } from './dto/calculate-delivery-fee.dto';
 import { CreateCustomerAddressDto } from './dto/create-customer-address.dto';
 import {
@@ -58,6 +59,7 @@ export class StoreService {
     private webSocketGateway: OrdersWebSocketGateway,
     private jwtService: JwtService,
     private couponsService: CouponsService,
+    private whatsappService: WhatsAppService,
   ) {}
 
 async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPersonId?: string) {
@@ -90,6 +92,7 @@ async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPer
       deliveryPerson: true,
       payments: true,
       coupon: true,
+      branch: true,
     },
   });
 
@@ -154,6 +157,21 @@ async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPer
     },
     'order:status_changed',
   );
+
+  // ─── WhatsApp Notifications ─────────────────────────────────────
+  // Notify customer about status change
+  if (order.status !== updatedOrder.status && updatedOrder.branchId) {
+    await this.notifyCustomer(updatedOrder.branchId, updatedOrder, updatedOrder.status);
+  }
+
+  // Notify delivery person when status changes to DELIVERING
+  if (updatedOrder.status === OrderStatus.DELIVERING && updatedOrder.deliveryPerson?.phone) {
+    await this.notifyDeliveryPerson(
+      updatedOrder.branchId,
+      updatedOrder,
+      updatedOrder.deliveryPerson.phone,
+    );
+  }
 
   return {
     ...updatedOrder,
@@ -1853,6 +1871,7 @@ async createOrder(
               },
             }, } },
       payments: true,
+      branch: true,
     },
   });
 
@@ -1886,9 +1905,15 @@ async createOrder(
           deliveryPerson: true,
           items: { include: { product: true, complements: { include: { complement: true, options: { include: { option: true } } } } } },
           payments: true,
+          branch: true,
         },
       });
       finalOrder = confirmed;
+
+      // Notify customer when order is auto-confirmed
+      if (finalOrder.branchId) {
+        await this.notifyCustomer(finalOrder.branchId, finalOrder, finalOrder.status);
+      }
     }
   }
 
@@ -1912,6 +1937,43 @@ async createOrder(
     },
     'order:created',
   );
+
+  // ─── WhatsApp Notifications ─────────────────────────────────────
+  // Notify restaurant about new order
+  if (finalOrder.branchId) {
+    const config = await (prisma as any).whatsAppConfig.findUnique({
+      where: { branchId: finalOrder.branchId },
+    });
+
+    if (config?.enabled && config?.notifyNewOrder && config?.notifyNumber) {
+      const orderNumber = finalOrder.orderNumber || finalOrder.id.slice(0, 8);
+      const customerName = finalOrder.customer?.name || 'Cliente';
+      const customerPhone = finalOrder.customer?.phone || '';
+      const total = finalOrder.total ? new Intl.NumberFormat('pt-BR', {
+        style: 'currency',
+        currency: 'BRL',
+      }).format(finalOrder.total / 100) : 'R$ 0,00';
+      const deliveryTypeMap: Record<string, string> = {
+        DELIVERY: 'Entrega',
+        PICKUP: 'Retirada',
+        DINE_IN: 'Comer no local',
+      };
+      const deliveryType = deliveryTypeMap[finalOrder.deliveryType || 'PICKUP'] || finalOrder.deliveryType || 'Retirada';
+      const items = finalOrder.items?.map((i: any) => `${i.quantity}x ${i.product?.name}`).join(', ') || '';
+
+      const message = `🔔 *Novo Pedido #${orderNumber}*
+
+👤 *Cliente:* ${customerName}
+📱 *Telefone:* ${customerPhone}
+🛒 *Itens:* ${items}
+💰 *Total:* ${total}
+📦 *Tipo:* ${deliveryType}
+
+Verifique no sistema!`;
+
+      await this.sendWhatsAppNotification(finalOrder.branchId, config.notifyNumber, message);
+    }
+  }
 
   return {
     success: true,
@@ -3665,5 +3727,248 @@ if (!fullOrder) {
       status: data.status as 'pending' | 'approved' | 'rejected' | 'cancelled' | 'in_process',
       statusDetail: data.status_detail ?? null,
     };
+  }
+
+  // ─── WhatsApp Notifications ─────────────────────────────────────
+
+  private async sendWhatsAppNotification(
+    branchId: string,
+    phone: string,
+    message: string,
+  ) {
+    try {
+      await this.whatsappService.sendMessage(branchId, phone, message);
+    } catch (error) {
+      console.error(`[WhatsApp] Failed to send message to ${phone}:`, error);
+    }
+  }
+
+  private formatOrderMessage(order: any, type: 'confirmation' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled'): string {
+    const orderNumber = order.orderNumber || order.id.slice(0, 8);
+    const customerName = order.customer?.name || 'Cliente';
+    const total = order.total ? new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+    }).format(order.total / 100) : 'R$ 0,00';
+    const items = this.formatOrderItems(order.items);
+    const branchName = order.branch?.branchName || 'Loja';
+
+    const defaultMessages: Record<string, string> = {
+      confirmation: `📱 *Confirmação de Pedido*
+
+Olá ${customerName}!
+
+Seu pedido #${orderNumber} foi *recebido* e está sendo preparado.
+
+🛒 *Itens:*
+${items}
+
+💰 *Total:* ${total}
+
+📍 ${branchName}
+
+Agradecemos pela preferência!`,
+      ready: `✅ *Pedido Pronto!*
+
+Olá ${customerName}!
+
+Seu pedido #${orderNumber} está *pronto* para retirada.
+
+📍 ${branchName}
+
+Agradecemos pela preferência!`,
+      out_for_delivery: `🚀 *Pedido em Rota!*
+
+Olá ${customerName}!
+
+Seu pedido #${orderNumber} *saiu para entrega*.
+
+📍 ${branchName}
+
+Agradecemos pela preferência!`,
+      delivered: `✅ *Pedido Entregue!*
+
+Olá ${customerName}!
+
+Seu pedido #${orderNumber} foi *entregue* com sucesso.
+
+📍 ${branchName}
+
+Agradecemos pela preferência!`,
+      cancelled: `❌ *Pedido Cancelado*
+
+Olá ${customerName}!
+
+Seu pedido #${orderNumber} foi *cancelado*.
+
+📍 ${branchName}
+
+Se tiver alguma dúvida, entre em contato conosco.`,
+    };
+
+    return defaultMessages[type] || '';
+  }
+
+  private async getCustomTemplate(branchId: string, type: 'confirmation' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled'): Promise<string | null> {
+    const config = await (prisma as any).whatsAppConfig.findUnique({
+      where: { branchId },
+      select: {
+        templateConfirmation: true,
+        templateReady: true,
+        templateOutForDelivery: true,
+        templateDelivered: true,
+        templateCancelled: true,
+      },
+    });
+
+    if (!config) return null;
+
+    const templateMap: Record<string, string | null> = {
+      confirmation: config.templateConfirmation,
+      ready: config.templateReady,
+      out_for_delivery: config.templateOutForDelivery,
+      delivered: config.templateDelivered,
+      cancelled: config.templateCancelled,
+    };
+
+    return templateMap[type] || null;
+  }
+
+  private async formatOrderMessageWithTemplate(order: any, type: 'confirmation' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled', branchId: string): Promise<string> {
+    const customTemplate = await this.getCustomTemplate(branchId, type);
+
+    if (customTemplate) {
+      const orderNumber = order.orderNumber || order.id.slice(0, 8);
+      const customerName = order.customer?.name || 'Cliente';
+      const total = order.total ? new Intl.NumberFormat('pt-BR', {
+        style: 'currency',
+        currency: 'BRL',
+      }).format(order.total / 100) : 'R$ 0,00';
+      const items = this.formatOrderItems(order.items);
+      const branchName = order.branch?.branchName || 'Loja';
+
+      return customTemplate
+        .replace(/\{orderNumber\}/g, orderNumber)
+        .replace(/\{customerName\}/g, customerName)
+        .replace(/\{total\}/g, total)
+        .replace(/\{items\}/g, items)
+        .replace(/\{branchName\}/g, branchName);
+    }
+
+    return this.formatOrderMessage(order, type);
+  }
+
+  private formatOrderItems(items: any[]): string {
+    if (!items || items.length === 0) return '';
+
+    return items.map((item: any) => {
+      let itemText = `${item.quantity}x ${item.product?.name || 'Produto'}`;
+
+      // Add complements
+      if (item.complements && item.complements.length > 0) {
+        item.complements.forEach((complement: any) => {
+          if (complement.complement?.name) {
+            itemText += `\n   + ${complement.complement.name}`;
+
+            // Add complement options
+            if (complement.options && complement.options.length > 0) {
+              complement.options.forEach((option: any) => {
+                if (option.option?.name) {
+                  itemText += `\n      - ${option.option.name}`;
+                }
+              });
+            }
+          }
+        });
+      }
+
+      return itemText;
+    }).join('\n\n');
+  }
+
+  private async notifyCustomer(branchId: string, order: any, status: OrderStatus) {
+
+    const config = await (prisma as any).whatsAppConfig.findUnique({
+      where: { branchId },
+    });
+
+    // Only send notifications for ONLINE orders
+    if (order.channel !== OrderChannel.ONLINE) {
+      return;
+    }
+
+    let shouldSend = false;
+    let messageType: 'confirmation' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled' = 'confirmation';
+
+    const isDelivery = order.deliveryType === DeliveryType.DELIVERY;
+
+    switch (status) {
+      case OrderStatus.CONFIRMED:
+        shouldSend = config.orderConfirmationEnabled;
+        messageType = 'confirmation';
+        break;
+      case OrderStatus.READY:
+        // Don't send notification for DELIVERY orders when ready (only when delivering)
+        if (!isDelivery) {
+          shouldSend = config.orderReadyEnabled;
+          messageType = 'ready';
+        } else {
+          shouldSend = false;
+        }
+        break;
+      case OrderStatus.DELIVERING:
+        // Only send out_for_delivery for delivery orders
+        if (isDelivery) {
+          shouldSend = config.orderReadyEnabled;
+          messageType = 'out_for_delivery';
+        } else {
+          shouldSend = false;
+        }
+        break;
+      case OrderStatus.DELIVERED:
+        shouldSend = config.orderReadyEnabled;
+        messageType = 'delivered';
+        break;
+      case OrderStatus.CANCELLED:
+        shouldSend = config.deliveryCancelEnabled;
+        messageType = 'cancelled';
+        break;
+      default:
+        shouldSend = false;
+    }
+
+
+    if (shouldSend) {
+      const message = await this.formatOrderMessageWithTemplate(order, messageType, branchId);
+      await this.sendWhatsAppNotification(branchId, order.customer.phone, message);
+    } 
+  }
+
+  private async notifyDeliveryPerson(branchId: string, order: any, deliveryPersonPhone: string) {
+    const config = await (prisma as any).whatsAppConfig.findUnique({
+      where: { branchId },
+    });
+
+    if (!config?.enabled || !config?.deliveryStartEnabled || !deliveryPersonPhone) {
+      return;
+    }
+
+    const orderNumber = order.orderNumber || order.id.slice(0, 8);
+    const customerName = order.customer?.name || 'Cliente';
+    const customerPhone = order.customer?.phone || '';
+    const customerAddress = order.customerAddress?.fullAddress || order.customerAddress?.street || 'Endereço não informado';
+    const total = order.total?.toFixed(2) || '0.00';
+
+    const message = `🏍️ *Nova Entrega*
+
+📦 *Pedido:* #${orderNumber}
+👤 *Cliente:* ${customerName}
+📱 *Telefone:* ${customerPhone}
+📍 *Endereço:* ${customerAddress}
+💰 *Total:* R$ ${total}
+
+Inicie a entrega!`;
+
+    await this.sendWhatsAppNotification(branchId, deliveryPersonPhone, message);
   }
 }

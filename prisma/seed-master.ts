@@ -275,6 +275,7 @@ for (const method of paymentMethods) {
     'Funcionamento',
     'Clientes e Crescimento',
     'Equipes',
+    'Automação',
     'Sistema',
   ];
 
@@ -345,6 +346,10 @@ for (const method of paymentMethods) {
     ['delivery_persons', 'Entregadores','Equipes', '/admin/delivery/persons',                        'Bike'],
     ['printers',         'Impressoras', 'Equipes', '/admin/administration/settings/printers',        'Printer'],
 
+    // AUTOMAÇÃO
+    ['whatsapp', 'WhatsApp', 'Automação', '/admin/automation/whatsapp', 'MessageCircle'],
+    ['whatsapp_crm', 'WhatsApp CRM', 'Automação', '/admin/whatsapp-crm', 'siWhatsapp'],
+
     // SISTEMA
     ['subscription',      'Assinatura',               'Sistema', '/admin/administration/settings/payments',     'CreditCard'],
     ['branches',          'Filiais',                  'Sistema', '/admin/administration/branches',              'Building2'],
@@ -360,6 +365,10 @@ for (const method of paymentMethods) {
     const [featureKey, featureName, group, href, icon] = featureData;
     if (!featureKey) continue;
 
+    // Define quais features são plugins
+    const pluginKeys = ['whatsapp_crm'];
+    const isPlugin = pluginKeys.includes(featureKey);
+
     const feature = await prisma.feature.upsert({
       where: { key: featureKey },
       update: {
@@ -367,6 +376,7 @@ for (const method of paymentMethods) {
         icon: icon ?? undefined,
         href,
         active: true,
+        isPlugin,
         defaultActions: JSON.stringify(['create', 'read', 'update', 'delete']),
       },
       create: {
@@ -375,6 +385,7 @@ for (const method of paymentMethods) {
         icon: icon ?? undefined,
         href,
         active: true,
+        isPlugin,
         defaultActions: JSON.stringify(['create', 'read', 'update', 'delete']),
       },
     });
@@ -609,6 +620,7 @@ for (const method of paymentMethods) {
         ...['customers', 'loyalty', 'coupons', 'relatorio', 'sales_analysis', 'performance_customers'],
         ...['users', 'delivery_persons'],
         ...['subscription'],
+        ...['whatsapp'],
       ],
     },
     {

@@ -101,6 +101,7 @@ model Feature {
   href           String?         // Rota da feature (ex: "/admin/dashboard")
   displayOrder                                                               Int?                // Ordem de exibição
   parentId                                                                   String?             // ID da feature pai (null para features principais)
+  isPlugin                                                                   Boolean             @default(false) // Se é um plugin (exibe na sidebar de plugins)
   parent                                                                                                                                                             Feature?           @relation("FeatureHierarchy", fields: [parentId], references: [id])
   children                                                                                                                                                           Feature[]          @relation("FeatureHierarchy")
   createdAt                                                                                                                                                          DateTime            @default(now())
@@ -587,6 +588,7 @@ model Branch {
   pageViews                  PageView[]
   marketingIntegrationConfig MarketingIntegrationConfig?
   paymentGatewayConfigs      PaymentGatewayConfig[]
+  whatsappConfig             WhatsAppConfig?
 }
 
 model BranchSchedule {
@@ -1958,4 +1960,50 @@ model TableSession {
   @@index([branchId,                                                     status])
   @@index([branchId,                                                     openedAt])
   @@map("table_sessions")
+}
+
+// Configuração de integração WhatsApp via Evolution API
+model WhatsAppConfig {
+  id                String    @id @default(cuid())
+  branchId          String    @unique
+
+  // Configurações da instância Evolution API
+  instanceName      String?   // Nome da instância na Evolution API
+  instanceId        String?   // ID da instância retornado pela Evolution API
+  apiKey            String?   // API Key da instância
+  serverUrl         String?   // URL do servidor Evolution API
+
+  // Status da conexão
+  status            String    @default("disconnected") // disconnected, connecting, connected, qr_code
+  qrCode            String?   // QR Code base64 para conexão
+  phoneNumber       String?   // Número do WhatsApp conectado
+  profileName       String?   // Nome do perfil conectado
+  profilePicUrl     String?   // URL da foto de perfil
+
+  // Configurações de notificações
+  enabled           Boolean   @default(false)
+  notifyNewOrder    Boolean   @default(true)  // Notificar novos pedidos
+  notifyOrderStatus Boolean   @default(true)  // Notificar mudanças de status
+  notifyDelivery    Boolean   @default(true)  // Notificar despacho/entrega
+  notifyNumber      String?   // Número para receber alertas do restaurante
+
+  // Configurações de mensagens automáticas
+  orderConfirmationEnabled  Boolean @default(true)  // Confirmação de pedido ao cliente
+  orderReadyEnabled         Boolean @default(true)  // Aviso de pedido pronto
+  deliveryStartEnabled      Boolean @default(true)  // Aviso de saída para entrega
+  deliveryCancelEnabled     Boolean @default(true)  // Aviso de cancelamento
+
+  // Templates de mensagens customizáveis
+  templateConfirmation      String?  // Template para confirmação de pedido
+  templateReady             String?  // Template para pedido pronto
+  templateOutForDelivery    String?  // Template para saiu para entrega
+  templateDelivered         String?  // Template para entregue
+  templateCancelled         String?  // Template para cancelado
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  branch            Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@map("whatsapp_configs")
 }

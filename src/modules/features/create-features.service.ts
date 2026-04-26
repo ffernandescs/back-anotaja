@@ -118,6 +118,14 @@ export class CreateFeaturesService {
         href: '/admin/custom',
         defaultActions: JSON.stringify(['read', 'update']),
       },
+      {
+        key: 'whatsapp',
+        name: 'WhatsApp',
+        description: 'Integração WhatsApp via Evolution API',
+        icon: 'MessageCircle',
+        href: '/admin/automation/whatsapp',
+        defaultActions: JSON.stringify(['read', 'update', 'manage']),
+      },
     ];
 
     // Criar menu groups
@@ -128,6 +136,7 @@ export class CreateFeaturesService {
       { title: 'Operações', displayOrder: 4 },
       { title: 'Configurações', displayOrder: 5 },
       { title: 'Relatórios', displayOrder: 6 },
+      { title: 'Automação', displayOrder: 7 },
     ];
 
     for (const groupData of menuGroups) {
@@ -183,6 +192,8 @@ export class CreateFeaturesService {
           groupTitle = 'Relatórios';
         } else if (['subscription', 'coupons', 'api', 'support', 'custom'].includes(featureData.key)) {
           groupTitle = 'Configurações';
+        } else if (['whatsapp'].includes(featureData.key)) {
+          groupTitle = 'Automação';
         }
 
         const menuGroup = allMenuGroups.find(g => g.title === groupTitle);

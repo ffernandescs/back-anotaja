@@ -2,6 +2,7 @@ import { Controller, Post, Body, UseGuards } from '@nestjs/common';
 import { AiService } from './ai.service';
 import { GenerateDescriptionDto } from './dto/generate-description.dto';
 import { GeneratePrinterMessageDto } from './dto/generate-printer-message.dto';
+import { GenerateWhatsAppTemplateDto } from './dto/generate-whatsapp-template.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -68,6 +69,21 @@ export class AiController {
     return {
       type: generatePrinterMessageDto.type,
       url,
+    };
+  }
+
+  @Post('generate-whatsapp-template')
+  
+  async generateWhatsAppTemplate(
+    @Body() generateWhatsAppTemplateDto: GenerateWhatsAppTemplateDto,
+  ) {
+    const template = await this.aiService.generateWhatsAppTemplate(
+      generateWhatsAppTemplateDto.type,
+    );
+
+    return {
+      type: generateWhatsAppTemplateDto.type,
+      template,
     };
   }
 }
