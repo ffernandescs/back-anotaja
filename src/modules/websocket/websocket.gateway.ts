@@ -673,8 +673,19 @@ export class OrdersWebSocketGateway
       return;
     }
 
+    // Count clients in the room
+    let clientCount = 0;
+    try {
+      if (this.server.sockets.adapter?.rooms) {
+        const clientsInRoom = this.server.sockets.adapter.rooms.get(room);
+        clientCount = clientsInRoom ? clientsInRoom.size : 0;
+      }
+    } catch (error) {
+      this.logger.debug('Could not count clients in room:', error);
+    }
+
     this.server.to(room).emit(event, data);
-    this.logger.debug(`📤 CRM event ${event} → ${room}`);
+    this.logger.log(`📤 CRM event ${event} → ${room} (${clientCount} clients listening)`);
   }
 
   @SubscribeMessage('location:update')

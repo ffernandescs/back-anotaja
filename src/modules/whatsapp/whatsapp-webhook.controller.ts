@@ -24,9 +24,15 @@ export class WhatsAppWebhookController {
   @Post('messages-upsert')
   async handleMessagesUpsert(@Body() body: any) {
     const instanceName: string = body.instance || '';
+    this.logger.log(`[WhatsAppWebhook] messages-upsert received for instance: ${instanceName}`);
+    
     const branchId = await this.resolveBranchId(instanceName);
-    if (!branchId) return { received: true };
+    if (!branchId) {
+      this.logger.warn(`[WhatsAppWebhook] Could not resolve branchId for instance: ${instanceName}`);
+      return { received: true };
+    }
 
+    this.logger.log(`[WhatsAppWebhook] Resolved branchId: ${branchId} for instance: ${instanceName}`);
     const branchRoom = `branch:${branchId}`;
     const data = body.data;
     if (!data) return { received: true };
@@ -337,9 +343,12 @@ export class WhatsAppWebhookController {
   }
 
   private async resolveBranchId(instanceName: string): Promise<string | null> {
+    this.logger.log(`[Webhook] resolveBranchId called with instanceName: ${instanceName}`);
+    
     // Instance name format: anotaja_{branchId}
     if (instanceName.startsWith('anotaja_')) {
       const branchId = instanceName.replace('anotaja_', '');
+      this.logger.log(`[Webhook] Extracted branchId from instance name: ${branchId}`);
       
       // Verifica se a instância ainda existe na Evolution API
       try {
@@ -379,7 +388,12 @@ export class WhatsAppWebhookController {
         select: { branchId: true },
       });
       
-      if (!config?.branchId) return null;
+      if (!config?.branchId) {
+        this.logger.warn(`[Webhook] No config found for instanceName: ${instanceName}`);
+        return null;
+      }
+      
+      this.logger.log(`[Webhook] Found branchId from DB: ${config.branchId} for instanceName: ${instanceName}`);
       
       // Verifica se a instância ainda existe na Evolution API
       try {
@@ -409,7 +423,8 @@ export class WhatsAppWebhookController {
       }
       
       return config.branchId;
-    } catch {
+    } catch (error) {
+      this.logger.error(`[Webhook] Error in DB lookup for instanceName ${instanceName}:`, error);
       return null;
     }
   }
