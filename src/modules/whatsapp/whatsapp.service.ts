@@ -264,8 +264,8 @@ export class WhatsAppService {
         phoneNumber: null,
         profileName: null,
         profilePicUrl: null,
-        instanceName: null,
-        instanceId: null,
+        // Mantém instanceName e instanceId para o webhook continuar funcionando
+        // Eles são usados para resolver o branchId nos eventos
       },
     });
 
