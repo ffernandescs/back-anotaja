@@ -783,17 +783,31 @@ export class WhatsAppService {
   /**
    * Map Evolution API status to CRM status
    */
-  private mapEvolutionStatus(status: string): string {
-    const statusMap: Record<string, string> = {
-      'PENDING': 'pending',
-      'SERVER_ACK': 'sent',
-      'DELIVERY_ACK': 'delivered',
-      'READ': 'read',
-      'PLAYED': 'read',
-      'ERROR': 'error',
+  private mapEvolutionStatus(status: string | number): string {
+  // Status numérico (Evolution API padrão conforme documentação WhatsApp Business)
+  if (typeof status === 'number') {
+    const numericMap: Record<number, string> = {
+      0: 'error',    // ERROR
+      1: 'pending',  // PENDING
+      2: 'sent',     // SERVER_ACK — chegou ao servidor WhatsApp
+      3: 'received', // DELIVERY_ACK — entregue no aparelho
+      4: 'read',     // READ — destinatário visualizou
+      5: 'read',     // PLAYED — áudio ouvido (equivalente a read)
     };
-    return statusMap[status] || 'unknown';
+    return numericMap[status] ?? 'sent';
   }
+ 
+  // Status string
+  const statusMap: Record<string, string> = {
+    'PENDING': 'pending',
+    'SERVER_ACK': 'sent',
+    'DELIVERY_ACK': 'received', // CORRIGIDO: era 'delivered', agora 'received'
+    'READ': 'read',
+    'PLAYED': 'read',
+    'ERROR': 'error',
+  };
+  return statusMap[String(status).toUpperCase()] || 'sent';
+}
 
   private async getFullConfig(branchId: string) {
     const config = await prisma.whatsAppConfig.findUnique({

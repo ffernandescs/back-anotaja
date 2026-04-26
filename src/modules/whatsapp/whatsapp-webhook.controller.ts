@@ -367,15 +367,27 @@ export class WhatsAppWebhookController {
     return 'text';
   }
 
-  private mapStatus(status?: number): string {
+  private mapStatus(status?: number | string): string {
+  // Numérico
+  if (typeof status === 'number') {
     switch (status) {
       case 0: return 'error';
       case 1: return 'pending';
-      case 2: return 'sent';
-      case 3: return 'received';
+      case 2: return 'sent';     // SERVER_ACK
+      case 3: return 'received'; // DELIVERY_ACK
       case 4:
       case 5: return 'read';
       default: return 'sent';
     }
   }
+ 
+  // String
+  const s = String(status || '').toUpperCase();
+    if (s === 'ERROR') return 'error';
+    if (s === 'PENDING') return 'pending';
+    if (s === 'SERVER_ACK') return 'sent';
+    if (s === 'DELIVERY_ACK') return 'received'; // CORRIGIDO
+    if (s === 'READ' || s === 'PLAYED') return 'read';
+    return 'sent';
+  } 
 }
