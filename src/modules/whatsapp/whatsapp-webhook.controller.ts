@@ -398,6 +398,7 @@ export class WhatsAppWebhookController {
       m.extendedTextMessage?.text ||
       m.imageMessage?.caption ||
       m.videoMessage?.caption ||
+      m.documentMessage?.caption ||
       m.documentMessage?.title ||
       m.contactMessage?.displayName ||
       m.locationMessage?.name ||

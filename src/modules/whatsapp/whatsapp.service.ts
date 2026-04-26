@@ -658,6 +658,7 @@ export class WhatsAppService {
         phone: this.jidToPhone(c._jid),
         profilePicUrl: c.profilePicUrl || null,
         lastMessage: this.extractTextFromMessage(c.lastMessage) || '',
+        lastMessageType: this.detectMediaType(c.lastMessage),
         lastMsgTimestamp: c.lastMsgTimestamp || c.updatedAt || 0,
         formattedTimestamp: this.formatTimestamp(c.lastMsgTimestamp || c.updatedAt || 0),
         unreadCount: unreadCountMap.get(c._jid) || 0,
