@@ -344,54 +344,169 @@ export class WhatsAppService {
   // ─── CRM – Chats & Messages ────────────────────────────────────
 
   async fetchChats(branchId: string) {
+    console.log('[CRM] fetchChats called for branch:', branchId);
     const config = await this.getFullConfig(branchId);
 
-    if (config.status !== 'connected') {
-      throw new BadRequestException('WhatsApp nao esta conectado');
-    }
+    console.log('[CRM] fetchChats using instance:', config.instanceName);
 
-    const chats: any[] = await this.evolutionRequest(
+    const raw = await this.evolutionRequest(
       'POST',
       `/chat/findChats/${config.instanceName}`,
-      {},
+      { where: {} },
     );
 
-    // Normalize and return (filter only individual chats, ignore groups)
-    return (chats || [])
-      .filter((c: any) => c.id?.endsWith('@s.whatsapp.net'))
-      .map((c: any) => ({
-        jid: c.id,
-        name: c.name || c.pushName || this.jidToPhone(c.id),
-        phone: this.jidToPhone(c.id),
+    const rawChats: any[] = Array.isArray(raw)
+      ? raw
+      : raw?.chats || raw?.data || raw?.records || [];
+
+    console.log('[CRM] fetchChats count:', rawChats.length);
+    if (rawChats.length > 0) {
+      console.log('[CRM] First chat keys:', Object.keys(rawChats[0]));
+      console.log('[CRM] First chat sample:', JSON.stringify(rawChats[0]).slice(0, 500));
+    }
+
+    // Extract JID from various Evolution API response formats
+    const extractJid = (c: any): string => {
+      // Direct JID fields
+      if (typeof c.remoteJid === 'string' && c.remoteJid.includes('@')) return c.remoteJid;
+      if (typeof c.jid === 'string' && c.jid.includes('@')) return c.jid;
+      if (typeof c.id === 'string' && c.id.includes('@')) return c.id;
+      // Nested key object
+      if (c.key?.remoteJid && c.key.remoteJid.includes('@')) return c.key.remoteJid;
+      // Owner field (some versions)
+      if (typeof c.owner === 'string' && c.owner.includes('@')) return c.owner;
+      return '';
+    };
+
+    const chatsByJid = new Map<string, any>();
+    for (const c of rawChats) {
+      const jid = extractJid(c);
+      if (!jid || !jid.endsWith('@s.whatsapp.net')) continue;
+      chatsByJid.set(jid, { ...c, _jid: jid });
+    }
+
+    const individualChats = Array.from(chatsByJid.values());
+    console.log('[CRM] Individual chats (after JID filter):', individualChats.length);
+
+    // ── Enrich with customer data from DB ─────────────────────────
+    const [customers, spentByCustomer] = await Promise.all([
+      prisma.customer.findMany({
+        where: { branchId },
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          _count: { select: { orders: true } },
+          orders: {
+            select: { id: true, total: true, status: true, createdAt: true },
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+          },
+        },
+      }),
+      prisma.order.groupBy({
+        by: ['customerId'],
+        where: { branchId, customerId: { not: null } },
+        _sum: { total: true },
+      }),
+    ]);
+
+    // Build fast lookup maps
+    const spentMap = new Map<string, number>(
+      spentByCustomer.map((s) => [s.customerId!, s._sum.total ?? 0]),
+    );
+
+    const customerByPhone = new Map<string, typeof customers[number]>();
+    for (const customer of customers) {
+      const normalized = customer.phone.replace(/\D/g, '');
+      customerByPhone.set(normalized, customer);
+    }
+
+    const findCustomer = (jid: string) => {
+      const waPhone = jid.replace('@s.whatsapp.net', '');
+      if (customerByPhone.has(waPhone)) return customerByPhone.get(waPhone)!;
+      const last11 = waPhone.slice(-11);
+      for (const [phone, customer] of customerByPhone) {
+        if (phone.slice(-11) === last11 && last11.length === 11) return customer;
+      }
+      return null;
+    };
+
+    return individualChats.map((c: any) => {
+      const customer = findCustomer(c._jid);
+      const lastOrder = customer?.orders[0] ?? null;
+      const totalSpent = customer ? (spentMap.get(customer.id) ?? 0) : 0;
+
+      return {
+        jid: c._jid,
+        name: customer?.name || c.name || c.pushName || c.verifiedName || this.jidToPhone(c._jid),
+        phone: this.jidToPhone(c._jid),
         profilePicUrl: c.profilePicUrl || null,
         lastMessage: this.extractTextFromMessage(c.lastMessage) || '',
-        lastMsgTimestamp: c.lastMsgTimestamp || 0,
+        lastMsgTimestamp: c.lastMsgTimestamp || c.updatedAt || 0,
         unreadCount: c.unreadCount || 0,
-      }));
+        customerId: customer?.id ?? null,
+        totalOrders: customer?._count.orders ?? 0,
+        totalSpent,
+        lastOrderId: lastOrder?.id ?? null,
+        lastOrderTotal: lastOrder?.total ?? null,
+        lastOrderStatus: lastOrder?.status ?? null,
+        lastOrderDate: lastOrder?.createdAt ?? null,
+      };
+    });
   }
 
   async fetchMessages(branchId: string, dto: FetchMessagesDto) {
+    console.log('[CRM] fetchMessages called with jid:', dto.jid, 'count:', dto.count);
     const config = await this.getFullConfig(branchId);
-
-    if (config.status !== 'connected') {
-      throw new BadRequestException('WhatsApp nao esta conectado');
-    }
 
     const count = dto.count || 50;
 
+    // Use remoteJid at root level (matches Evolution API DB structure)
     const result: any = await this.evolutionRequest(
       'POST',
       `/chat/findMessages/${config.instanceName}`,
       {
-        where: { key: { remoteJid: dto.jid } },
+        where: { remoteJid: dto.jid },
         limit: count,
       },
     );
 
-    const raw: any[] = Array.isArray(result) ? result : result?.messages || [];
+    console.log('[CRM] fetchMessages raw response type:', typeof result, Array.isArray(result) ? `array(${result.length})` : JSON.stringify(result)?.slice(0, 200));
 
-    return raw.map((msg: any) => ({
-      id: msg.key?.id || String(msg.messageTimestamp),
+    let raw: any[];
+    if (Array.isArray(result)) {
+      raw = result;
+    } else if (Array.isArray(result?.messages)) {
+      raw = result.messages;
+    } else if (Array.isArray(result?.messages?.records)) {
+      raw = result.messages.records;
+    } else if (Array.isArray(result?.records)) {
+      raw = result.records;
+    } else if (Array.isArray(result?.data)) {
+      raw = result.data;
+    } else {
+      raw = [];
+    }
+
+    const fromMeCount = raw.filter((m: any) => m.key?.fromMe === true).length;
+    console.log('[CRM] fetchMessages count:', raw.length, '| fromMe:', fromMeCount, '| fromThem:', raw.length - fromMeCount);
+
+    if (raw.length > 0) {
+      console.log('[CRM] Sample message keys:', Object.keys(raw[0]));
+    }
+
+    // Deduplicate by message ID
+    const seen = new Set<string>();
+    const deduped = raw.filter((msg: any) => {
+      const id = msg.key?.id || msg.id || String(msg.messageTimestamp);
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+
+    return deduped.map((msg: any) => ({
+      id: msg.key?.id || msg.id || String(msg.messageTimestamp),
       fromMe: msg.key?.fromMe ?? false,
       text: this.extractTextFromMessage(msg) || '',
       timestamp: typeof msg.messageTimestamp === 'number'
@@ -405,10 +520,6 @@ export class WhatsAppService {
 
   async sendCrmMessage(branchId: string, dto: SendCrmMessageDto) {
     const config = await this.getFullConfig(branchId);
-
-    if (config.status !== 'connected') {
-      throw new BadRequestException('WhatsApp nao esta conectado');
-    }
 
     const result = await this.evolutionRequest(
       'POST',
@@ -488,6 +599,36 @@ export class WhatsAppService {
       cleaned = '55' + cleaned;
     }
     return cleaned;
+  }
+
+  // ─── Webhook registration ────────────────────────────────────
+
+  async registerWebhook(branchId: string, webhookUrl: string) {
+    const config = await this.getFullConfig(branchId);
+
+    console.log('[WhatsApp] Registering webhook for', config.instanceName, '→', webhookUrl);
+
+    const result = await this.evolutionRequest(
+      'POST',
+      `/webhook/set/${config.instanceName}`,
+      {
+        webhook: {
+          enabled: true,
+          url: webhookUrl,
+          webhookByEvents: false,
+          webhookBase64: false,
+          events: [
+            'messages.upsert',
+            'messages.update',
+            'presence.update',
+            'chats.update',
+          ],
+        },
+      },
+    );
+
+    console.log('[WhatsApp] Webhook registered:', JSON.stringify(result));
+    return result;
   }
 
   private async evolutionRequest(

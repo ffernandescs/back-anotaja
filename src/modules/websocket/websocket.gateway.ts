@@ -659,6 +659,22 @@ export class OrdersWebSocketGateway
     );
   }
 
+  // ─── CRM Events (WhatsApp) ──────────────────────────────────────
+
+  /**
+   * Emit CRM event to a specific branch room.
+   * Used by the WhatsApp webhook controller to push real-time events.
+   */
+  emitCRMEvent(room: string, event: string, data: any) {
+    if (!this.server || !this.server.sockets) {
+      this.logger.warn('WebSocket server not initialized, cannot emit CRM event');
+      return;
+    }
+
+    this.server.to(room).emit(event, data);
+    this.logger.debug(`📤 CRM event ${event} → ${room}`);
+  }
+
   @SubscribeMessage('location:update')
   async handleLocationUpdate(
     client: AuthenticatedSocket,

@@ -126,4 +126,14 @@ export class WhatsAppController {
       throw new BadRequestException((error as Error).message);
     }
   }
+
+  @Post('crm/webhook/register')
+  async registerWebhook(@Request() req, @Body() body: { webhookUrl: string }) {
+    try {
+      const branchId = req.user.branchId;
+      return this.whatsappService.registerWebhook(branchId, body.webhookUrl);
+    } catch (error) {
+      throw new BadRequestException((error as Error).message);
+    }
+  }
 }
