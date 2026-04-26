@@ -608,12 +608,19 @@ export class WhatsAppService {
 
     console.log('[WhatsApp] Registering webhook for', config.instanceName, '→', webhookUrl);
 
-    // First, try to delete existing webhook
+    // First, disable existing webhook
     try {
-      await this.evolutionRequest('DELETE', `/webhook/delete/${config.instanceName}`);
-      console.log('[WhatsApp] Old webhook deleted');
+      await this.evolutionRequest('POST', `/webhook/set/${config.instanceName}`, {
+        webhook: {
+          enabled: false,
+          url: webhookUrl,
+          webhookByEvents: false,
+          webhookBase64: false,
+        },
+      });
+      console.log('[WhatsApp] Old webhook disabled');
     } catch {
-      console.log('[WhatsApp] No existing webhook to delete or delete failed');
+      console.log('[WhatsApp] Could not disable old webhook (may not exist)');
     }
 
     // Then create new webhook
@@ -624,7 +631,7 @@ export class WhatsAppService {
         webhook: {
           enabled: true,
           url: webhookUrl,
-          webhookByEvents: true, // Changed to true to use events array
+          webhookByEvents: true,
           webhookBase64: false,
           events: [
             'MESSAGES_UPSERT',

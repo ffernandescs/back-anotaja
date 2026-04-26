@@ -12,12 +12,72 @@ import { prisma } from '../../../lib/prisma';
  *  - messages.update    → status change (delivered, read)
  *  - presence.update    → typing, online/offline
  *  - chats.update       → unread count, last message
+ *  - contacts.update    → contact profile changes
  */
-@Controller('whatsapp/webhook')
+@Controller('api/webhook')
 export class WhatsAppWebhookController {
   private readonly logger = new Logger(WhatsAppWebhookController.name);
 
   constructor(private readonly wsGateway: OrdersWebSocketGateway) {}
+
+  @Public()
+  @Post('contacts-update')
+  async handleContactsUpdate(@Body() body: any) {
+    this.logger.log('[Webhook] Contacts update received:', JSON.stringify(body).slice(0, 500));
+    
+    const instanceName: string = body.instance || '';
+    const branchId = await this.resolveBranchId(instanceName);
+    if (!branchId) {
+      this.logger.warn(`[Webhook] Could not resolve branchId for instance: ${instanceName}`);
+      return { received: true };
+    }
+
+    const branchRoom = `branch:${branchId}`;
+    const contacts = Array.isArray(body.data) ? body.data : [body.data];
+
+    for (const contact of contacts) {
+      if (!contact) continue;
+      const remoteJid = contact.remoteJid || contact.id || '';
+      if (!remoteJid.endsWith('@s.whatsapp.net')) continue;
+
+      this.wsGateway.emitCRMEvent(branchRoom, 'crm:contact:update', {
+        remoteJid,
+        pushName: contact.pushName,
+        profilePicUrl: contact.profilePicUrl,
+      });
+    }
+
+    return { received: true };
+  }
+
+  @Public()
+  @Post('chats-update')
+  async handleChatsUpdate(@Body() body: any) {
+    this.logger.log('[Webhook] Chats update received:', JSON.stringify(body).slice(0, 500));
+    
+    const instanceName: string = body.instance || '';
+    const branchId = await this.resolveBranchId(instanceName);
+    if (!branchId) {
+      this.logger.warn(`[Webhook] Could not resolve branchId for instance: ${instanceName}`);
+      return { received: true };
+    }
+
+    const branchRoom = `branch:${branchId}`;
+    const chats = Array.isArray(body.data) ? body.data : [body.data];
+
+    for (const chat of chats) {
+      if (!chat) continue;
+      const remoteJid = chat.remoteJid || chat.id || '';
+      if (!remoteJid.endsWith('@s.whatsapp.net')) continue;
+
+      this.wsGateway.emitCRMEvent(branchRoom, 'crm:chat:update', {
+        remoteJid,
+        unreadCount: chat.unreadCount,
+      });
+    }
+
+    return { received: true };
+  }
 
   @Public()
   @Post()
