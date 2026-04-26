@@ -256,6 +256,12 @@ export class WhatsAppService {
       console.log('[WhatsApp] Delete instance failed:', error);
     }
 
+    // Limpa todos os contadores de mensagens não lidas do banco
+    await prisma.whatsAppChatRead.deleteMany({
+      where: { branchId },
+    });
+    console.log('[WhatsApp] Cleared all message read status for branch:', branchId);
+
     await prisma.whatsAppConfig.update({
       where: { branchId },
       data: {

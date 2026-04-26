@@ -339,7 +339,37 @@ export class WhatsAppWebhookController {
   private async resolveBranchId(instanceName: string): Promise<string | null> {
     // Instance name format: anotaja_{branchId}
     if (instanceName.startsWith('anotaja_')) {
-      return instanceName.replace('anotaja_', '');
+      const branchId = instanceName.replace('anotaja_', '');
+      
+      // Verifica se a instância ainda existe na Evolution API
+      try {
+        const response = await fetch(
+          `${process.env.EVOLUTION_API_URL}/instance/fetchInstances?instanceName=${instanceName}`,
+          {
+            headers: {
+              apikey: process.env.EVOLUTION_API_KEY!,
+            } as HeadersInit,
+          },
+        );
+        
+        if (!response.ok) {
+          this.logger.warn(`[Webhook] Instance ${instanceName} not found in Evolution API, marking as disconnected`);
+          await this.markBranchAsDisconnected(branchId);
+          return null;
+        }
+        
+        const data = await response.json();
+        if (!Array.isArray(data) || data.length === 0) {
+          this.logger.warn(`[Webhook] Instance ${instanceName} not found in Evolution API, marking as disconnected`);
+          await this.markBranchAsDisconnected(branchId);
+          return null;
+        }
+      } catch (error) {
+        this.logger.error(`[Webhook] Error checking instance ${instanceName}:`, error);
+        // Não marca como desconectado em caso de erro de rede, apenas loga
+      }
+      
+      return branchId;
     }
 
     // Fallback: lookup in DB
@@ -348,9 +378,57 @@ export class WhatsAppWebhookController {
         where: { instanceName },
         select: { branchId: true },
       });
-      return config?.branchId ?? null;
+      
+      if (!config?.branchId) return null;
+      
+      // Verifica se a instância ainda existe na Evolution API
+      try {
+        const response = await fetch(
+          `${process.env.EVOLUTION_API_URL}/instance/fetchInstances?instanceName=${instanceName}`,
+          {
+            headers: {
+              apikey: process.env.EVOLUTION_API_KEY!,
+            } as HeadersInit,
+          },
+        );
+        
+        if (!response.ok) {
+          this.logger.warn(`[Webhook] Instance ${instanceName} not found in Evolution API, marking as disconnected`);
+          await this.markBranchAsDisconnected(config.branchId);
+          return null;
+        }
+        
+        const data = await response.json();
+        if (!Array.isArray(data) || data.length === 0) {
+          this.logger.warn(`[Webhook] Instance ${instanceName} not found in Evolution API, marking as disconnected`);
+          await this.markBranchAsDisconnected(config.branchId);
+          return null;
+        }
+      } catch (error) {
+        this.logger.error(`[Webhook] Error checking instance ${instanceName}:`, error);
+      }
+      
+      return config.branchId;
     } catch {
       return null;
+    }
+  }
+
+  private async markBranchAsDisconnected(branchId: string) {
+    try {
+      await prisma.whatsAppConfig.update({
+        where: { branchId },
+        data: {
+          status: 'disconnected',
+          qrCode: null,
+          phoneNumber: null,
+          profileName: null,
+          profilePicUrl: null,
+        },
+      });
+      this.logger.log(`[Webhook] Branch ${branchId} marked as disconnected`);
+    } catch (error) {
+      this.logger.error(`[Webhook] Failed to mark branch ${branchId} as disconnected:`, error);
     }
   }
 
