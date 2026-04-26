@@ -673,50 +673,86 @@ export class WhatsAppService {
     };
   }
 
-  async sendCrmMedia(
-    branchId: string,
-    jid: string,
-    file: Express.Multer.File,
-    caption?: string,
-  ) {
-    const config = await this.getFullConfig(branchId);
+async sendCrmMedia(
+  branchId: string,
+  jid: string,
+  file: Express.Multer.File,
+  caption?: string,
+) {
+  const config = await this.getFullConfig(branchId);
+  const isAudio = file.mimetype.startsWith('audio/');
 
-    console.log('[WhatsApp] sendCrmMedia - branchId:', branchId, 'jid:', jid, 'file:', file.originalname, 'mimetype:', file.mimetype);
+  let fileBuffer = file.buffer;
+  let fileName = file.originalname;
+  let mimeType = file.mimetype;
 
-    const mediaType = this.detectMediaTypeFromMime(file.mimetype);
-    console.log('[WhatsApp] sendCrmMedia - mediaType:', mediaType, 'instanceName:', config.instanceName);
-
-    try {
-      // Convert file to base64 for Evolution API
-      const fileBuffer = file.buffer;
-      const base64File = fileBuffer.toString('base64');
-
-      const result = await this.evolutionRequest(
-        'POST',
-        `/message/sendMedia/${config.instanceName}`,
-        {
-          number: jid,
-          mediatype: mediaType,
-          media: base64File,
-          fileName: file.originalname,
-          caption: caption || '',
-        },
-      );
-
-      console.log('[WhatsApp] sendCrmMedia - Evolution API result:', JSON.stringify(result, null, 2));
-
-      const messageId = result?.key?.id || result?.messageId || result?.id;
-      console.log('[WhatsApp] sendCrmMedia - extracted messageId:', messageId);
-
-      return {
-        success: true,
-        messageId: messageId || null,
-      };
-    } catch (error) {
-      console.error('[WhatsApp] sendCrmMedia - error:', error);
-      throw error;
-    }
+  // WhatsApp exige ogg/opus para PTT. Converte qualquer áudio recebido.
+  if (isAudio) {
+    this.logger.log(`[sendCrmMedia] Convertendo áudio: ${file.mimetype} → audio/ogg;codecs=opus`);
+    fileBuffer = await this.convertAudioToOgg(file.buffer);
+    fileName = 'audio.ogg';
+    mimeType = 'audio/ogg; codecs=opus';
   }
+
+  const base64File = fileBuffer.toString('base64');
+
+  // Para áudio, usa sendWhatsAppAudio (PTT) em vez de sendMedia
+  const endpoint = isAudio
+    ? `/message/sendWhatsAppAudio/${config.instanceName}`
+    : `/message/sendMedia/${config.instanceName}`;
+
+  const body = isAudio
+    ? {
+        number: jid,
+        audio: base64File,   // campo correto para PTT
+        encoding: true,      // Evolution API converte o base64 para o formato final
+      }
+    : {
+        number: jid,
+        mediatype: this.detectMediaTypeFromMime(file.mimetype),
+        media: base64File,
+        fileName,
+        caption: caption || '',
+      };
+
+  const result = await this.evolutionRequest('POST', endpoint, body);
+
+  return {
+    success: true,
+    messageId: result?.key?.id || result?.messageId || null,
+  };
+}
+
+private convertAudioToOgg(inputBuffer: Buffer): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const tempDir = '/tmp';
+    const inputPath = path.join(tempDir, `${randomUUID()}.webm`);
+    const outputPath = path.join(tempDir, `${randomUUID()}.ogg`);
+
+    fs.writeFileSync(inputPath, inputBuffer);
+
+    ffmpeg(inputPath)
+      .noVideo()
+      .audioCodec('libopus')
+      .audioBitrate('128k')
+      .audioChannels(1)
+      .audioFrequency(48000)
+      .format('ogg')
+      .output(outputPath)
+      .on('end', () => {
+        const buf = fs.readFileSync(outputPath);
+        fs.unlinkSync(inputPath);
+        fs.unlinkSync(outputPath);
+        resolve(buf);
+      })
+      .on('error', (err) => {
+        try { fs.unlinkSync(inputPath); fs.unlinkSync(outputPath); } catch {}
+        reject(err);
+      })
+      .run();
+  });
+}
+
 
   private detectMediaTypeFromMime(mimeType: string): string {
     if (mimeType.startsWith('image/')) return 'image';
@@ -1016,6 +1052,10 @@ export class WhatsAppService {
       cleaned = '55' + cleaned;
     }
     return cleaned;
+  }
+
+  async getFullConfigPublic(branchId: string) {
+    return this.getFullConfig(branchId);
   }
 
   // ─── Webhook registration ────────────────────────────────────

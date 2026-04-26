@@ -1,3 +1,5 @@
+// whatsapp.controller.ts — topo do arquivo, substitua os imports existentes
+
 import {
   Controller,
   Get,
@@ -6,17 +8,22 @@ import {
   Delete,
   Body,
   Request,
+  Req,           // ← adicionar
+  Res,           // ← já estava no seu import original? confirme
   UseGuards,
   BadRequestException,
   UseInterceptors,
   UploadedFile,
   Query,
-  Res,
+  Logger,        // ← adicionar
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Response as ExpressResponse } from 'express'; // ← import correto do Express
+import { Request as ExpressRequest } from 'express';   // ← para tipar o req do proxy
 import { WhatsAppService } from './whatsapp.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { Public } from '../../common/decorators/public.decorator'; // ← adicionar
 import {
   UpdateWhatsAppConfigDto,
   SendTestMessageDto,
@@ -27,6 +34,7 @@ import {
 @Controller('whatsapp')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class WhatsAppController {
+  private readonly logger = new Logger(WhatsAppController.name);
   constructor(private readonly whatsappService: WhatsAppService) {}
 
   @Get('config')
@@ -157,14 +165,66 @@ export class WhatsAppController {
     }
   }
 
+  @Public()
   @Get('crm/media-proxy')
-  async mediaProxy(@Query('url') url: string, @Res() res: any) {
+  async mediaProxy(
+    @Query('url') mediaUrl: string,
+    @Query('messageId') messageId: string,
+    @Query('jid') jid: string,
+    @Query('branchId') branchId: string,      // ← recebe via query param
+    @Res() res: ExpressResponse,               // ← tipo correto
+  ) {
     try {
-      const r2Url = await this.whatsappService.processWhatsAppAudio(url);
-      res.redirect(r2Url);
-    } catch (error) {
-      throw new BadRequestException((error as Error).message);
+      const config = await this.whatsappService.getFullConfigPublic(branchId);
+
+      const base64Result = await fetch(
+        `${process.env.EVOLUTION_API_URL}/chat/getBase64FromMediaMessage/${config.instanceName}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: process.env.EVOLUTION_API_KEY!,  // ← non-null assertion
+          } as HeadersInit,                           // ← cast para HeadersInit
+          body: JSON.stringify({
+            message: { key: { id: messageId, remoteJid: jid } },
+            convertToMp4: false,
+          }),
+        },
+      );
+
+      if (!base64Result.ok) {
+        return this.proxyDirectUrl(mediaUrl, res);
+      }
+
+      const data = await base64Result.json();
+      const base64 = data?.base64 || data?.data;
+      const mimetype = data?.mimetype || 'audio/ogg';
+
+      if (!base64) return this.proxyDirectUrl(mediaUrl, res);
+
+      const buffer = Buffer.from(base64, 'base64');
+      res.setHeader('Content-Type', mimetype);
+      res.setHeader('Content-Length', buffer.length);
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      return res.send(buffer);
+
+    } catch (err) {
+      this.logger.error('[media-proxy] Erro:', err);
+      return res.status(502).json({ error: 'Falha ao obter mídia' });
     }
+  }
+
+  
+
+ private async proxyDirectUrl(url: string, res: ExpressResponse) { // ← tipo correto
+    const resp = await fetch(url, {
+      headers: { 'User-Agent': 'WhatsApp/2.24.6.77 A' } as HeadersInit,
+    });
+    if (!resp.ok) return res.status(502).send('Falha no proxy');
+    const buf = Buffer.from(await resp.arrayBuffer());
+    res.setHeader('Content-Type', resp.headers.get('content-type') || 'application/octet-stream');
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    return res.send(buf);
   }
 
   @Post('crm/mark-as-read')
@@ -186,4 +246,6 @@ export class WhatsAppController {
       throw new BadRequestException((error as Error).message);
     }
   }
+
+  
 }
