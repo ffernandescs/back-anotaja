@@ -2005,5 +2005,26 @@ model WhatsAppConfig {
 
   branch            Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
+  chatReadStatus    WhatsAppChatRead[]
+
   @@map("whatsapp_configs")
+}
+
+model WhatsAppChatRead {
+  id                String    @id @default(cuid())
+  branchId          String
+  jid               String    // WhatsApp JID (e.g., 558182647354@s.whatsapp.net)
+  unreadCount       Int       @default(0)
+  lastMessageAt     DateTime? // Timestamp of last message
+  lastReadAt        DateTime? // When the conversation was last marked as read
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  config            WhatsAppConfig @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([branchId, jid])
+  @@index([branchId])
+  @@index([jid])
+  @@map("whatsapp_chat_read")
 }

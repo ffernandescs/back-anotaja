@@ -54,6 +54,11 @@ export class WhatsAppWebhookController {
 
     this.wsGateway.emitCRMEvent(branchRoom, 'crm:message', payload);
 
+    // Increment unread count in database for incoming messages
+    if (!key.fromMe) {
+      await this.incrementUnreadCount(branchId, remoteJid, payload.timestamp);
+    }
+
     this.wsGateway.emitCRMEvent(branchRoom, 'crm:chat:update', {
       remoteJid,
       lastMessage: payload.text,
@@ -220,6 +225,11 @@ export class WhatsAppWebhookController {
 
         this.wsGateway.emitCRMEvent(branchRoom, 'crm:message', payload);
 
+        // Increment unread count in database for incoming messages
+        if (!key.fromMe) {
+          await this.incrementUnreadCount(branchId, remoteJid, payload.timestamp);
+        }
+
         this.wsGateway.emitCRMEvent(branchRoom, 'crm:chat:update', {
           remoteJid,
           lastMessage: payload.text,
@@ -365,6 +375,33 @@ export class WhatsAppWebhookController {
     if (m.contactMessage) return 'contact';
     if (m.stickerMessage) return 'sticker';
     return 'text';
+  }
+
+  private async incrementUnreadCount(branchId: string, jid: string, timestamp: number) {
+    try {
+      await prisma.whatsAppChatRead.upsert({
+        where: {
+          branchId_jid: {
+            branchId,
+            jid,
+          },
+        },
+        create: {
+          branchId,
+          jid,
+          unreadCount: 1,
+          lastMessageAt: new Date(timestamp * 1000),
+        },
+        update: {
+          unreadCount: {
+            increment: 1,
+          },
+          lastMessageAt: new Date(timestamp * 1000),
+        },
+      });
+    } catch (error) {
+      this.logger.error(`[Webhook] Failed to increment unread count for ${jid}:`, error);
+    }
   }
 
   private mapStatus(status?: number | string): string {

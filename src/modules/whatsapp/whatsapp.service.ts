@@ -433,6 +433,16 @@ export class WhatsAppService {
 
     const individualChats = Array.from(chatsByJid.values());
 
+    // Fetch unread counts from database
+    const chatReadStatuses = await prisma.whatsAppChatRead.findMany({
+      where: { branchId },
+    });
+
+    const unreadCountMap = new Map<string, number>();
+    for (const status of chatReadStatuses) {
+      unreadCountMap.set(status.jid, status.unreadCount);
+    }
+
     const [customers, spentByCustomer] = await Promise.all([
       prisma.customer.findMany({
         where: { branchId },
@@ -533,7 +543,7 @@ export class WhatsAppService {
         lastMessage: this.extractTextFromMessage(c.lastMessage) || '',
         lastMsgTimestamp: c.lastMsgTimestamp || c.updatedAt || 0,
         formattedTimestamp: this.formatTimestamp(c.lastMsgTimestamp || c.updatedAt || 0),
-        unreadCount: c.unreadCount || 0,
+        unreadCount: unreadCountMap.get(c._jid) || 0,
         customerId: customer?.id ?? null,
         totalOrders: customer?._count.orders ?? 0,
         totalSpent,
@@ -651,6 +661,29 @@ export class WhatsAppService {
       success: true,
       messageId: result?.key?.id || null,
     };
+  }
+
+  async markChatAsRead(branchId: string, jid: string) {
+    await prisma.whatsAppChatRead.upsert({
+      where: {
+        branchId_jid: {
+          branchId,
+          jid,
+        },
+      },
+      create: {
+        branchId,
+        jid,
+        unreadCount: 0,
+        lastReadAt: new Date(),
+      },
+      update: {
+        unreadCount: 0,
+        lastReadAt: new Date(),
+      },
+    });
+
+    return { success: true };
   }
 
   // ─── Helpers ──────────────────────────────────────────────────

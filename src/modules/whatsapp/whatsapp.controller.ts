@@ -137,6 +137,16 @@ export class WhatsAppController {
     }
   }
 
+  @Post('crm/mark-as-read')
+  async markChatAsRead(@Request() req, @Body() body: { jid: string }) {
+    try {
+      const branchId = req.user.branchId;
+      return this.whatsappService.markChatAsRead(branchId, body.jid);
+    } catch (error) {
+      throw new BadRequestException((error as Error).message);
+    }
+  }
+
   @Post('crm/webhook/register')
   async registerWebhook(@Request() req, @Body() body: { webhookUrl: string }) {
     try {
