@@ -46,8 +46,8 @@ export class WhatsAppWebhookController {
     }
 
     const msg = data.message || data;
-    const key = msg.key || {};
-    const remoteJid: string = key.remoteJid || data.remoteJid || '';
+    const key = msg.key || data.key || {};
+    const remoteJid: string = key.remoteJid || data.remoteJid || msg.remoteJid || '';
     this.logger.log(`[Webhook] Remote JID: ${remoteJid}`);
 
     // Skip group messages and status broadcasts
@@ -208,16 +208,19 @@ export class WhatsAppWebhookController {
     this.logger.log(`[Webhook] Branch room: ${branchRoom}`);
 
     switch (event) {
-      case 'MESSAGES_UPSERT': {
+      case 'messages.upsert': {
         const data = body.data;
         if (!data) break;
 
         const msg = data.message || data;
-        const key = msg.key || {};
-        const remoteJid: string = key.remoteJid || data.remoteJid || '';
+        const key = msg.key || data.key || {};
+        const remoteJid: string = key.remoteJid || data.remoteJid || msg.remoteJid || '';
 
         // Skip group messages and status broadcasts
-        if (!remoteJid.endsWith('@s.whatsapp.net')) break;
+        if (!remoteJid.endsWith('@s.whatsapp.net')) {
+          this.logger.log(`[Webhook] Skipping non-individual message in generic handler: ${remoteJid}`);
+          break;
+        }
 
         const phone = remoteJid.replace('@s.whatsapp.net', '');
 
