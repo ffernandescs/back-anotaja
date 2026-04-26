@@ -209,6 +209,94 @@ export class WhatsAppWebhookController {
   }
 
   @Public()
+  @Post('send-message')
+  async handleSendMessage(@Body() body: any) {
+    const instanceName: string = body.instance || '';
+    this.logger.log(`[WhatsAppWebhook] send-message received for instance: ${instanceName}`);
+
+    const branchId = await this.resolveBranchId(instanceName);
+    if (!branchId) {
+      this.logger.warn(`[WhatsAppWebhook] Could not resolve branchId for instance: ${instanceName}`);
+      return { received: true };
+    }
+
+    const branchRoom = `branch:${branchId}`;
+    const data = body.data;
+
+    if (!data) return { received: true };
+
+    const key = data.key || {};
+    const remoteJid = this.resolvePhoneJid(key, data);
+    if (!remoteJid) return { received: true };
+
+    const phone = remoteJid.replace('@s.whatsapp.net', '');
+    const msg = data.message || {};
+    const messageType = body.messageType || '';
+
+    const payload = {
+      id: key.id || String(Date.now()),
+      remoteJid,
+      fromMe: key.fromMe ?? false,
+      text: this.extractText(msg),
+      timestamp: data.messageTimestamp || Math.floor(Date.now() / 1000),
+      pushName: data.pushName || '',
+      phone,
+      status: this.mapStatus(data.status),
+      mediaType: this.detectMediaType(msg),
+      mediaUrl: this.extractMediaUrl(msg),
+    };
+
+    console.log('[WhatsAppWebhook] (send-message) Emitting crm:message event:', JSON.stringify(payload, null, 2));
+    this.wsGateway.emitCRMEvent(branchRoom, 'crm:message', payload);
+
+    this.wsGateway.emitCRMEvent(branchRoom, 'crm:chat:update', {
+      remoteJid,
+      lastMessage: payload.text,
+      lastMsgTimestamp: payload.timestamp,
+      pushName: payload.pushName,
+      phone,
+    });
+
+    return { received: true };
+  }
+
+  @Public()
+  @Post('chats-upsert')
+  async handleChatsUpsert(@Body() body: any) {
+    const instanceName: string = body.instance || '';
+    this.logger.log(`[WhatsAppWebhook] chats-upsert received for instance: ${instanceName}`);
+
+    const branchId = await this.resolveBranchId(instanceName);
+    if (!branchId) {
+      this.logger.warn(`[WhatsAppWebhook] Could not resolve branchId for instance: ${instanceName}`);
+      return { received: true };
+    }
+
+    const branchRoom = `branch:${branchId}`;
+    const data = body.data;
+
+    if (!data) return { received: true };
+
+    // data is an array of chat objects
+    const chats = Array.isArray(data) ? data : [data];
+
+    for (const chat of chats) {
+      const remoteJid = chat.remoteJid || '';
+      if (!remoteJid.endsWith('@s.whatsapp.net')) continue;
+
+      const phone = remoteJid.replace('@s.whatsapp.net', '');
+
+      this.wsGateway.emitCRMEvent(branchRoom, 'crm:chat:update', {
+        remoteJid,
+        unreadMessages: chat.unreadMessages || 0,
+        phone,
+      });
+    }
+
+    return { received: true };
+  }
+
+  @Public()
   @Post()
   async handleWebhook(@Body() body: any) {
     const event = body.event;
