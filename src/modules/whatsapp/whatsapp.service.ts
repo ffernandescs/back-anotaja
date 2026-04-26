@@ -96,6 +96,8 @@ export class WhatsAppService {
           instanceName,
           integration: 'WHATSAPP-BAILEYS',
           qrcode: true,
+          storeMessages: true,
+          storeFullMessages: true,
         },
       );
 
@@ -189,7 +191,6 @@ export class WhatsAppService {
     console.log('[WhatsApp] Disconnecting instance:', config.instanceName);
 
     try {
-      // First try to logout
       await this.evolutionRequest(
         'DELETE',
         `/instance/logout/${config.instanceName}`,
@@ -197,11 +198,9 @@ export class WhatsAppService {
       console.log('[WhatsApp] Logout successful');
     } catch (error) {
       console.log('[WhatsApp] Logout failed:', error);
-      // ignore – instance may already be disconnected
     }
 
     try {
-      // Then delete the instance completely
       await this.evolutionRequest(
         'DELETE',
         `/instance/delete/${config.instanceName}`,
@@ -209,7 +208,6 @@ export class WhatsAppService {
       console.log('[WhatsApp] Instance deleted successfully');
     } catch (error) {
       console.log('[WhatsApp] Delete instance failed:', error);
-      // ignore – instance may already be deleted
     }
 
     await prisma.whatsAppConfig.update({
@@ -275,7 +273,6 @@ export class WhatsAppService {
           }
         }
       } else if (state === 'connecting') {
-        // Check if QR code is available in database
         if (config.qrCode) {
           status = 'qr_code';
         } else {
@@ -356,15 +353,11 @@ export class WhatsAppService {
       ? raw
       : raw?.chats || raw?.data || raw?.records || [];
 
-    // Extract JID from various Evolution API response formats
     const extractJid = (c: any): string => {
-      // Direct JID fields
       if (typeof c.remoteJid === 'string' && c.remoteJid.includes('@')) return c.remoteJid;
       if (typeof c.jid === 'string' && c.jid.includes('@')) return c.jid;
       if (typeof c.id === 'string' && c.id.includes('@')) return c.id;
-      // Nested key object
       if (c.key?.remoteJid && c.key.remoteJid.includes('@')) return c.key.remoteJid;
-      // Owner field (some versions)
       if (typeof c.owner === 'string' && c.owner.includes('@')) return c.owner;
       return '';
     };
@@ -378,7 +371,6 @@ export class WhatsAppService {
 
     const individualChats = Array.from(chatsByJid.values());
 
-    // ── Enrich with customer data from DB ─────────────────────────
     const [customers, spentByCustomer] = await Promise.all([
       prisma.customer.findMany({
         where: { branchId },
@@ -398,7 +390,7 @@ export class WhatsAppService {
               updatedAt: true,
             },
             orderBy: { createdAt: 'desc' },
-            take: 5, // Return last 5 orders for CRM
+            take: 5,
           },
           addresses: {
             where: { isDefault: true },
@@ -425,7 +417,6 @@ export class WhatsAppService {
       }),
     ]);
 
-    // Build fast lookup maps
     const spentMap = new Map<string, number>(
       spentByCustomer.map((s) => [s.customerId!, s._sum.total ?? 0]),
     );
@@ -437,11 +428,9 @@ export class WhatsAppService {
     }
 
     const findCustomer = (jid: string) => {
-      console.log('findCustomer', jid);
       const waPhone = jid.replace('@s.whatsapp.net', '');
       if (customerByPhone.has(waPhone)) return customerByPhone.get(waPhone)!;
 
-      // Strip country code (55) for local comparison
       const stripCountry = (p: string) =>
         p.startsWith('55') && p.length >= 12 ? p.slice(2) : p;
       const waLocal = stripCountry(waPhone);
@@ -450,8 +439,6 @@ export class WhatsAppService {
         const dbLocal = stripCountry(phone);
         if (waLocal === dbLocal) return customer;
 
-        // Handle Brazilian 9th digit: WhatsApp JID may omit the leading 9
-        // e.g. JID = 558182647354 (area 81 + 8 digits) vs DB = 5581982647354 (area 81 + 9 digits)
         if (waLocal.length >= 10 && dbLocal.length >= 10) {
           const waArea = waLocal.slice(0, 2);
           const dbArea = dbLocal.slice(0, 2);
@@ -491,7 +478,6 @@ export class WhatsAppService {
         lastOrderTotal: lastOrder?.total ?? null,
         lastOrderStatus: lastOrder?.status ?? null,
         lastOrderDate: lastOrder?.createdAt ?? null,
-        // Include full customer object when found
         customer: customer ? {
           id: customer.id,
           name: customer.name,
@@ -518,60 +504,40 @@ export class WhatsAppService {
   }
 
   async fetchMessages(branchId: string, dto: FetchMessagesDto) {
-    console.log('[CRM] fetchMessages called with jid:', dto.jid, 'count:', dto.count, 'cursor:', dto.cursor);
     const config = await this.getFullConfig(branchId);
-
     const count = dto.count || 50;
 
-    // Fetch from multiple sources in parallel and merge to get both incoming and outgoing messages
-    const results = await Promise.allSettled([
+    // Generate all JID variants for this phone number.
+    // WhatsApp stores outgoing messages under the JID we used to send (e.g. 558182647354)
+    // but incoming messages may arrive under the 9-digit variant (e.g. 5581982647354).
+    const jidVariants = this.getJidVariants(dto.jid);
+
+    // Fetch messages for ALL JID variants in parallel
+    const fetches = jidVariants.map((jid) =>
       this.evolutionRequest(
         'POST',
         `/chat/findMessages/${config.instanceName}`,
         {
-          where: { key: { remoteJid: dto.jid } },
+          where: { key: { remoteJid: jid } },
           limit: count,
         },
-      ),
-      this.evolutionRequest(
-        'POST',
-        `/message/find/${config.instanceName}`,
-        {
-          where: { key: { remoteJid: dto.jid } },
-          limit: count,
-        },
-      ),
-    ]);
+      )
+        .then((r) => this.extractMessagesFromResponse(r))
+        .catch(() => [] as any[]),
+    );
 
-    const raw: any[] = [];
-    for (const result of results) {
-      if (result.status === 'fulfilled') {
-        const extracted = this.extractMessagesFromResponse(result.value);
-        console.log('[CRM] Extracted', extracted.length, 'messages from endpoint');
-        raw.push(...extracted);
-      } else {
-        console.log('[CRM] Endpoint request failed:', result.reason);
-      }
-    }
-
-    console.log('[CRM] Total raw messages before filter:', raw.length);
+    const results = await Promise.all(fetches);
+    const raw = results.flat();
 
     if (raw.length === 0) {
-      console.log('[CRM] No messages found, returning empty array');
       return [];
     }
 
-    // Filter messages to only include those matching the requested JID
+    // Filter: keep only messages whose remoteJid matches any variant
     const filtered = raw.filter((msg: any) => {
-      const msgRemoteJid = msg.key?.remoteJid || msg.remoteJid;
-      if (msgRemoteJid === dto.jid) return true;
-      const requestedPhone = dto.jid.replace('@s.whatsapp.net', '').replace('@lid', '');
-      const msgPhone = msgRemoteJid.replace('@s.whatsapp.net', '').replace('@lid', '').replace('@g.us', '');
-      if (requestedPhone === msgPhone) return true;
-      return false;
+      const msgJid: string = msg.key?.remoteJid || msg.remoteJid || '';
+      return this.jidsMatch(msgJid, dto.jid);
     });
-
-    console.log('[CRM] Messages after JID filter:', filtered.length);
 
     // Deduplicate by message ID
     const seen = new Set<string>();
@@ -582,30 +548,23 @@ export class WhatsAppService {
       return true;
     });
 
-    console.log('[CRM] Messages after deduplication:', deduped.length);
-
-    // Sort by timestamp (newest first)
+    // Sort newest first
     deduped.sort((a, b) => {
-      const timestampA = typeof a.messageTimestamp === 'number' ? a.messageTimestamp : Number(a.messageTimestamp) || 0;
-      const timestampB = typeof b.messageTimestamp === 'number' ? b.messageTimestamp : Number(b.messageTimestamp) || 0;
-      return timestampB - timestampA; // Newest first
+      const tA = typeof a.messageTimestamp === 'number' ? a.messageTimestamp : Number(a.messageTimestamp) || 0;
+      const tB = typeof b.messageTimestamp === 'number' ? b.messageTimestamp : Number(b.messageTimestamp) || 0;
+      return tB - tA;
     });
 
-    // Apply cursor-based pagination (fetch messages before cursor timestamp)
+    // Cursor-based pagination
     let paginated = deduped;
     if (dto.cursor) {
       paginated = deduped.filter((msg: any) => {
-        const timestamp = typeof msg.messageTimestamp === 'number' ? msg.messageTimestamp : Number(msg.messageTimestamp) || 0;
-        return timestamp < dto.cursor!;
+        const ts = typeof msg.messageTimestamp === 'number' ? msg.messageTimestamp : Number(msg.messageTimestamp) || 0;
+        return ts < dto.cursor!;
       });
-      console.log('[CRM] Messages after cursor filter:', paginated.length);
     }
 
-    // Limit to requested count
-    const limited = paginated.slice(0, count);
-    console.log('[CRM] Final messages to return:', limited.length);
-
-    return limited.map((msg: any) => ({
+    return paginated.slice(0, count).map((msg: any) => ({
       id: msg.key?.id || msg.id || String(msg.messageTimestamp),
       fromMe: msg.key?.fromMe ?? false,
       text: this.extractTextFromMessage(msg) || '',
@@ -618,19 +577,31 @@ export class WhatsAppService {
     }));
   }
 
-  private extractMessagesFromResponse(result: any): any[] {
-    if (Array.isArray(result)) {
-      return result;
-    } else if (Array.isArray(result?.messages)) {
-      return result.messages;
-    } else if (Array.isArray(result?.messages?.records)) {
-      return result.messages.records;
-    } else if (Array.isArray(result?.records)) {
-      return result.records;
-    } else if (Array.isArray(result?.data)) {
-      return result.data;
+  /**
+   * Returns all possible JID variants for a Brazilian phone number.
+   * e.g. 558182647354@s.whatsapp.net → also 5581982647354@s.whatsapp.net (with 9th digit)
+   */
+  private getJidVariants(jid: string): string[] {
+    const variants = new Set<string>();
+    variants.add(jid);
+
+    const phone = jid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
+
+    // Only apply 9th digit logic for Brazilian numbers (starting with 55)
+    if (phone.startsWith('55') && phone.length >= 12) {
+      const area = phone.slice(2, 4); // DDD
+      const number = phone.slice(4);
+
+      if (number.length === 8) {
+        // Without 9th digit → add variant WITH 9th digit
+        variants.add(`55${area}9${number}@s.whatsapp.net`);
+      } else if (number.length === 9 && number.startsWith('9')) {
+        // With 9th digit → add variant WITHOUT 9th digit
+        variants.add(`55${area}${number.slice(1)}@s.whatsapp.net`);
+      }
     }
-    return [];
+
+    return Array.from(variants);
   }
 
   async sendCrmMessage(branchId: string, dto: SendCrmMessageDto) {
@@ -649,6 +620,61 @@ export class WhatsAppService {
   }
 
   // ─── Helpers ──────────────────────────────────────────────────
+
+  /**
+   * Compara dois JIDs do WhatsApp tolerando:
+   * - sufixos @s.whatsapp.net / @lid
+   * - código do país 55
+   * - dígito 9 brasileiro (8 vs 9 dígitos após DDD)
+   */
+  private jidsMatch(a: string, b: string): boolean {
+    if (!a || !b) return false;
+    if (a === b) return true;
+
+    const normalize = (jid: string) =>
+      jid
+        .replace(/@s\.whatsapp\.net|@lid|@g\.us/g, '')
+        .replace(/\D/g, ''); // só números
+
+    const nA = normalize(a);
+    const nB = normalize(b);
+
+    if (nA === nB) return true;
+
+    // Remove código do país BR
+    const stripBR = (p: string) =>
+      p.startsWith('55') && p.length >= 12 ? p.slice(2) : p;
+
+    const lA = stripBR(nA);
+    const lB = stripBR(nB);
+
+    if (lA === lB) return true;
+
+    // Dígito 9 brasileiro: DDD (2) + número (8 ou 9 dígitos)
+    if (lA.length >= 10 && lB.length >= 10) {
+      const areaA = lA.slice(0, 2);
+      const areaB = lB.slice(0, 2);
+
+      if (areaA === areaB) {
+        const numA = lA.slice(2);
+        const numB = lB.slice(2);
+
+        if (numA.length === 9 && numB.length === 8 && numA.startsWith('9') && numA.slice(1) === numB) return true;
+        if (numB.length === 9 && numA.length === 8 && numB.startsWith('9') && numB.slice(1) === numA) return true;
+      }
+    }
+
+    return false;
+  }
+
+  private extractMessagesFromResponse(result: any): any[] {
+    if (Array.isArray(result)) return result;
+    if (Array.isArray(result?.messages)) return result.messages;
+    if (Array.isArray(result?.messages?.records)) return result.messages.records;
+    if (Array.isArray(result?.records)) return result.records;
+    if (Array.isArray(result?.data)) return result.data;
+    return [];
+  }
 
   private jidToPhone(jid: string): string {
     return '+' + (jid || '').replace('@s.whatsapp.net', '').replace('@g.us', '');
@@ -723,7 +749,6 @@ export class WhatsAppService {
 
     console.log('[WhatsApp] Registering webhook for', config.instanceName, '→', webhookUrl);
 
-    // First, disable existing webhook
     try {
       await this.evolutionRequest('POST', `/webhook/set/${config.instanceName}`, {
         webhook: {
@@ -738,7 +763,6 @@ export class WhatsAppService {
       console.log('[WhatsApp] Could not disable old webhook (may not exist)');
     }
 
-    // Then create new webhook
     const result = await this.evolutionRequest(
       'POST',
       `/webhook/set/${config.instanceName}`,

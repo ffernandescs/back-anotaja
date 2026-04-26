@@ -182,6 +182,54 @@ export class WhatsAppWebhookController {
   }
 
   @Public()
+  @Post('presence-update')
+  async handlePresenceUpdate(@Body() body: any) {
+    this.logger.log('[Webhook] Presence update received:', JSON.stringify(body).slice(0, 500));
+    
+    const instanceName: string = body.instance || '';
+    const branchId = await this.resolveBranchId(instanceName);
+    if (!branchId) {
+      this.logger.warn(`[Webhook] Could not resolve branchId for instance: ${instanceName}`);
+      return { received: true };
+    }
+
+    const branchRoom = `branch:${branchId}`;
+    const data = body.data;
+    if (!data) {
+      return { received: true };
+    }
+
+    const remoteJid: string = data.id || data.remoteJid || '';
+    if (!remoteJid.endsWith('@s.whatsapp.net')) {
+      return { received: true };
+    }
+
+    // participant array: [{ id, presence }]
+    const presences = data.presences || data.participant || [];
+    let presenceState = 'unavailable';
+    if (Array.isArray(presences)) {
+      for (const p of presences) {
+        if (p.presence === 'composing' || p.presence === 'recording') {
+          presenceState = p.presence;
+          break;
+        }
+        if (p.presence === 'available') {
+          presenceState = 'available';
+        }
+      }
+    } else if (typeof data.presence === 'string') {
+      presenceState = data.presence;
+    }
+
+    this.wsGateway.emitCRMEvent(branchRoom, 'crm:presence', {
+      remoteJid,
+      presence: presenceState,
+    });
+
+    return { received: true };
+  }
+
+  @Public()
   @Post()
   async handleWebhook(@Body() body: any) {
     this.logger.log('[Webhook] Received webhook (generic):', JSON.stringify(body).slice(0, 500));
