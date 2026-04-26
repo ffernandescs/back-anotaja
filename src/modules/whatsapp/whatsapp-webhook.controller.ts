@@ -349,35 +349,6 @@ export class WhatsAppWebhookController {
     if (instanceName.startsWith('anotaja_')) {
       const branchId = instanceName.replace('anotaja_', '');
       this.logger.log(`[Webhook] Extracted branchId from instance name: ${branchId}`);
-      
-      // Verifica se a instância ainda existe na Evolution API
-      try {
-        const response = await fetch(
-          `${process.env.EVOLUTION_API_URL}/instance/fetchInstances?instanceName=${instanceName}`,
-          {
-            headers: {
-              apikey: process.env.EVOLUTION_API_KEY!,
-            } as HeadersInit,
-          },
-        );
-        
-        if (!response.ok) {
-          this.logger.warn(`[Webhook] Instance ${instanceName} not found in Evolution API, marking as disconnected`);
-          await this.markBranchAsDisconnected(branchId);
-          return null;
-        }
-        
-        const data = await response.json();
-        if (!Array.isArray(data) || data.length === 0) {
-          this.logger.warn(`[Webhook] Instance ${instanceName} not found in Evolution API, marking as disconnected`);
-          await this.markBranchAsDisconnected(branchId);
-          return null;
-        }
-      } catch (error) {
-        this.logger.error(`[Webhook] Error checking instance ${instanceName}:`, error);
-        // Não marca como desconectado em caso de erro de rede, apenas loga
-      }
-      
       return branchId;
     }
 
@@ -394,34 +365,6 @@ export class WhatsAppWebhookController {
       }
       
       this.logger.log(`[Webhook] Found branchId from DB: ${config.branchId} for instanceName: ${instanceName}`);
-      
-      // Verifica se a instância ainda existe na Evolution API
-      try {
-        const response = await fetch(
-          `${process.env.EVOLUTION_API_URL}/instance/fetchInstances?instanceName=${instanceName}`,
-          {
-            headers: {
-              apikey: process.env.EVOLUTION_API_KEY!,
-            } as HeadersInit,
-          },
-        );
-        
-        if (!response.ok) {
-          this.logger.warn(`[Webhook] Instance ${instanceName} not found in Evolution API, marking as disconnected`);
-          await this.markBranchAsDisconnected(config.branchId);
-          return null;
-        }
-        
-        const data = await response.json();
-        if (!Array.isArray(data) || data.length === 0) {
-          this.logger.warn(`[Webhook] Instance ${instanceName} not found in Evolution API, marking as disconnected`);
-          await this.markBranchAsDisconnected(config.branchId);
-          return null;
-        }
-      } catch (error) {
-        this.logger.error(`[Webhook] Error checking instance ${instanceName}:`, error);
-      }
-      
       return config.branchId;
     } catch (error) {
       this.logger.error(`[Webhook] Error in DB lookup for instanceName ${instanceName}:`, error);

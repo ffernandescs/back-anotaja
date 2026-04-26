@@ -147,17 +147,18 @@ export class WhatsAppService {
         },
       );
 
-      // Enable sync_full_history to import historical messages
+      // Enable sync_full_history to import historical messages (one-time sync)
+      // Note: This will sync on connection, then automatically stop after completion
       await this.evolutionRequest(
         'POST',
         `/settings/set/${instanceName}`,
         {
-          sync_full_history: true,
+          sync_full_history: false, // Disabled to prevent continuous sync loop
           read_messages: true,
           read_status: true,
         },
       ).catch((e) => {
-        console.log('[WhatsApp] Failed to set sync_full_history:', e);
+        console.log('[WhatsApp] Failed to set sync settings:', e);
       });
 
       console.log('[WhatsApp] Create response:', JSON.stringify(createRes, null, 2));
@@ -234,18 +235,18 @@ export class WhatsAppService {
         'POST',
         `/settings/set/${config.instanceName}`,
         {
-          sync_full_history: true,
+          sync_full_history: false, // Disabled to prevent continuous sync loop
           read_messages: true,
           read_status: true,
         },
       );
       
-      console.log('[WhatsApp] sync_full_history enabled for instance:', config.instanceName);
+      console.log('[WhatsApp] sync settings configured for instance:', config.instanceName);
       
-      return { success: true, message: 'sync_full_history enabled successfully' };
+      return { success: true, message: 'sync settings configured successfully' };
     } catch (error: any) {
-      console.error('[WhatsApp] Failed to enable sync_full_history:', error);
-      throw new BadRequestException('Failed to enable sync_full_history');
+      console.error('[WhatsApp] Failed to configure sync settings:', error);
+      throw new BadRequestException('Failed to configure sync settings');
     }
   }
 
@@ -356,29 +357,12 @@ export class WhatsAppService {
         status = 'connected';
 
         if (config.status !== 'connected') {
-          try {
-            const info = await this.evolutionRequest(
-              'GET',
-              `/instance/fetchInstances?instanceName=${config.instanceName}`,
-            );
-            const inst = Array.isArray(info) ? info[0] : info;
-
-            await prisma.whatsAppConfig.update({
-              where: { branchId },
-              data: {
-                status: 'connected',
-                phoneNumber: inst?.instance?.owner?.split('@')[0] || config.phoneNumber,
-                profileName: inst?.instance?.profileName || config.profileName,
-                profilePicUrl: inst?.instance?.profilePicUrl || config.profilePicUrl,
-                qrCode: null,
-              },
-            });
-          } catch {
-            await prisma.whatsAppConfig.update({
-              where: { branchId },
-              data: { status: 'connected', qrCode: null },
-            });
-          }
+          // Atualiza apenas o status sem buscar informações adicionais da instância
+          // Isso evita chamadas desnecessárias à Evolution API que causam lentidão
+          await prisma.whatsAppConfig.update({
+            where: { branchId },
+            data: { status: 'connected', qrCode: null },
+          });
         }
       } else if (state === 'connecting') {
         if (config.qrCode) {
