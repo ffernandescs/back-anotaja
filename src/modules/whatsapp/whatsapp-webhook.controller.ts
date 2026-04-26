@@ -23,38 +23,20 @@ export class WhatsAppWebhookController {
   @Public()
   @Post('messages-upsert')
   async handleMessagesUpsert(@Body() body: any) {
-    this.logger.log('[Webhook] Messages upsert received:', JSON.stringify(body).slice(0, 500));
-    
     const instanceName: string = body.instance || '';
-    this.logger.log(`[Webhook] Instance name: ${instanceName}`);
-    
     const branchId = await this.resolveBranchId(instanceName);
-    this.logger.log(`[Webhook] Resolved branchId: ${branchId}`);
-    
-    if (!branchId) {
-      this.logger.warn(`[Webhook] Could not resolve branchId for instance: ${instanceName}`);
-      return { received: true };
-    }
+    if (!branchId) return { received: true };
 
     const branchRoom = `branch:${branchId}`;
-    this.logger.log(`[Webhook] Branch room: ${branchRoom}`);
-    
     const data = body.data;
-    if (!data) {
-      this.logger.warn('[Webhook] No data in body');
-      return { received: true };
-    }
+    if (!data) return { received: true };
 
     const msg = data.message || data;
     const key = msg.key || data.key || {};
-    const remoteJid: string = key.remoteJid || data.remoteJid || msg.remoteJid || '';
-    this.logger.log(`[Webhook] Remote JID: ${remoteJid}`);
 
-    // Skip group messages and status broadcasts
-    if (!remoteJid.endsWith('@s.whatsapp.net')) {
-      this.logger.log(`[Webhook] Skipping non-individual message: ${remoteJid}`);
-      return { received: true };
-    }
+    // Resolve the real JID: incoming messages via LID have the phone in remoteJidAlt
+    const remoteJid = this.resolvePhoneJid(key, data);
+    if (!remoteJid) return { received: true };
 
     const phone = remoteJid.replace('@s.whatsapp.net', '');
 
@@ -70,14 +52,8 @@ export class WhatsAppWebhookController {
       mediaType: this.detectMediaType(msg),
     };
 
-    this.logger.log(
-      `[Webhook] Message ${payload.fromMe ? '→' : '←'} ${phone}: ${(payload.text || '').slice(0, 50)}`,
-    );
-
     this.wsGateway.emitCRMEvent(branchRoom, 'crm:message', payload);
-    this.logger.log(`[Webhook] Emitted crm:message to room ${branchRoom}`);
 
-    // Also emit chat update so sidebar refreshes
     this.wsGateway.emitCRMEvent(branchRoom, 'crm:chat:update', {
       remoteJid,
       lastMessage: payload.text,
@@ -85,7 +61,6 @@ export class WhatsAppWebhookController {
       pushName: payload.pushName,
       phone,
     });
-    this.logger.log(`[Webhook] Emitted crm:chat:update to room ${branchRoom}`);
 
     return { received: true };
   }
@@ -93,14 +68,9 @@ export class WhatsAppWebhookController {
   @Public()
   @Post('contacts-update')
   async handleContactsUpdate(@Body() body: any) {
-    this.logger.log('[Webhook] Contacts update received:', JSON.stringify(body).slice(0, 500));
-    
     const instanceName: string = body.instance || '';
     const branchId = await this.resolveBranchId(instanceName);
-    if (!branchId) {
-      this.logger.warn(`[Webhook] Could not resolve branchId for instance: ${instanceName}`);
-      return { received: true };
-    }
+    if (!branchId) return { received: true };
 
     const branchRoom = `branch:${branchId}`;
     const contacts = Array.isArray(body.data) ? body.data : [body.data];
@@ -123,24 +93,18 @@ export class WhatsAppWebhookController {
   @Public()
   @Post('messages-update')
   async handleMessagesUpdate(@Body() body: any) {
-    this.logger.log('[Webhook] Messages update received:', JSON.stringify(body).slice(0, 500));
-    
     const instanceName: string = body.instance || '';
     const branchId = await this.resolveBranchId(instanceName);
-    if (!branchId) {
-      this.logger.warn(`[Webhook] Could not resolve branchId for instance: ${instanceName}`);
-      return { received: true };
-    }
+    if (!branchId) return { received: true };
 
     const branchRoom = `branch:${branchId}`;
-    const data = body.data;
-    
-    const updates = Array.isArray(data) ? data : [data];
+    const updates = Array.isArray(body.data) ? body.data : [body.data];
+
     for (const upd of updates) {
       if (!upd) continue;
       const key = upd.key || {};
-      const remoteJid = key.remoteJid || upd.remoteJid || '';
-      if (!remoteJid.endsWith('@s.whatsapp.net')) continue;
+      const remoteJid = this.resolvePhoneJid(key, upd);
+      if (!remoteJid) continue;
 
       this.wsGateway.emitCRMEvent(branchRoom, 'crm:message:status', {
         id: key.id || upd.keyId,
@@ -155,22 +119,17 @@ export class WhatsAppWebhookController {
   @Public()
   @Post('chats-update')
   async handleChatsUpdate(@Body() body: any) {
-    this.logger.log('[Webhook] Chats update received:', JSON.stringify(body).slice(0, 500));
-    
     const instanceName: string = body.instance || '';
     const branchId = await this.resolveBranchId(instanceName);
-    if (!branchId) {
-      this.logger.warn(`[Webhook] Could not resolve branchId for instance: ${instanceName}`);
-      return { received: true };
-    }
+    if (!branchId) return { received: true };
 
     const branchRoom = `branch:${branchId}`;
     const chats = Array.isArray(body.data) ? body.data : [body.data];
 
     for (const chat of chats) {
       if (!chat) continue;
-      const remoteJid = chat.remoteJid || chat.id || '';
-      if (!remoteJid.endsWith('@s.whatsapp.net')) continue;
+      const remoteJid = this.resolvePhoneJid(chat, chat);
+      if (!remoteJid) continue;
 
       this.wsGateway.emitCRMEvent(branchRoom, 'crm:chat:update', {
         remoteJid,
@@ -184,27 +143,20 @@ export class WhatsAppWebhookController {
   @Public()
   @Post('presence-update')
   async handlePresenceUpdate(@Body() body: any) {
-    this.logger.log('[Webhook] Presence update received:', JSON.stringify(body).slice(0, 500));
-    
     const instanceName: string = body.instance || '';
     const branchId = await this.resolveBranchId(instanceName);
-    if (!branchId) {
-      this.logger.warn(`[Webhook] Could not resolve branchId for instance: ${instanceName}`);
-      return { received: true };
-    }
+    if (!branchId) return { received: true };
 
     const branchRoom = `branch:${branchId}`;
     const data = body.data;
-    if (!data) {
-      return { received: true };
-    }
+    if (!data) return { received: true };
 
-    const remoteJid: string = data.id || data.remoteJid || '';
-    if (!remoteJid.endsWith('@s.whatsapp.net')) {
-      return { received: true };
-    }
+    const rawJid: string = data.id || data.remoteJid || '';
+    const remoteJid = rawJid.endsWith('@s.whatsapp.net')
+      ? rawJid
+      : (data.remoteJidAlt || '');
+    if (!remoteJid.endsWith('@s.whatsapp.net')) return { received: true };
 
-    // participant array: [{ id, presence }]
     const presences = data.presences || data.participant || [];
     let presenceState = 'unavailable';
     if (Array.isArray(presences)) {
@@ -232,28 +184,14 @@ export class WhatsAppWebhookController {
   @Public()
   @Post()
   async handleWebhook(@Body() body: any) {
-    this.logger.log('[Webhook] Received webhook (generic):', JSON.stringify(body).slice(0, 500));
-    
     const event = body.event;
     const instanceName: string = body.instance || '';
+    if (!event) return { received: true };
 
-    if (!event) {
-      this.logger.warn('[Webhook] No event field in webhook body');
-      return { received: true };
-    }
-
-    this.logger.log(`[Webhook] Event: ${event} | Instance: ${instanceName}`);
-
-    // Resolve branchId from instance name (format: anotaja_{branchId})
     const branchId = await this.resolveBranchId(instanceName);
-    if (!branchId) {
-      this.logger.warn(`[Webhook] Could not resolve branchId for instance: ${instanceName}`);
-      return { received: true };
-    }
+    if (!branchId) return { received: true };
 
-    this.logger.log(`[Webhook] Resolved branchId: ${branchId}`);
     const branchRoom = `branch:${branchId}`;
-    this.logger.log(`[Webhook] Branch room: ${branchRoom}`);
 
     switch (event) {
       case 'messages.upsert': {
@@ -262,13 +200,9 @@ export class WhatsAppWebhookController {
 
         const msg = data.message || data;
         const key = msg.key || data.key || {};
-        const remoteJid: string = key.remoteJid || data.remoteJid || msg.remoteJid || '';
 
-        // Skip group messages and status broadcasts
-        if (!remoteJid.endsWith('@s.whatsapp.net')) {
-          this.logger.log(`[Webhook] Skipping non-individual message in generic handler: ${remoteJid}`);
-          break;
-        }
+        const remoteJid = this.resolvePhoneJid(key, data);
+        if (!remoteJid) break;
 
         const phone = remoteJid.replace('@s.whatsapp.net', '');
 
@@ -284,15 +218,8 @@ export class WhatsAppWebhookController {
           mediaType: this.detectMediaType(msg),
         };
 
-        this.logger.log(
-          `[Webhook] Message ${payload.fromMe ? '→' : '←'} ${phone}: ${(payload.text || '').slice(0, 50)}`,
-        );
-
-        this.logger.log(`[Webhook] Emitting crm:message to room: ${branchRoom}`);
         this.wsGateway.emitCRMEvent(branchRoom, 'crm:message', payload);
-        this.logger.log(`[Webhook] Emitted crm:message`);
 
-        // Also emit chat update so sidebar refreshes
         this.wsGateway.emitCRMEvent(branchRoom, 'crm:chat:update', {
           remoteJid,
           lastMessage: payload.text,
@@ -308,8 +235,8 @@ export class WhatsAppWebhookController {
         for (const upd of updates) {
           if (!upd) continue;
           const key = upd.key || {};
-          const remoteJid: string = key.remoteJid || '';
-          if (!remoteJid.endsWith('@s.whatsapp.net')) continue;
+          const remoteJid = this.resolvePhoneJid(key, upd);
+          if (!remoteJid) continue;
 
           this.wsGateway.emitCRMEvent(branchRoom, 'crm:message:status', {
             id: key.id,
@@ -324,10 +251,12 @@ export class WhatsAppWebhookController {
         const data = body.data;
         if (!data) break;
 
-        const remoteJid: string = data.id || data.remoteJid || '';
+        const rawJid: string = data.id || data.remoteJid || '';
+        const remoteJid = rawJid.endsWith('@s.whatsapp.net')
+          ? rawJid
+          : (data.remoteJidAlt || '');
         if (!remoteJid.endsWith('@s.whatsapp.net')) break;
 
-        // participant array: [{ id, presence }]
         const presences = data.presences || data.participant || [];
         let presenceState = 'unavailable';
         if (Array.isArray(presences)) {
@@ -346,7 +275,7 @@ export class WhatsAppWebhookController {
 
         this.wsGateway.emitCRMEvent(branchRoom, 'crm:presence', {
           remoteJid,
-          presence: presenceState, // composing | recording | available | unavailable
+          presence: presenceState,
         });
         break;
       }
@@ -355,8 +284,8 @@ export class WhatsAppWebhookController {
         const chats = Array.isArray(body.data) ? body.data : [body.data];
         for (const chat of chats) {
           if (!chat) continue;
-          const remoteJid = chat.remoteJid || chat.id || '';
-          if (!remoteJid.endsWith('@s.whatsapp.net')) continue;
+          const remoteJid = this.resolvePhoneJid(chat, chat);
+          if (!remoteJid) continue;
 
           this.wsGateway.emitCRMEvent(branchRoom, 'crm:chat:update', {
             remoteJid,
@@ -374,6 +303,24 @@ export class WhatsAppWebhookController {
   }
 
   // ─── Helpers ─────────────────────────────────────────────────
+
+  /**
+   * Resolve the @s.whatsapp.net JID from a key/data object.
+   * Incoming LID messages have remoteJid = "123@lid" and remoteJidAlt = "55...@s.whatsapp.net".
+   * Returns null for group messages and status broadcasts.
+   */
+  private resolvePhoneJid(key: any, data: any): string | null {
+    const jid: string = key.remoteJid || data.remoteJid || '';
+    if (jid.endsWith('@s.whatsapp.net')) return jid;
+
+    // LID format — use remoteJidAlt or participantAlt
+    const alt: string =
+      key.remoteJidAlt || data.remoteJidAlt ||
+      key.participantAlt || data.participantAlt || '';
+    if (alt.endsWith('@s.whatsapp.net')) return alt;
+
+    return null;
+  }
 
   private async resolveBranchId(instanceName: string): Promise<string | null> {
     // Instance name format: anotaja_{branchId}

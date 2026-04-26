@@ -532,6 +532,7 @@ export class WhatsAppService {
         profilePicUrl: c.profilePicUrl || null,
         lastMessage: this.extractTextFromMessage(c.lastMessage) || '',
         lastMsgTimestamp: c.lastMsgTimestamp || c.updatedAt || 0,
+        formattedTimestamp: this.formatTimestamp(c.lastMsgTimestamp || c.updatedAt || 0),
         unreadCount: c.unreadCount || 0,
         customerId: customer?.id ?? null,
         totalOrders: customer?._count.orders ?? 0,
@@ -710,47 +711,88 @@ export class WhatsAppService {
   }
 
   private jidToPhone(jid: string): string {
-    return '+' + (jid || '').replace('@s.whatsapp.net', '').replace('@g.us', '');
+    return '+' + (jid || '').replace('@s.whatsapp.net', '');
   }
 
-  private extractTextFromMessage(msg: any): string | null {
-    if (!msg) return null;
-
-    const m = msg.message || msg;
-    return (
-      m.conversation ||
-      m.extendedTextMessage?.text ||
-      m.imageMessage?.caption ||
-      m.videoMessage?.caption ||
-      m.documentMessage?.title ||
-      m.contactMessage?.displayName ||
-      m.locationMessage?.name ||
-      null
-    );
+  /**
+   * Extract text from a message object
+   */
+  private extractTextFromMessage(msg: any): string {
+    if (!msg) return '';
+    if (typeof msg === 'string') return msg;
+    if (msg.message?.conversation) return msg.message.conversation;
+    if (msg.message?.extendedTextMessage?.text) return msg.message.extendedTextMessage.text;
+    if (msg.message?.imageMessage?.caption) return msg.message.imageMessage.caption;
+    if (msg.message?.videoMessage?.caption) return msg.message.videoMessage.caption;
+    if (msg.message?.documentMessage?.caption) return msg.message.documentMessage.caption;
+    if (msg.message?.audioMessage?.caption) return msg.message.audioMessage.caption;
+    if (msg.message?.buttonsResponseMessage?.selectedDisplayText) return msg.message.buttonsResponseMessage.selectedDisplayText;
+    if (msg.message?.listResponseMessage?.description) return msg.message.listResponseMessage.description;
+    if (msg.message?.reactionMessage?.text) return msg.message.reactionMessage.text;
+    return '';
   }
 
-  private mapEvolutionStatus(status?: number): string {
-    switch (status) {
-      case 0: return 'error';
-      case 1: return 'pending';
-      case 2: return 'sent';
-      case 3: return 'received';
-      case 4: return 'read';
-      case 5: return 'read';
-      default: return 'sent';
+  /**
+   * Format timestamp for display:
+   * - Today: show time (e.g., 14:30)
+   * - Yesterday (24-48h): show "ontem"
+   * - 2+ days ago: show date (e.g., 24/03/2026)
+   */
+  private formatTimestamp(timestamp: number | string | Date): string {
+    if (!timestamp) return '';
+    
+    const ts = typeof timestamp === 'string' ? new Date(timestamp) : new Date(timestamp);
+    if (isNaN(ts.getTime())) return '';
+    
+    const now = new Date();
+    const diffMs = now.getTime() - ts.getTime();
+    const diffHours = diffMs / (1000 * 60 * 60);
+    
+    // Today: show time
+    if (diffHours < 24) {
+      const hours = ts.getHours().toString().padStart(2, '0');
+      const minutes = ts.getMinutes().toString().padStart(2, '0');
+      return `${hours}:${minutes}`;
     }
+    
+    // Yesterday (24-48h): show "ontem"
+    if (diffHours < 48) {
+      return 'ontem';
+    }
+    
+    // 2+ days ago: show date
+    const day = ts.getDate().toString().padStart(2, '0');
+    const month = (ts.getMonth() + 1).toString().padStart(2, '0');
+    const year = ts.getFullYear();
+    return `${day}/${month}/${year}`;
   }
 
+  /**
+   * Detect media type from message
+   */
   private detectMediaType(msg: any): string {
-    const m = msg.message || {};
-    if (m.imageMessage) return 'image';
-    if (m.documentMessage) return 'document';
-    if (m.audioMessage) return 'audio';
-    if (m.videoMessage) return 'video';
-    if (m.locationMessage) return 'location';
-    if (m.contactMessage) return 'contact';
-    if (m.stickerMessage) return 'sticker';
+    if (!msg.message) return 'text';
+    if (msg.message.imageMessage) return 'image';
+    if (msg.message.videoMessage) return 'video';
+    if (msg.message.audioMessage) return 'audio';
+    if (msg.message.documentMessage) return 'document';
+    if (msg.message.stickerMessage) return 'sticker';
     return 'text';
+  }
+
+  /**
+   * Map Evolution API status to CRM status
+   */
+  private mapEvolutionStatus(status: string): string {
+    const statusMap: Record<string, string> = {
+      'PENDING': 'pending',
+      'SERVER_ACK': 'sent',
+      'DELIVERY_ACK': 'delivered',
+      'READ': 'read',
+      'PLAYED': 'read',
+      'ERROR': 'error',
+    };
+    return statusMap[status] || 'unknown';
   }
 
   private async getFullConfig(branchId: string) {
