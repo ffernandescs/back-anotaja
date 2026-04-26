@@ -161,6 +161,32 @@ export class WhatsAppService {
         console.log('[WhatsApp] Failed to set sync settings:', e);
       });
 
+      // Configure webhook automatically
+      const webhookUrl = process.env.EVOLUTION_WEBHOOK_URL;
+      if (webhookUrl) {
+        await this.evolutionRequest(
+          'POST',
+          `/webhook/set/${instanceName}`,
+          {
+            url: webhookUrl,
+            webhook_by_events: false,
+            events: [
+              'MESSAGES_UPSERT',
+              'MESSAGES_UPDATE',
+              'SEND_MESSAGE',
+              'CONTACTS_UPDATE',
+              'CHATS_UPDATE',
+              'CHATS_UPSERT',
+              'CHATS_DELETE',
+              'CHATS_SET',
+            ],
+          },
+        ).catch((e) => {
+          console.log('[WhatsApp] Failed to configure webhook:', e);
+        });
+        console.log('[WhatsApp] Webhook configured automatically:', webhookUrl);
+      }
+
       console.log('[WhatsApp] Create response:', JSON.stringify(createRes, null, 2));
 
       const instanceId = createRes?.instance?.instanceId || createRes?.instance?.id;
@@ -267,6 +293,32 @@ export class WhatsAppService {
         qrCode: res?.base64 || null,
       },
     });
+
+    // Configure webhook automatically on connect (in case it wasn't configured before)
+    const webhookUrl = process.env.EVOLUTION_WEBHOOK_URL;
+    if (webhookUrl) {
+      await this.evolutionRequest(
+        'POST',
+        `/webhook/set/${config.instanceName}`,
+        {
+          url: webhookUrl,
+          webhook_by_events: false,
+          events: [
+            'MESSAGES_UPSERT',
+            'MESSAGES_UPDATE',
+            'SEND_MESSAGE',
+            'CONTACTS_UPDATE',
+            'CHATS_UPDATE',
+            'CHATS_UPSERT',
+            'CHATS_DELETE',
+            'CHATS_SET',
+          ],
+        },
+      ).catch((e) => {
+        console.log('[WhatsApp] Failed to configure webhook on connect:', e);
+      });
+      console.log('[WhatsApp] Webhook configured on connect:', webhookUrl);
+    }
 
     // Se já estiver conectado (sem QR code), baixa conversas automaticamente
     if (status === 'connecting' && !res?.base64) {
