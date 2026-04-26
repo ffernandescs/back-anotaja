@@ -77,6 +77,10 @@ export class FetchMessagesDto {
   @IsOptional()
   @IsInt()
   count?: number;
+
+  @IsOptional()
+  @IsInt()
+  cursor?: number; // Timestamp for cursor-based pagination (fetch messages before this timestamp)
 }
 
 export class SendCrmMessageDto {

@@ -518,6 +518,7 @@ export class WhatsAppService {
   }
 
   async fetchMessages(branchId: string, dto: FetchMessagesDto) {
+    console.log('[CRM] fetchMessages called with jid:', dto.jid, 'count:', dto.count, 'cursor:', dto.cursor);
     const config = await this.getFullConfig(branchId);
 
     const count = dto.count || 50;
@@ -545,11 +546,18 @@ export class WhatsAppService {
     const raw: any[] = [];
     for (const result of results) {
       if (result.status === 'fulfilled') {
-        raw.push(...this.extractMessagesFromResponse(result.value));
+        const extracted = this.extractMessagesFromResponse(result.value);
+        console.log('[CRM] Extracted', extracted.length, 'messages from endpoint');
+        raw.push(...extracted);
+      } else {
+        console.log('[CRM] Endpoint request failed:', result.reason);
       }
     }
 
+    console.log('[CRM] Total raw messages before filter:', raw.length);
+
     if (raw.length === 0) {
+      console.log('[CRM] No messages found, returning empty array');
       return [];
     }
 
@@ -563,6 +571,8 @@ export class WhatsAppService {
       return false;
     });
 
+    console.log('[CRM] Messages after JID filter:', filtered.length);
+
     // Deduplicate by message ID
     const seen = new Set<string>();
     const deduped = filtered.filter((msg: any) => {
@@ -572,7 +582,30 @@ export class WhatsAppService {
       return true;
     });
 
-    return deduped.map((msg: any) => ({
+    console.log('[CRM] Messages after deduplication:', deduped.length);
+
+    // Sort by timestamp (newest first)
+    deduped.sort((a, b) => {
+      const timestampA = typeof a.messageTimestamp === 'number' ? a.messageTimestamp : Number(a.messageTimestamp) || 0;
+      const timestampB = typeof b.messageTimestamp === 'number' ? b.messageTimestamp : Number(b.messageTimestamp) || 0;
+      return timestampB - timestampA; // Newest first
+    });
+
+    // Apply cursor-based pagination (fetch messages before cursor timestamp)
+    let paginated = deduped;
+    if (dto.cursor) {
+      paginated = deduped.filter((msg: any) => {
+        const timestamp = typeof msg.messageTimestamp === 'number' ? msg.messageTimestamp : Number(msg.messageTimestamp) || 0;
+        return timestamp < dto.cursor!;
+      });
+      console.log('[CRM] Messages after cursor filter:', paginated.length);
+    }
+
+    // Limit to requested count
+    const limited = paginated.slice(0, count);
+    console.log('[CRM] Final messages to return:', limited.length);
+
+    return limited.map((msg: any) => ({
       id: msg.key?.id || msg.id || String(msg.messageTimestamp),
       fromMe: msg.key?.fromMe ?? false,
       text: this.extractTextFromMessage(msg) || '',
