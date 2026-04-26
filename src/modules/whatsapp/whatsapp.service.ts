@@ -465,50 +465,73 @@ export class WhatsAppService {
     // Try different endpoints to find messages
     let raw: any[] = [];
 
-    // Try 1: Use chat endpoint with remoteJid filter
+    // Try 1: Use chat retrieve endpoint to get the chat first, then messages
     try {
-      const result1: any = await this.evolutionRequest(
+      const chatResult: any = await this.evolutionRequest(
         'POST',
-        `/chat/findMessages/${config.instanceName}`,
+        `/chat/retrieve/${config.instanceName}`,
         {
-          where: { remoteJid: dto.jid },
-          limit: count,
+          where: { id: dto.jid },
         },
       );
-      raw = this.extractMessagesFromResponse(result1);
-      console.log('[CRM] Method 1 (chat/findMessages):', raw.length, 'messages');
+      console.log('[CRM] Method 1 (chat/retrieve):', JSON.stringify(chatResult).slice(0, 200));
+      
+      // If chat has messages, extract them
+      if (chatResult?.messages) {
+        raw = this.extractMessagesFromResponse(chatResult.messages);
+        console.log('[CRM] Method 1 extracted:', raw.length, 'messages from chat');
+      }
     } catch (e) {
       console.log('[CRM] Method 1 failed:', e);
     }
 
-    // Try 2: Use message endpoint with remoteJid
+    // Try 2: Use chat endpoint with remoteJid filter
     if (raw.length === 0) {
       try {
         const result2: any = await this.evolutionRequest(
-          'GET',
-          `/chat/findMessages/${config.instanceName}?remoteJid=${dto.jid}&limit=${count}`,
+          'POST',
+          `/chat/findMessages/${config.instanceName}`,
+          {
+            where: { remoteJid: dto.jid },
+            limit: count,
+          },
         );
         raw = this.extractMessagesFromResponse(result2);
-        console.log('[CRM] Method 2 (GET with query param):', raw.length, 'messages');
+        console.log('[CRM] Method 2 (chat/findMessages):', raw.length, 'messages');
       } catch (e) {
         console.log('[CRM] Method 2 failed:', e);
       }
     }
 
-    // Try 3: Use chat retrieve endpoint
+    // Try 3: Use message endpoint with remoteJid as query param
     if (raw.length === 0) {
       try {
         const result3: any = await this.evolutionRequest(
-          'POST',
-          `/chat/retrieve/${config.instanceName}`,
-          {
-            where: { id: dto.jid },
-          },
+          'GET',
+          `/chat/findMessages/${config.instanceName}?remoteJid=${dto.jid}&limit=${count}`,
         );
         raw = this.extractMessagesFromResponse(result3);
-        console.log('[CRM] Method 3 (chat/retrieve):', raw.length, 'messages');
+        console.log('[CRM] Method 3 (GET with query param):', raw.length, 'messages');
       } catch (e) {
         console.log('[CRM] Method 3 failed:', e);
+      }
+    }
+
+    // Try 4: Use direct message find endpoint
+    if (raw.length === 0) {
+      try {
+        const result4: any = await this.evolutionRequest(
+          'POST',
+          `/message/find/${config.instanceName}`,
+          {
+            where: { remoteJid: dto.jid },
+            limit: count,
+          },
+        );
+        raw = this.extractMessagesFromResponse(result4);
+        console.log('[CRM] Method 4 (message/find):', raw.length, 'messages');
+      } catch (e) {
+        console.log('[CRM] Method 4 failed:', e);
       }
     }
 
