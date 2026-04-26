@@ -462,34 +462,60 @@ export class WhatsAppService {
 
     const count = dto.count || 50;
 
-    const requestBody = {
-      where: { remoteJid: dto.jid },
-      limit: count,
-    };
-    console.log('[CRM] Request body to Evolution API:', JSON.stringify(requestBody));
+    // Try different endpoints to find messages
+    let raw: any[] = [];
 
-    // Use remoteJid at root level (matches Evolution API DB structure)
-    const result: any = await this.evolutionRequest(
-      'POST',
-      `/chat/findMessages/${config.instanceName}`,
-      requestBody,
-    );
+    // Try 1: Use chat endpoint with remoteJid filter
+    try {
+      const result1: any = await this.evolutionRequest(
+        'POST',
+        `/chat/findMessages/${config.instanceName}`,
+        {
+          where: { remoteJid: dto.jid },
+          limit: count,
+        },
+      );
+      raw = this.extractMessagesFromResponse(result1);
+      console.log('[CRM] Method 1 (chat/findMessages):', raw.length, 'messages');
+    } catch (e) {
+      console.log('[CRM] Method 1 failed:', e);
+    }
 
-    console.log('[CRM] fetchMessages raw response type:', typeof result, Array.isArray(result) ? `array(${result.length})` : JSON.stringify(result)?.slice(0, 200));
+    // Try 2: Use message endpoint with remoteJid
+    if (raw.length === 0) {
+      try {
+        const result2: any = await this.evolutionRequest(
+          'GET',
+          `/chat/findMessages/${config.instanceName}?remoteJid=${dto.jid}&limit=${count}`,
+        );
+        raw = this.extractMessagesFromResponse(result2);
+        console.log('[CRM] Method 2 (GET with query param):', raw.length, 'messages');
+      } catch (e) {
+        console.log('[CRM] Method 2 failed:', e);
+      }
+    }
 
-    let raw: any[];
-    if (Array.isArray(result)) {
-      raw = result;
-    } else if (Array.isArray(result?.messages)) {
-      raw = result.messages;
-    } else if (Array.isArray(result?.messages?.records)) {
-      raw = result.messages.records;
-    } else if (Array.isArray(result?.records)) {
-      raw = result.records;
-    } else if (Array.isArray(result?.data)) {
-      raw = result.data;
-    } else {
-      raw = [];
+    // Try 3: Use chat retrieve endpoint
+    if (raw.length === 0) {
+      try {
+        const result3: any = await this.evolutionRequest(
+          'POST',
+          `/chat/retrieve/${config.instanceName}`,
+          {
+            where: { id: dto.jid },
+          },
+        );
+        raw = this.extractMessagesFromResponse(result3);
+        console.log('[CRM] Method 3 (chat/retrieve):', raw.length, 'messages');
+      } catch (e) {
+        console.log('[CRM] Method 3 failed:', e);
+      }
+    }
+
+    // If all methods fail, return empty
+    if (raw.length === 0) {
+      console.log('[CRM] All methods failed, returning empty array');
+      return [];
     }
 
     const fromMeCount = raw.filter((m: any) => m.key?.fromMe === true).length;
@@ -498,7 +524,7 @@ export class WhatsAppService {
     if (raw.length > 0) {
       console.log('[CRM] Sample message keys:', Object.keys(raw[0]));
       console.log('[CRM] Sample message remoteJid:', raw[0].key?.remoteJid || raw[0].remoteJid);
-
+      
       // Log all remoteJids to see if they match
       const remoteJids = raw.map((m: any) => m.key?.remoteJid || m.remoteJid);
       console.log('[CRM] All remoteJids in response:', remoteJids);
@@ -507,7 +533,6 @@ export class WhatsAppService {
     }
 
     // Filter messages to only include those matching the requested JID
-    // Evolution API ignores the where filter, so we need to filter on our side
     const filtered = raw.filter((msg: any) => {
       const msgRemoteJid = msg.key?.remoteJid || msg.remoteJid;
       // Direct match
@@ -541,6 +566,21 @@ export class WhatsAppService {
       mediaType: this.detectMediaType(msg),
       pushName: msg.pushName || null,
     }));
+  }
+
+  private extractMessagesFromResponse(result: any): any[] {
+    if (Array.isArray(result)) {
+      return result;
+    } else if (Array.isArray(result?.messages)) {
+      return result.messages;
+    } else if (Array.isArray(result?.messages?.records)) {
+      return result.messages.records;
+    } else if (Array.isArray(result?.records)) {
+      return result.records;
+    } else if (Array.isArray(result?.data)) {
+      return result.data;
+    }
+    return [];
   }
 
   async sendCrmMessage(branchId: string, dto: SendCrmMessageDto) {
