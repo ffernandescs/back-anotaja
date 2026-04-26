@@ -652,6 +652,7 @@ export class WhatsAppService {
         : Number(msg.messageTimestamp) || 0,
       status: this.mapEvolutionStatus(msg.status),
       mediaType: this.detectMediaType(msg),
+      mediaUrl: this.extractMediaUrl(msg),
       pushName: msg.pushName || null,
     }));
   }
@@ -959,6 +960,16 @@ async sendCrmMedia(
     if (msg.message.documentMessage) return 'document';
     if (msg.message.stickerMessage) return 'sticker';
     return 'text';
+  }
+
+  private extractMediaUrl(msg: any): string | null {
+    if (!msg.message) return null;
+    if (msg.message.imageMessage?.url) return msg.message.imageMessage.url;
+    if (msg.message.videoMessage?.url) return msg.message.videoMessage.url;
+    if (msg.message.audioMessage?.url) return msg.message.audioMessage.url;
+    if (msg.message.documentMessage?.url) return msg.message.documentMessage.url;
+    if (msg.message.stickerMessage?.url) return msg.message.stickerMessage.url;
+    return null;
   }
 
   /**
