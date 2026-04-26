@@ -31,6 +31,42 @@ export class WhatsAppService {
     return key;
   }
 
+  // ─── Monitor Instance Connection ──────────────────────────────────
+
+  private monitorInstanceConnection(branchId: string, instanceName: string) {
+    const maxAttempts = 60; // 10 minutos (60 * 10 segundos)
+    let attempts = 0;
+
+    const checkConnection = async () => {
+      if (attempts >= maxAttempts) {
+        console.log('[WhatsApp] Stopped monitoring instance connection (max attempts reached)');
+        return;
+      }
+
+      attempts++;
+
+      try {
+        const status = await this.getStatus(branchId);
+        
+        if (status.status === 'connected') {
+          console.log('[WhatsApp] Instance connected via QR, fetching conversations...');
+          await this.fetchChats(branchId);
+          console.log('[WhatsApp] Conversations fetched successfully');
+          return;
+        }
+
+        // Continua monitorando
+        setTimeout(checkConnection, 10000); // Verifica a cada 10 segundos
+      } catch (error) {
+        console.error('[WhatsApp] Error checking instance connection:', error);
+        setTimeout(checkConnection, 10000);
+      }
+    };
+
+    // Inicia o monitoramento após 5 segundos
+    setTimeout(checkConnection, 5000);
+  }
+
   // ─── Config CRUD ──────────────────────────────────────────────
 
   async getConfig(branchId: string) {
@@ -156,12 +192,15 @@ export class WhatsAppService {
         console.error('[WhatsApp] No QR code in connect response');
       }
 
-      await prisma.whatsAppConfig.update({
+      await prisma.whatsappConfig.update({
         where: { branchId },
         data: {
           qrCode,
         },
       });
+
+      // Inicia monitoramento para baixar conversas quando a instância for conectada via QR
+      this.monitorInstanceConnection(branchId, instanceName);
 
       return {
         status: 'qr_code',
@@ -227,6 +266,23 @@ export class WhatsAppService {
         qrCode: res?.base64 || null,
       },
     });
+
+    // Se já estiver conectado (sem QR code), baixa conversas automaticamente
+    if (status === 'connecting' && !res?.base64) {
+      // Verifica o status real da conexão após um pequeno delay
+      setTimeout(async () => {
+        try {
+          const currentStatus = await this.getStatus(branchId);
+          if (currentStatus.status === 'connected') {
+            console.log('[WhatsApp] Instance connected, fetching conversations...');
+            await this.fetchChats(branchId);
+            console.log('[WhatsApp] Conversations fetched successfully');
+          }
+        } catch (error) {
+          console.error('[WhatsApp] Error fetching conversations after connect:', error);
+        }
+      }, 3000);
+    }
 
     return { status, qrCode: res?.base64 || null };
   }
