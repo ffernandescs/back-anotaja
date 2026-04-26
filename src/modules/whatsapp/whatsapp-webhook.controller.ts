@@ -45,7 +45,7 @@ export class WhatsAppWebhookController {
     const branchRoom = `branch:${branchId}`;
 
     switch (event) {
-      case 'messages.upsert': {
+      case 'MESSAGES_UPSERT': {
         const data = body.data;
         if (!data) break;
 
@@ -89,7 +89,7 @@ export class WhatsAppWebhookController {
         break;
       }
 
-      case 'messages.update': {
+      case 'MESSAGES_UPDATE': {
         const updates = Array.isArray(body.data) ? body.data : [body.data];
         for (const upd of updates) {
           if (!upd) continue;
@@ -106,7 +106,7 @@ export class WhatsAppWebhookController {
         break;
       }
 
-      case 'presence.update': {
+      case 'PRESENCE_UPDATE': {
         const data = body.data;
         if (!data) break;
 
@@ -137,7 +137,7 @@ export class WhatsAppWebhookController {
         break;
       }
 
-      case 'chats.update': {
+      case 'CHATS_UPDATE': {
         const chats = Array.isArray(body.data) ? body.data : [body.data];
         for (const chat of chats) {
           if (!chat) continue;
