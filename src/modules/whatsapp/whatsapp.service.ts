@@ -485,14 +485,14 @@ export class WhatsAppService {
       console.log('[CRM] Method 1 failed:', e);
     }
 
-    // Try 2: Use chat endpoint with remoteJid filter
+    // Try 2: Use chat endpoint with remoteJid filter (nested inside key)
     if (raw.length === 0) {
       try {
         const result2: any = await this.evolutionRequest(
           'POST',
           `/chat/findMessages/${config.instanceName}`,
           {
-            where: { remoteJid: dto.jid },
+            where: { key: { remoteJid: dto.jid } },
             limit: count,
           },
         );
@@ -524,7 +524,7 @@ export class WhatsAppService {
           'POST',
           `/message/find/${config.instanceName}`,
           {
-            where: { remoteJid: dto.jid },
+            where: { key: { remoteJid: dto.jid } },
             limit: count,
           },
         );
@@ -532,6 +532,46 @@ export class WhatsAppService {
         console.log('[CRM] Method 4 (message/find):', raw.length, 'messages');
       } catch (e) {
         console.log('[CRM] Method 4 failed:', e);
+      }
+    }
+
+    // Try 5: Use GET /message/find with query params
+    if (raw.length === 0) {
+      try {
+        const result5: any = await this.evolutionRequest(
+          'GET',
+          `/message/find/${config.instanceName}?remoteJid=${dto.jid}&limit=${count}`,
+        );
+        raw = this.extractMessagesFromResponse(result5);
+        console.log('[CRM] Method 5 (GET message/find):', raw.length, 'messages');
+      } catch (e) {
+        console.log('[CRM] Method 5 failed:', e);
+      }
+    }
+
+    // Try 6: Use POST /chat/find to get the chat, then fetch messages
+    if (raw.length === 0) {
+      try {
+        const chatFindResult: any = await this.evolutionRequest(
+          'POST',
+          `/chat/find/${config.instanceName}`,
+          {
+            where: { id: dto.jid },
+          },
+        );
+        console.log('[CRM] Method 6 (chat/find):', JSON.stringify(chatFindResult).slice(0, 200));
+        
+        // If chat found, try to get messages
+        if (chatFindResult?.id) {
+          const messagesResult: any = await this.evolutionRequest(
+            'GET',
+            `/chat/findMessages/${config.instanceName}?where=${JSON.stringify({ chatId: chatFindResult.id })}&limit=${count}`,
+          );
+          raw = this.extractMessagesFromResponse(messagesResult);
+          console.log('[CRM] Method 6 extracted:', raw.length, 'messages from chat');
+        }
+      } catch (e) {
+        console.log('[CRM] Method 6 failed:', e);
       }
     }
 
