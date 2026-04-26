@@ -405,6 +405,32 @@ export class WhatsAppService {
       chatsByJid.set(jid, { ...c, _jid: jid });
     }
 
+    // Merge LID chats: incoming messages are stored under @lid JIDs.
+    // If a @lid chat has lastMessage.key.remoteJidAlt pointing to an existing
+    // @s.whatsapp.net chat with a newer timestamp, update that chat's lastMessage.
+    for (const c of rawChats) {
+      const jid = extractJid(c);
+      if (!jid || !jid.endsWith('@lid')) continue;
+
+      const altJid: string =
+        c.lastMessage?.key?.remoteJidAlt ||
+        c.lastMessage?.key?.participantAlt ||
+        '';
+      if (!altJid.endsWith('@s.whatsapp.net')) continue;
+
+      const existing = chatsByJid.get(altJid);
+      if (!existing) continue;
+
+      const lidTs = c.lastMessage?.messageTimestamp || c.updatedAt || 0;
+      const existingTs = existing.lastMessage?.messageTimestamp || existing.lastMsgTimestamp || existing.updatedAt || 0;
+
+      if (Number(lidTs) > Number(existingTs)) {
+        existing.lastMessage = c.lastMessage;
+        existing.lastMsgTimestamp = lidTs;
+        existing.updatedAt = c.updatedAt || existing.updatedAt;
+      }
+    }
+
     const individualChats = Array.from(chatsByJid.values());
 
     const [customers, spentByCustomer] = await Promise.all([
@@ -543,103 +569,37 @@ export class WhatsAppService {
     const config = await this.getFullConfig(branchId);
     const count = dto.count || 50;
 
-    // Generate all JID variants for this phone number.
-    // WhatsApp stores outgoing messages under the JID we used to send (e.g. 558182647354)
-    // but incoming messages may arrive under the 9-digit variant (e.g. 5581982647354).
-    const jidVariants = this.getJidVariants(dto.jid);
-
-    // Fetch messages for ALL JID variants in parallel
-    const fetches = jidVariants.map((jid) =>
+    // WhatsApp uses two JID formats:
+    //   - Outgoing msgs: key.remoteJid = "558182647354@s.whatsapp.net"
+    //   - Incoming msgs: key.remoteJid = "39771615309944@lid", key.remoteJidAlt = "558182647354@s.whatsapp.net"
+    // We query BOTH key.remoteJid AND key.remoteJidAlt to get the full conversation.
+    const [outgoing, incoming] = await Promise.all([
       this.evolutionRequest(
         'POST',
         `/chat/findMessages/${config.instanceName}`,
-        {
-          where: { key: { remoteJid: jid } },
-          limit: count,
-        },
+        { where: { key: { remoteJid: dto.jid } }, limit: count },
       )
         .then((r) => this.extractMessagesFromResponse(r))
         .catch(() => [] as any[]),
-    );
 
-    const results = await Promise.all(fetches);
-    let raw = results.flat();
-    console.log('[CRM] Messages from JID variants:', raw.length);
+      this.evolutionRequest(
+        'POST',
+        `/chat/findMessages/${config.instanceName}`,
+        { where: { key: { remoteJidAlt: dto.jid } }, limit: count },
+      )
+        .then((r) => this.extractMessagesFromResponse(r))
+        .catch(() => [] as any[]),
+    ]);
 
-    // Check if all messages are fromMe: true (only outgoing)
-    const allFromMe = raw.length > 0 && raw.every((m: any) => m.key?.fromMe === true);
-    console.log('[CRM] All messages are fromMe:', allFromMe);
-
-    // If no messages found OR all messages are fromMe (missing incoming), fetch WITHOUT filter
-    // This handles LID format and other Evolution API quirks
-    if (raw.length === 0 || allFromMe) {
-      try {
-        console.log('[CRM] Fetching all messages without filter to find incoming messages');
-        const allMessages = await this.evolutionRequest(
-          'POST',
-          `/chat/findMessages/${config.instanceName}`,
-          {
-            limit: 1000, // Fetch much more to find older messages
-          },
-        );
-        const allRaw = this.extractMessagesFromResponse(allMessages);
-        console.log('[CRM] Total messages from no-filter fetch:', allRaw.length);
-        
-        // Log all unique remoteJids to understand what we're getting
-        const uniqueJids = new Set(allRaw.map((m: any) => m.key?.remoteJid || m.remoteJid));
-        console.log('[CRM] Unique remoteJids in no-filter fetch:', Array.from(uniqueJids));
-        
-        // Count fromMe vs fromThem in all messages
-        const fromMeCount = allRaw.filter((m: any) => m.key?.fromMe === true).length;
-        const fromThemCount = allRaw.filter((m: any) => m.key?.fromMe === false).length;
-        console.log('[CRM] In all messages - fromMe:', fromMeCount, 'fromThem:', fromThemCount);
-        
-        // COMBINE both sets: keep original messages (fromMe: true) and add new messages (fromMe: false)
-        raw = [...raw, ...allRaw];
-        console.log('[CRM] Combined messages count:', raw.length);
-      } catch (e) {
-        console.log('[CRM] Failed to fetch all messages:', e);
-      }
-    }
+    const raw = [...outgoing, ...incoming];
 
     if (raw.length === 0) {
       return [];
     }
 
-    // Filter: keep only messages whose remoteJid matches the requested JID
-    const filtered = raw.filter((msg: any) => {
-      const msgJid: string = msg.key?.remoteJid || msg.remoteJid || '';
-      const msgJidAlt: string = msg.key?.remoteJidAlt || msg.remoteJidAlt || '';
-      
-      // Check both remoteJid and remoteJidAlt (Evolution API provides both for LID format)
-      const matchesJid = this.jidsMatch(msgJid, dto.jid);
-      const matchesJidAlt = this.jidsMatch(msgJidAlt, dto.jid);
-      
-      if (matchesJid || matchesJidAlt) {
-        console.log('[CRM] Message matched:', {
-          id: msg.key?.id || msg.id,
-          msgJid,
-          msgJidAlt,
-          fromMe: msg.key?.fromMe,
-          matchesJid,
-          matchesJidAlt,
-        });
-        return true;
-      }
-      
-      return false;
-    });
-    
-    console.log('[CRM] Messages after filter:', filtered.length);
-    
-    // Count fromMe vs fromThem after filter
-    const fromMeCount = filtered.filter((m: any) => m.key?.fromMe === true).length;
-    const fromThemCount = filtered.filter((m: any) => m.key?.fromMe === false).length;
-    console.log('[CRM] After filter - fromMe:', fromMeCount, 'fromThem:', fromThemCount);
-
     // Deduplicate by message ID
     const seen = new Set<string>();
-    const deduped = filtered.filter((msg: any) => {
+    const deduped = raw.filter((msg: any) => {
       const id = msg.key?.id || msg.id || String(msg.messageTimestamp);
       if (seen.has(id)) return false;
       seen.add(id);
@@ -675,32 +635,7 @@ export class WhatsAppService {
     }));
   }
 
-  /**
-   * Returns all possible JID variants for a Brazilian phone number.
-   * e.g. 558182647354@s.whatsapp.net → also 5581982647354@s.whatsapp.net (with 9th digit)
-   */
-  private getJidVariants(jid: string): string[] {
-    const variants = new Set<string>();
-    variants.add(jid);
 
-    const phone = jid.replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, '');
-
-    // Only apply 9th digit logic for Brazilian numbers (starting with 55)
-    if (phone.startsWith('55') && phone.length >= 12) {
-      const area = phone.slice(2, 4); // DDD
-      const number = phone.slice(4);
-
-      if (number.length === 8) {
-        // Without 9th digit → add variant WITH 9th digit
-        variants.add(`55${area}9${number}@s.whatsapp.net`);
-      } else if (number.length === 9 && number.startsWith('9')) {
-        // With 9th digit → add variant WITHOUT 9th digit
-        variants.add(`55${area}${number.slice(1)}@s.whatsapp.net`);
-      }
-    }
-
-    return Array.from(variants);
-  }
 
   async sendCrmMessage(branchId: string, dto: SendCrmMessageDto) {
     const config = await this.getFullConfig(branchId);
