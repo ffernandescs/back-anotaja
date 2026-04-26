@@ -26,13 +26,19 @@ export class WhatsAppWebhookController {
     this.logger.log('[Webhook] Messages upsert received:', JSON.stringify(body).slice(0, 500));
     
     const instanceName: string = body.instance || '';
+    this.logger.log(`[Webhook] Instance name: ${instanceName}`);
+    
     const branchId = await this.resolveBranchId(instanceName);
+    this.logger.log(`[Webhook] Resolved branchId: ${branchId}`);
+    
     if (!branchId) {
       this.logger.warn(`[Webhook] Could not resolve branchId for instance: ${instanceName}`);
       return { received: true };
     }
 
     const branchRoom = `branch:${branchId}`;
+    this.logger.log(`[Webhook] Branch room: ${branchRoom}`);
+    
     const data = body.data;
     if (!data) return { received: true };
 
@@ -62,6 +68,7 @@ export class WhatsAppWebhookController {
     );
 
     this.wsGateway.emitCRMEvent(branchRoom, 'crm:message', payload);
+    this.logger.log(`[Webhook] Emitted crm:message to room ${branchRoom}`);
 
     // Also emit chat update so sidebar refreshes
     this.wsGateway.emitCRMEvent(branchRoom, 'crm:chat:update', {
@@ -71,6 +78,7 @@ export class WhatsAppWebhookController {
       pushName: payload.pushName,
       phone,
     });
+    this.logger.log(`[Webhook] Emitted crm:chat:update to room ${branchRoom}`);
 
     return { received: true };
   }
