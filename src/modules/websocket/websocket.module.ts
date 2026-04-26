@@ -4,10 +4,12 @@ import { RedisService } from './redis.service';
 import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
+import { UploadModule } from '../upload/upload.module';
 
 @Module({
   imports: [
     forwardRef(() => WhatsAppModule),
+    UploadModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService): JwtModuleOptions => {

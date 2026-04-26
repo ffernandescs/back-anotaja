@@ -160,9 +160,8 @@ export class WhatsAppController {
   @Get('crm/media-proxy')
   async mediaProxy(@Query('url') url: string, @Res() res: any) {
     try {
-      const buffer = await this.whatsappService.downloadMedia(url);
-      res.set('Content-Type', 'audio/mpeg');
-      res.send(buffer);
+      const r2Url = await this.whatsappService.processWhatsAppAudio(url);
+      res.redirect(r2Url);
     } catch (error) {
       throw new BadRequestException((error as Error).message);
     }

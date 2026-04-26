@@ -1,14 +1,24 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { prisma } from '../../../lib/prisma';
+import ffmpeg from 'fluent-ffmpeg';
+import * as path from 'path';
+import * as fs from 'fs';
+import { randomUUID } from 'crypto';
 import {
   UpdateWhatsAppConfigDto,
   SendTestMessageDto,
   FetchMessagesDto,
   SendCrmMessageDto,
 } from './dto/whatsapp.dto';
+import { UploadService } from '../upload/upload.service';
 
 @Injectable()
 export class WhatsAppService {
+  private logger = new Logger(WhatsAppService.name);
+
+  constructor(private uploadService: UploadService) {}
+
   private get serverUrl(): string {
     const url = process.env.EVOLUTION_API_URL;
     if (!url) throw new BadRequestException('EVOLUTION_API_URL nao configurada');
@@ -728,6 +738,63 @@ export class WhatsAppService {
       return buffer;
     } catch (error) {
       console.error('[WhatsApp] downloadMedia - error:', error);
+      throw error;
+    }
+  }
+
+  async processWhatsAppAudio(url: string): Promise<string> {
+    this.logger.log(`[WhatsApp] processWhatsAppAudio - Processing audio from URL: ${url}`);
+    
+    try {
+      // Download audio from WhatsApp
+      const buffer = await this.downloadMedia(url);
+      
+      // Create temp file path
+      const tempDir = '/tmp';
+      const inputPath = path.join(tempDir, `${randomUUID()}.enc`);
+      const outputPath = path.join(tempDir, `${randomUUID()}.mp3`);
+      
+      // Write input file
+      fs.writeFileSync(inputPath, buffer);
+      
+      // Convert using FFmpeg
+      await new Promise<void>((resolve, reject) => {
+        ffmpeg(inputPath)
+          .output(outputPath)
+          .audioCodec('libmp3lame')
+          .audioBitrate('128k')
+          .on('end', () => resolve())
+          .on('error', (err) => reject(err))
+          .run();
+      });
+      
+      // Read converted file
+      const convertedBuffer = fs.readFileSync(outputPath);
+      
+      // Clean up temp files
+      fs.unlinkSync(inputPath);
+      fs.unlinkSync(outputPath);
+      
+      // Upload to R2
+      const file: Express.Multer.File = {
+        buffer: convertedBuffer,
+        originalname: 'audio.mp3',
+        mimetype: 'audio/mpeg',
+        size: convertedBuffer.length,
+        fieldname: 'audio',
+        encoding: '7bit',
+        stream: null as any,
+        destination: '',
+        filename: '',
+        path: '',
+      };
+      
+      const r2Url = await this.uploadService.uploadFile(file, 'whatsapp-audio');
+      
+      this.logger.log(`[WhatsApp] processWhatsAppAudio - Audio processed and uploaded to: ${r2Url}`);
+      return r2Url;
+    } catch (error) {
+      this.logger.error(`[WhatsApp] processWhatsAppAudio - Error:`, error);
       throw error;
     }
   }

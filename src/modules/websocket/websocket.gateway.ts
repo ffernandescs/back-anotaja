@@ -12,6 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtPayload } from './types';
 import { prisma } from '../../../lib/prisma';
 import { RedisService, LocationUpdate } from './redis.service';
+import { UploadService } from '../upload/upload.service';
 
 interface AuthenticatedSocket extends Socket {
   user?: {
@@ -42,6 +43,7 @@ export class OrdersWebSocketGateway
     private jwtService: JwtService,
     private configService: ConfigService,
     private redisService: RedisService,
+    private uploadService: UploadService,
   ) {
     console.log('🖨️ WebSocketGateway constructor initialized');
   }
@@ -805,7 +807,7 @@ export class OrdersWebSocketGateway
 
     try {
       const { WhatsAppService } = await import('../whatsapp/whatsapp.service');
-      const whatsappService = new WhatsAppService();
+      const whatsappService = new WhatsAppService(this.uploadService);
 
       const result = await whatsappService.sendCrmMessage(
         client.user.branchId,
