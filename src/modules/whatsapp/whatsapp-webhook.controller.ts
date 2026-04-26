@@ -292,7 +292,7 @@ export class WhatsAppWebhookController {
         break;
       }
 
-      case 'CHATS_UPDATE': {
+      case 'chats.update': {
         const chats = Array.isArray(body.data) ? body.data : [body.data];
         for (const chat of chats) {
           if (!chat) continue;
