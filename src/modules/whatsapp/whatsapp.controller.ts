@@ -175,39 +175,59 @@ export class WhatsAppController {
     @Res() res: ExpressResponse,
   ) {
     try {
+      this.logger.log('[media-proxy] Request received:', { messageId, jid, branchId, mediaUrl });
+
+      if (!branchId) {
+        this.logger.error('[media-proxy] No branchId provided in request');
+        return res.status(400).json({ error: 'branchId é obrigatório' });
+      }
+
       const config = await this.whatsappService.getFullConfigPublic(branchId);
 
       if (!config?.instanceName) {
-        this.logger.error('[media-proxy] No instance config found');
+        this.logger.error('[media-proxy] No instance config found for branchId:', branchId);
         return res.status(404).json({ error: 'Configuração não encontrada' });
       }
 
-      const base64Result = await fetch(
-        `${process.env.EVOLUTION_API_URL}/chat/getBase64FromMediaMessage/${config.instanceName}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            apikey: process.env.EVOLUTION_API_KEY!,
-          } as HeadersInit,
-          body: JSON.stringify({
-            message: { key: { id: messageId, remoteJid: jid } },
-            convertToMp4: false,
-          }),
-        },
-      );
+      this.logger.log('[media-proxy] Using instance:', config.instanceName);
+
+      const evolutionUrl = `${process.env.EVOLUTION_API_URL}/chat/getBase64FromMediaMessage/${config.instanceName}`;
+      this.logger.log('[media-proxy] Calling Evolution API:', evolutionUrl);
+
+      const requestBody = {
+        message: { key: { id: messageId, remoteJid: jid } },
+        convertToMp4: false,
+      };
+      this.logger.log('[media-proxy] Request body:', JSON.stringify(requestBody));
+
+      const base64Result = await fetch(evolutionUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: process.env.EVOLUTION_API_KEY!,
+        } as HeadersInit,
+        body: JSON.stringify(requestBody),
+      });
+
+      this.logger.log('[media-proxy] Evolution API response status:', base64Result.status);
 
       if (!base64Result.ok) {
-        this.logger.error('[media-proxy] Evolution API failed:', base64Result.status);
+        const errorText = await base64Result.text();
+        this.logger.error('[media-proxy] Evolution API failed:', {
+          status: base64Result.status,
+          error: errorText,
+        });
         return res.status(502).json({ error: 'Falha ao obter mídia da Evolution API' });
       }
 
       const data = await base64Result.json();
+      this.logger.log('[media-proxy] Evolution API response keys:', Object.keys(data));
+
       const base64 = data?.base64 || data?.data;
       const mimetype = data?.mimetype || 'audio/ogg';
 
       if (!base64) {
-        this.logger.error('[media-proxy] No base64 data in response');
+        this.logger.error('[media-proxy] No base64 data in response. Full response:', JSON.stringify(data));
         return res.status(502).json({ error: 'Mídia não encontrada' });
       }
 
@@ -215,6 +235,7 @@ export class WhatsAppController {
       res.setHeader('Content-Type', mimetype);
       res.setHeader('Content-Length', buffer.length);
       res.setHeader('Cache-Control', 'private, max-age=3600');
+      this.logger.log('[media-proxy] Successfully returning media:', { mimetype, size: buffer.length });
       return res.send(buffer);
 
     } catch (err) {
