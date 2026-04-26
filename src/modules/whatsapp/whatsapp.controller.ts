@@ -55,6 +55,16 @@ export class WhatsAppController {
     }
   }
 
+  @Post('enable-sync-history')
+  async enableSyncHistory(@Request() req) {
+    try {
+      const branchId = req.user.branchId;
+      return this.whatsappService.enableSyncHistory(branchId);
+    } catch (error) {
+      throw new BadRequestException((error as Error).message);
+    }
+  }
+
   @Post('connect')
   async connect(@Request() req) {
     try {

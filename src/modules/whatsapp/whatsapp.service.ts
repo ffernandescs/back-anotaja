@@ -101,6 +101,19 @@ export class WhatsAppService {
         },
       );
 
+      // Enable sync_full_history to import historical messages
+      await this.evolutionRequest(
+        'POST',
+        `/settings/set/${instanceName}`,
+        {
+          sync_full_history: true,
+          read_messages: true,
+          read_status: true,
+        },
+      ).catch((e) => {
+        console.log('[WhatsApp] Failed to set sync_full_history:', e);
+      });
+
       console.log('[WhatsApp] Create response:', JSON.stringify(createRes, null, 2));
 
       const instanceId = createRes?.instance?.instanceId || createRes?.instance?.id;
@@ -161,6 +174,29 @@ export class WhatsAppService {
       throw new BadRequestException(
         `Falha ao conectar Evolution API: ${error?.message || 'Erro desconhecido'}`,
       );
+    }
+  }
+
+  async enableSyncHistory(branchId: string) {
+    const config = await this.getFullConfig(branchId);
+    
+    try {
+      await this.evolutionRequest(
+        'POST',
+        `/settings/set/${config.instanceName}`,
+        {
+          sync_full_history: true,
+          read_messages: true,
+          read_status: true,
+        },
+      );
+      
+      console.log('[WhatsApp] sync_full_history enabled for instance:', config.instanceName);
+      
+      return { success: true, message: 'sync_full_history enabled successfully' };
+    } catch (error: any) {
+      console.error('[WhatsApp] Failed to enable sync_full_history:', error);
+      throw new BadRequestException('Failed to enable sync_full_history');
     }
   }
 
@@ -527,17 +563,79 @@ export class WhatsAppService {
     );
 
     const results = await Promise.all(fetches);
-    const raw = results.flat();
+    let raw = results.flat();
+    console.log('[CRM] Messages from JID variants:', raw.length);
+
+    // Check if all messages are fromMe: true (only outgoing)
+    const allFromMe = raw.length > 0 && raw.every((m: any) => m.key?.fromMe === true);
+    console.log('[CRM] All messages are fromMe:', allFromMe);
+
+    // If no messages found OR all messages are fromMe (missing incoming), fetch WITHOUT filter
+    // This handles LID format and other Evolution API quirks
+    if (raw.length === 0 || allFromMe) {
+      try {
+        console.log('[CRM] Fetching all messages without filter to find incoming messages');
+        const allMessages = await this.evolutionRequest(
+          'POST',
+          `/chat/findMessages/${config.instanceName}`,
+          {
+            limit: 1000, // Fetch much more to find older messages
+          },
+        );
+        const allRaw = this.extractMessagesFromResponse(allMessages);
+        console.log('[CRM] Total messages from no-filter fetch:', allRaw.length);
+        
+        // Log all unique remoteJids to understand what we're getting
+        const uniqueJids = new Set(allRaw.map((m: any) => m.key?.remoteJid || m.remoteJid));
+        console.log('[CRM] Unique remoteJids in no-filter fetch:', Array.from(uniqueJids));
+        
+        // Count fromMe vs fromThem in all messages
+        const fromMeCount = allRaw.filter((m: any) => m.key?.fromMe === true).length;
+        const fromThemCount = allRaw.filter((m: any) => m.key?.fromMe === false).length;
+        console.log('[CRM] In all messages - fromMe:', fromMeCount, 'fromThem:', fromThemCount);
+        
+        // COMBINE both sets: keep original messages (fromMe: true) and add new messages (fromMe: false)
+        raw = [...raw, ...allRaw];
+        console.log('[CRM] Combined messages count:', raw.length);
+      } catch (e) {
+        console.log('[CRM] Failed to fetch all messages:', e);
+      }
+    }
 
     if (raw.length === 0) {
       return [];
     }
 
-    // Filter: keep only messages whose remoteJid matches any variant
+    // Filter: keep only messages whose remoteJid matches the requested JID
     const filtered = raw.filter((msg: any) => {
       const msgJid: string = msg.key?.remoteJid || msg.remoteJid || '';
-      return this.jidsMatch(msgJid, dto.jid);
+      const msgJidAlt: string = msg.key?.remoteJidAlt || msg.remoteJidAlt || '';
+      
+      // Check both remoteJid and remoteJidAlt (Evolution API provides both for LID format)
+      const matchesJid = this.jidsMatch(msgJid, dto.jid);
+      const matchesJidAlt = this.jidsMatch(msgJidAlt, dto.jid);
+      
+      if (matchesJid || matchesJidAlt) {
+        console.log('[CRM] Message matched:', {
+          id: msg.key?.id || msg.id,
+          msgJid,
+          msgJidAlt,
+          fromMe: msg.key?.fromMe,
+          matchesJid,
+          matchesJidAlt,
+        });
+        return true;
+      }
+      
+      return false;
     });
+    
+    console.log('[CRM] Messages after filter:', filtered.length);
+    
+    // Count fromMe vs fromThem after filter
+    const fromMeCount = filtered.filter((m: any) => m.key?.fromMe === true).length;
+    const fromThemCount = filtered.filter((m: any) => m.key?.fromMe === false).length;
+    console.log('[CRM] After filter - fromMe:', fromMeCount, 'fromThem:', fromThemCount);
 
     // Deduplicate by message ID
     const seen = new Set<string>();
@@ -585,7 +683,7 @@ export class WhatsAppService {
     const variants = new Set<string>();
     variants.add(jid);
 
-    const phone = jid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
+    const phone = jid.replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, '');
 
     // Only apply 9th digit logic for Brazilian numbers (starting with 55)
     if (phone.startsWith('55') && phone.length >= 12) {
