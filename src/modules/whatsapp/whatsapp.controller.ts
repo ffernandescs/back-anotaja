@@ -175,60 +175,47 @@ export class WhatsAppController {
     @Res() res: ExpressResponse,
   ) {
     try {
-      // Tenta usar Evolution API para descriptografar a mídia
-      const config = await this.whatsappService.getFullConfigPublic(branchId).catch(() => null);
+      const config = await this.whatsappService.getFullConfigPublic(branchId);
 
-      if (config?.instanceName) {
-        const base64Result = await fetch(
-          `${process.env.EVOLUTION_API_URL}/chat/getBase64FromMediaMessage/${config.instanceName}`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              apikey: process.env.EVOLUTION_API_KEY!,
-            } as HeadersInit,
-            body: JSON.stringify({
-              message: { key: { id: messageId, remoteJid: jid } },
-              convertToMp4: false,
-            }),
-          },
-        );
+      const base64Result = await fetch(
+        `${process.env.EVOLUTION_API_URL}/chat/getBase64FromMediaMessage/${config.instanceName}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: process.env.EVOLUTION_API_KEY!,
+          } as HeadersInit,
+          body: JSON.stringify({
+            message: { key: { id: messageId, remoteJid: jid } },
+            convertToMp4: false,
+          }),
+        },
+      );
 
-        if (base64Result.ok) {
-          const data = await base64Result.json();
-          const base64 = data?.base64 || data?.data;
-          const mimetype = data?.mimetype || 'audio/ogg';
-
-          if (base64) {
-            const buffer = Buffer.from(base64, 'base64');
-            res.setHeader('Content-Type', mimetype);
-            res.setHeader('Content-Length', buffer.length);
-            res.setHeader('Cache-Control', 'private, max-age=3600');
-            return res.send(buffer);
-          }
-        }
+      if (!base64Result.ok) {
+        this.logger.error('[media-proxy] Evolution API failed:', base64Result.status);
+        return res.status(502).json({ error: 'Falha ao obter mídia da Evolution API' });
       }
 
-      // Fallback: proxy direto da URL do WhatsApp
-      return this.proxyDirectUrl(mediaUrl, res);
+      const data = await base64Result.json();
+      const base64 = data?.base64 || data?.data;
+      const mimetype = data?.mimetype || 'audio/ogg';
+
+      if (!base64) {
+        this.logger.error('[media-proxy] No base64 data in response');
+        return res.status(502).json({ error: 'Mídia não encontrada' });
+      }
+
+      const buffer = Buffer.from(base64, 'base64');
+      res.setHeader('Content-Type', mimetype);
+      res.setHeader('Content-Length', buffer.length);
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      return res.send(buffer);
 
     } catch (err) {
       this.logger.error('[media-proxy] Erro:', err);
-      return this.proxyDirectUrl(mediaUrl, res);
+      return res.status(502).json({ error: 'Falha ao obter mídia' });
     }
-  }
-
-  
-
- private async proxyDirectUrl(url: string, res: ExpressResponse) { // ← tipo correto
-    const resp = await fetch(url, {
-      headers: { 'User-Agent': 'WhatsApp/2.24.6.77 A' } as HeadersInit,
-    });
-    if (!resp.ok) return res.status(502).send('Falha no proxy');
-    const buf = Buffer.from(await resp.arrayBuffer());
-    res.setHeader('Content-Type', resp.headers.get('content-type') || 'application/octet-stream');
-    res.setHeader('Cache-Control', 'private, max-age=3600');
-    return res.send(buf);
   }
 
   @Post('crm/mark-as-read')
