@@ -1,6 +1,7 @@
 import { Controller, Post, Body, Logger } from '@nestjs/common';
 import { Public } from '../../common/decorators/public.decorator';
 import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
+import { WhatsAppService } from './whatsapp.service';
 import { prisma } from '../../../lib/prisma';
 
 /**
@@ -18,7 +19,10 @@ import { prisma } from '../../../lib/prisma';
 export class WhatsAppWebhookController {
   private readonly logger = new Logger(WhatsAppWebhookController.name);
 
-  constructor(private readonly wsGateway: OrdersWebSocketGateway) {}
+  constructor(
+    private readonly wsGateway: OrdersWebSocketGateway,
+    private readonly whatsappService: WhatsAppService,
+  ) {}
 
   @Public()
   @Post('messages-upsert')
@@ -67,13 +71,23 @@ export class WhatsAppWebhookController {
       await this.incrementUnreadCount(branchId, remoteJid, payload.timestamp);
     }
 
-    this.wsGateway.emitCRMEvent(branchRoom, 'crm:chat:update', {
-      remoteJid,
-      lastMessage: payload.text,
-      lastMsgTimestamp: payload.timestamp,
-      pushName: payload.pushName,
-      phone,
-    });
+    // Fetch complete chat data for update
+    try {
+      const chatData = await this.whatsappService.fetchSingleChat(branchId, remoteJid);
+      if (chatData) {
+        this.wsGateway.emitCRMEvent(branchRoom, 'crm:chat:update', chatData);
+      }
+    } catch (error) {
+      this.logger.error(`[WhatsAppWebhook] Failed to fetch chat data for ${remoteJid}:`, error);
+      // Fallback to basic update if fetch fails
+      this.wsGateway.emitCRMEvent(branchRoom, 'crm:chat:update', {
+        remoteJid,
+        lastMessage: payload.text,
+        lastMsgTimestamp: payload.timestamp,
+        pushName: payload.pushName,
+        phone,
+      });
+    }
 
     return { received: true };
   }

@@ -484,6 +484,203 @@ export class WhatsAppService {
 
   // ─── CRM – Chats & Messages ────────────────────────────────────
 
+  async fetchSingleChat(branchId: string, jid: string) {
+    const config = await prisma.whatsAppConfig.findUnique({
+      where: { branchId },
+    });
+
+    if (!config?.instanceName) {
+      return null;
+    }
+
+    // Fetch customer data
+    const customers = await prisma.customer.findMany({
+      where: { branchId },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        email: true,
+        createdAt: true,
+        orders: {
+          select: {
+            id: true,
+            orderNumber: true,
+            total: true,
+            status: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 5,
+        },
+        addresses: {
+          where: { isDefault: true },
+          select: {
+            id: true,
+            label: true,
+            street: true,
+            number: true,
+            complement: true,
+            neighborhood: true,
+            city: true,
+            state: true,
+            zipCode: true,
+            reference: true,
+          },
+          take: 1,
+        },
+      },
+    });
+
+    // Calculate new orders count per customer (PENDING, CONFIRMED, READY)
+    const newOrdersMap = new Map<string, number>();
+    for (const customer of customers) {
+      const newOrdersCount = customer.orders.filter(
+        (o) => ['PENDING', 'CONFIRMED', 'READY'].includes(o.status)
+      ).length;
+      newOrdersMap.set(customer.id, newOrdersCount);
+    }
+
+    const spentByCustomer = await prisma.order.groupBy({
+      by: ['customerId'],
+      where: { branchId, customerId: { not: null } },
+      _sum: { total: true },
+    });
+
+    const spentMap = new Map<string, number>(
+      spentByCustomer.map((s) => [s.customerId!, s._sum.total ?? 0]),
+    );
+
+    const customerByPhone = new Map<string, typeof customers[number]>();
+    for (const customer of customers) {
+      const normalized = customer.phone.replace(/\D/g, '');
+      customerByPhone.set(normalized, customer);
+    }
+
+    const findCustomer = (targetJid: string) => {
+      const waPhone = targetJid.replace('@s.whatsapp.net', '');
+      if (customerByPhone.has(waPhone)) return customerByPhone.get(waPhone)!;
+
+      const stripCountry = (p: string) =>
+        p.startsWith('55') && p.length >= 12 ? p.slice(2) : p;
+      const waLocal = stripCountry(waPhone);
+
+      for (const [phone, customer] of customerByPhone) {
+        const dbLocal = stripCountry(phone);
+        if (waLocal === dbLocal) return customer;
+        if (waLocal.length === 9 && dbLocal.length === 8 && waLocal.startsWith('9') && waLocal.slice(1) === dbLocal) {
+          return customer;
+        }
+      }
+      return null;
+    };
+
+    const customer = findCustomer(jid);
+    const lastOrder = customer?.orders[0] ?? null;
+    const totalSpent = customer ? (spentMap.get(customer.id) ?? 0) : 0;
+    const defaultAddress = customer?.addresses[0] ?? null;
+
+    // Fetch chat data from Evolution API
+    const raw = await this.evolutionRequest(
+      'POST',
+      `/chat/findChats/${config.instanceName}`,
+      { where: { remoteJid: jid } },
+    );
+
+    const rawChats: any[] = Array.isArray(raw)
+      ? raw
+      : raw?.chats || raw?.data || raw?.records || [];
+
+    const chat = rawChats.find((c: any) => {
+      if (c.remoteJid === jid) return true;
+      if (c.jid === jid) return true;
+      if (c.id === jid) return true;
+      return false;
+    });
+
+    if (!chat) {
+      // If chat not found in Evolution API, return customer data only
+      return {
+        jid,
+        name: customer?.name || this.jidToPhone(jid),
+        phone: this.jidToPhone(jid),
+        profilePicUrl: null,
+        lastMessage: '',
+        lastMessageType: 'text',
+        lastMsgTimestamp: 0,
+        formattedTimestamp: '',
+        unreadCount: 0,
+        customerId: customer?.id ?? null,
+        totalOrders: customer ? (newOrdersMap.get(customer.id) ?? 0) : 0,
+        totalSpent,
+        lastOrderId: lastOrder?.orderNumber?.toString() ?? null,
+        lastOrderTotal: lastOrder?.total ?? null,
+        lastOrderStatus: lastOrder?.status ?? null,
+        lastOrderDate: lastOrder?.createdAt ?? null,
+        customer: customer ? {
+          id: customer.id,
+          name: customer.name,
+          phone: customer.phone,
+          email: customer.email,
+          createdAt: customer.createdAt,
+          orders: customer.orders,
+          address: defaultAddress ? {
+            id: defaultAddress.id,
+            label: defaultAddress.label,
+            street: defaultAddress.street,
+            number: defaultAddress.number,
+            complement: defaultAddress.complement,
+            neighborhood: defaultAddress.neighborhood,
+            city: defaultAddress.city,
+            state: defaultAddress.state,
+            zipCode: defaultAddress.zipCode,
+            reference: defaultAddress.reference,
+          } : null,
+        } : null,
+      };
+    }
+
+    return {
+      jid,
+      name: customer?.name || chat.name || chat.pushName || chat.verifiedName || this.jidToPhone(jid),
+      phone: this.jidToPhone(jid),
+      profilePicUrl: chat.profilePicUrl || null,
+      lastMessage: this.extractTextFromMessage(chat.lastMessage) || '',
+      lastMessageType: this.detectMediaType(chat.lastMessage),
+      lastMsgTimestamp: chat.lastMsgTimestamp || chat.updatedAt || 0,
+      formattedTimestamp: this.formatTimestamp(chat.lastMsgTimestamp || chat.updatedAt || 0),
+      unreadCount: 0,
+      customerId: customer?.id ?? null,
+      totalOrders: customer ? (newOrdersMap.get(customer.id) ?? 0) : 0,
+      totalSpent,
+      lastOrderId: lastOrder?.orderNumber?.toString() ?? null,
+      lastOrderTotal: lastOrder?.total ?? null,
+      lastOrderStatus: lastOrder?.status ?? null,
+      lastOrderDate: lastOrder?.createdAt ?? null,
+      customer: customer ? {
+        id: customer.id,
+        name: customer.name,
+        phone: customer.phone,
+        email: customer.email,
+        createdAt: customer.createdAt,
+        orders: customer.orders,
+        address: defaultAddress ? {
+          id: defaultAddress.id,
+          label: defaultAddress.label,
+          street: defaultAddress.street,
+          number: defaultAddress.number,
+          complement: defaultAddress.complement,
+          neighborhood: defaultAddress.neighborhood,
+          city: defaultAddress.city,
+          state: defaultAddress.state,
+          zipCode: defaultAddress.zipCode,
+          reference: defaultAddress.reference,
+        } : null,
+      } : null,
+    };
+  }
+
   async fetchChats(branchId: string) {
     const config = await this.getFullConfig(branchId);
 
