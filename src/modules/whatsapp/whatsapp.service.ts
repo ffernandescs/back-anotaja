@@ -462,14 +462,17 @@ export class WhatsAppService {
 
     const count = dto.count || 50;
 
+    const requestBody = {
+      where: { remoteJid: dto.jid },
+      limit: count,
+    };
+    console.log('[CRM] Request body to Evolution API:', JSON.stringify(requestBody));
+
     // Use remoteJid at root level (matches Evolution API DB structure)
     const result: any = await this.evolutionRequest(
       'POST',
       `/chat/findMessages/${config.instanceName}`,
-      {
-        where: { remoteJid: dto.jid },
-        limit: count,
-      },
+      requestBody,
     );
 
     console.log('[CRM] fetchMessages raw response type:', typeof result, Array.isArray(result) ? `array(${result.length})` : JSON.stringify(result)?.slice(0, 200));
@@ -495,11 +498,32 @@ export class WhatsAppService {
     if (raw.length > 0) {
       console.log('[CRM] Sample message keys:', Object.keys(raw[0]));
       console.log('[CRM] Sample message remoteJid:', raw[0].key?.remoteJid || raw[0].remoteJid);
+
+      // Log all remoteJids to see if they match
+      const remoteJids = raw.map((m: any) => m.key?.remoteJid || m.remoteJid);
+      console.log('[CRM] All remoteJids in response:', remoteJids);
+      console.log('[CRM] Requested JID:', dto.jid);
+      console.log('[CRM] Matches:', remoteJids.filter((rjid: string) => rjid === dto.jid).length, '/', remoteJids.length);
     }
+
+    // Filter messages to only include those matching the requested JID
+    // Evolution API ignores the where filter, so we need to filter on our side
+    const filtered = raw.filter((msg: any) => {
+      const msgRemoteJid = msg.key?.remoteJid || msg.remoteJid;
+      // Direct match
+      if (msgRemoteJid === dto.jid) return true;
+      // Try to match phone number (extract from JID)
+      const requestedPhone = dto.jid.replace('@s.whatsapp.net', '').replace('@lid', '');
+      const msgPhone = msgRemoteJid.replace('@s.whatsapp.net', '').replace('@lid', '').replace('@g.us', '');
+      if (requestedPhone === msgPhone) return true;
+      return false;
+    });
+
+    console.log('[CRM] After JID filter:', filtered.length, '/', raw.length);
 
     // Deduplicate by message ID
     const seen = new Set<string>();
-    const deduped = raw.filter((msg: any) => {
+    const deduped = filtered.filter((msg: any) => {
       const id = msg.key?.id || msg.id || String(msg.messageTimestamp);
       if (seen.has(id)) return false;
       seen.add(id);
