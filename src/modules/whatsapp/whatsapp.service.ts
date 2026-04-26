@@ -497,18 +497,9 @@ export class WhatsAppService {
       console.log('[CRM] Sample message remoteJid:', raw[0].key?.remoteJid || raw[0].remoteJid);
     }
 
-    // Filter to ensure messages match the requested JID
-    const filtered = raw.filter((msg: any) => {
-      const msgRemoteJid = msg.key?.remoteJid || msg.remoteJid;
-      console.log('[CRM] Message remoteJid:', msgRemoteJid, '| Requested JID:', dto.jid, '| Match:', msgRemoteJid === dto.jid);
-      return msgRemoteJid === dto.jid;
-    });
-
-    console.log('[CRM] After JID filter:', filtered.length);
-
     // Deduplicate by message ID
     const seen = new Set<string>();
-    const deduped = filtered.filter((msg: any) => {
+    const deduped = raw.filter((msg: any) => {
       const id = msg.key?.id || msg.id || String(msg.messageTimestamp);
       if (seen.has(id)) return false;
       seen.add(id);
