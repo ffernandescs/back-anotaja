@@ -564,6 +564,7 @@ export class WhatsAppService {
           orders: {
             select: {
               id: true,
+              orderNumber: true,
               total: true,
               status: true,
               createdAt: true,
@@ -655,7 +656,7 @@ export class WhatsAppService {
         customerId: customer?.id ?? null,
         totalOrders: customer?._count.orders ?? 0,
         totalSpent,
-        lastOrderId: lastOrder?.id ?? null,
+        lastOrderId: lastOrder?.orderNumber?.toString() ?? null,
         lastOrderTotal: lastOrder?.total ?? null,
         lastOrderStatus: lastOrder?.status ?? null,
         lastOrderDate: lastOrder?.createdAt ?? null,
