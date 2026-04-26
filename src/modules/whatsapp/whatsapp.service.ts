@@ -192,7 +192,7 @@ export class WhatsAppService {
         console.error('[WhatsApp] No QR code in connect response');
       }
 
-      await prisma.whatsappConfig.update({
+      await prisma.whatsAppConfig.update({
         where: { branchId },
         data: {
           qrCode,
