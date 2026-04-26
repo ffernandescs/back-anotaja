@@ -344,10 +344,7 @@ export class WhatsAppService {
   // ─── CRM – Chats & Messages ────────────────────────────────────
 
   async fetchChats(branchId: string) {
-    console.log('[CRM] fetchChats called for branch:', branchId);
     const config = await this.getFullConfig(branchId);
-
-    console.log('[CRM] fetchChats using instance:', config.instanceName);
 
     const raw = await this.evolutionRequest(
       'POST',
@@ -358,12 +355,6 @@ export class WhatsAppService {
     const rawChats: any[] = Array.isArray(raw)
       ? raw
       : raw?.chats || raw?.data || raw?.records || [];
-
-    console.log('[CRM] fetchChats count:', rawChats.length);
-    if (rawChats.length > 0) {
-      console.log('[CRM] First chat keys:', Object.keys(rawChats[0]));
-      console.log('[CRM] First chat sample:', JSON.stringify(rawChats[0]).slice(0, 500));
-    }
 
     // Extract JID from various Evolution API response formats
     const extractJid = (c: any): string => {
@@ -386,7 +377,6 @@ export class WhatsAppService {
     }
 
     const individualChats = Array.from(chatsByJid.values());
-    console.log('[CRM] Individual chats (after JID filter):', individualChats.length);
 
     // ── Enrich with customer data from DB ─────────────────────────
     const [customers, spentByCustomer] = await Promise.all([
@@ -396,10 +386,34 @@ export class WhatsAppService {
           id: true,
           name: true,
           phone: true,
+          email: true,
+          createdAt: true,
           _count: { select: { orders: true } },
           orders: {
-            select: { id: true, total: true, status: true, createdAt: true },
+            select: {
+              id: true,
+              total: true,
+              status: true,
+              createdAt: true,
+              updatedAt: true,
+            },
             orderBy: { createdAt: 'desc' },
+            take: 5, // Return last 5 orders for CRM
+          },
+          addresses: {
+            where: { isDefault: true },
+            select: {
+              id: true,
+              label: true,
+              street: true,
+              number: true,
+              complement: true,
+              neighborhood: true,
+              city: true,
+              state: true,
+              zipCode: true,
+              reference: true,
+            },
             take: 1,
           },
         },
@@ -423,11 +437,35 @@ export class WhatsAppService {
     }
 
     const findCustomer = (jid: string) => {
+      console.log('findCustomer', jid);
       const waPhone = jid.replace('@s.whatsapp.net', '');
       if (customerByPhone.has(waPhone)) return customerByPhone.get(waPhone)!;
-      const last11 = waPhone.slice(-11);
+
+      // Strip country code (55) for local comparison
+      const stripCountry = (p: string) =>
+        p.startsWith('55') && p.length >= 12 ? p.slice(2) : p;
+      const waLocal = stripCountry(waPhone);
+
       for (const [phone, customer] of customerByPhone) {
-        if (phone.slice(-11) === last11 && last11.length === 11) return customer;
+        const dbLocal = stripCountry(phone);
+        if (waLocal === dbLocal) return customer;
+
+        // Handle Brazilian 9th digit: WhatsApp JID may omit the leading 9
+        // e.g. JID = 558182647354 (area 81 + 8 digits) vs DB = 5581982647354 (area 81 + 9 digits)
+        if (waLocal.length >= 10 && dbLocal.length >= 10) {
+          const waArea = waLocal.slice(0, 2);
+          const dbArea = dbLocal.slice(0, 2);
+          if (waArea === dbArea) {
+            const waNum = waLocal.slice(2);
+            const dbNum = dbLocal.slice(2);
+            if (waNum.length === 8 && dbNum.length === 9 && dbNum.startsWith('9') && dbNum.slice(1) === waNum) {
+              return customer;
+            }
+            if (waNum.length === 9 && dbNum.length === 8 && waNum.startsWith('9') && waNum.slice(1) === dbNum) {
+              return customer;
+            }
+          }
+        }
       }
       return null;
     };
@@ -436,6 +474,7 @@ export class WhatsAppService {
       const customer = findCustomer(c._jid);
       const lastOrder = customer?.orders[0] ?? null;
       const totalSpent = customer ? (spentMap.get(customer.id) ?? 0) : 0;
+      const defaultAddress = customer?.addresses[0] ?? null;
 
       return {
         jid: c._jid,
@@ -452,6 +491,28 @@ export class WhatsAppService {
         lastOrderTotal: lastOrder?.total ?? null,
         lastOrderStatus: lastOrder?.status ?? null,
         lastOrderDate: lastOrder?.createdAt ?? null,
+        // Include full customer object when found
+        customer: customer ? {
+          id: customer.id,
+          name: customer.name,
+          phone: customer.phone,
+          email: customer.email,
+          createdAt: customer.createdAt,
+          orders: customer.orders,
+          _count: customer._count,
+          address: defaultAddress ? {
+            id: defaultAddress.id,
+            label: defaultAddress.label,
+            street: defaultAddress.street,
+            number: defaultAddress.number,
+            complement: defaultAddress.complement,
+            neighborhood: defaultAddress.neighborhood,
+            city: defaultAddress.city,
+            state: defaultAddress.state,
+            zipCode: defaultAddress.zipCode,
+            reference: defaultAddress.reference,
+          } : null,
+        } : null,
       };
     });
   }
@@ -461,103 +522,30 @@ export class WhatsAppService {
 
     const count = dto.count || 50;
 
-    let raw: any[] = [];
-
-    // Try 1: Use chat retrieve endpoint
-    try {
-      const chatResult: any = await this.evolutionRequest(
+    // Fetch from multiple sources in parallel and merge to get both incoming and outgoing messages
+    const results = await Promise.allSettled([
+      this.evolutionRequest(
         'POST',
-        `/chat/retrieve/${config.instanceName}`,
+        `/chat/findMessages/${config.instanceName}`,
         {
-          where: { id: dto.jid },
+          where: { key: { remoteJid: dto.jid } },
+          limit: count,
         },
-      );
-      if (chatResult?.messages) {
-        raw = this.extractMessagesFromResponse(chatResult.messages);
-      }
-    } catch (e) {
-      // Method 1 not available, try next
-    }
+      ),
+      this.evolutionRequest(
+        'POST',
+        `/message/find/${config.instanceName}`,
+        {
+          where: { key: { remoteJid: dto.jid } },
+          limit: count,
+        },
+      ),
+    ]);
 
-    // Try 2: Use chat endpoint with remoteJid filter (nested inside key)
-    if (raw.length === 0) {
-      try {
-        const result2: any = await this.evolutionRequest(
-          'POST',
-          `/chat/findMessages/${config.instanceName}`,
-          {
-            where: { key: { remoteJid: dto.jid } },
-            limit: count,
-          },
-        );
-        raw = this.extractMessagesFromResponse(result2);
-      } catch (e) {
-        // Method 2 not available, try next
-      }
-    }
-
-    // Try 3: Use message endpoint with remoteJid as query param
-    if (raw.length === 0) {
-      try {
-        const result3: any = await this.evolutionRequest(
-          'GET',
-          `/chat/findMessages/${config.instanceName}?remoteJid=${dto.jid}&limit=${count}`,
-        );
-        raw = this.extractMessagesFromResponse(result3);
-      } catch (e) {
-        // Method 3 not available, try next
-      }
-    }
-
-    // Try 4: Use direct message find endpoint
-    if (raw.length === 0) {
-      try {
-        const result4: any = await this.evolutionRequest(
-          'POST',
-          `/message/find/${config.instanceName}`,
-          {
-            where: { key: { remoteJid: dto.jid } },
-            limit: count,
-          },
-        );
-        raw = this.extractMessagesFromResponse(result4);
-      } catch (e) {
-        // Method 4 not available, try next
-      }
-    }
-
-    // Try 5: Use GET /message/find with query params
-    if (raw.length === 0) {
-      try {
-        const result5: any = await this.evolutionRequest(
-          'GET',
-          `/message/find/${config.instanceName}?remoteJid=${dto.jid}&limit=${count}`,
-        );
-        raw = this.extractMessagesFromResponse(result5);
-      } catch (e) {
-        // Method 5 not available, try next
-      }
-    }
-
-    // Try 6: Use POST /chat/find to get the chat, then fetch messages
-    if (raw.length === 0) {
-      try {
-        const chatFindResult: any = await this.evolutionRequest(
-          'POST',
-          `/chat/find/${config.instanceName}`,
-          {
-            where: { id: dto.jid },
-          },
-        );
-        if (chatFindResult?.id) {
-          const messagesResult: any = await this.evolutionRequest(
-            'GET',
-            `/chat/findMessages/${config.instanceName}?where=${JSON.stringify({ chatId: chatFindResult.id })}&limit=${count}`,
-          );
-          raw = this.extractMessagesFromResponse(messagesResult);
-        }
-      } catch (e) {
-        // Method 6 not available
+    const raw: any[] = [];
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        raw.push(...this.extractMessagesFromResponse(result.value));
       }
     }
 
