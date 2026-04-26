@@ -106,6 +106,38 @@ export class WhatsAppWebhookController {
   }
 
   @Public()
+  @Post('messages-update')
+  async handleMessagesUpdate(@Body() body: any) {
+    this.logger.log('[Webhook] Messages update received:', JSON.stringify(body).slice(0, 500));
+    
+    const instanceName: string = body.instance || '';
+    const branchId = await this.resolveBranchId(instanceName);
+    if (!branchId) {
+      this.logger.warn(`[Webhook] Could not resolve branchId for instance: ${instanceName}`);
+      return { received: true };
+    }
+
+    const branchRoom = `branch:${branchId}`;
+    const data = body.data;
+    
+    const updates = Array.isArray(data) ? data : [data];
+    for (const upd of updates) {
+      if (!upd) continue;
+      const key = upd.key || {};
+      const remoteJid = key.remoteJid || upd.remoteJid || '';
+      if (!remoteJid.endsWith('@s.whatsapp.net')) continue;
+
+      this.wsGateway.emitCRMEvent(branchRoom, 'crm:message:status', {
+        id: key.id || upd.keyId,
+        remoteJid,
+        status: this.mapStatus(upd.status || upd.update?.status),
+      });
+    }
+
+    return { received: true };
+  }
+
+  @Public()
   @Post('chats-update')
   async handleChatsUpdate(@Body() body: any) {
     this.logger.log('[Webhook] Chats update received:', JSON.stringify(body).slice(0, 500));
