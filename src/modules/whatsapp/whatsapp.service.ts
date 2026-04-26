@@ -457,15 +457,13 @@ export class WhatsAppService {
   }
 
   async fetchMessages(branchId: string, dto: FetchMessagesDto) {
-    console.log('[CRM] fetchMessages called with jid:', dto.jid, 'count:', dto.count);
     const config = await this.getFullConfig(branchId);
 
     const count = dto.count || 50;
 
-    // Try different endpoints to find messages
     let raw: any[] = [];
 
-    // Try 1: Use chat retrieve endpoint to get the chat first, then messages
+    // Try 1: Use chat retrieve endpoint
     try {
       const chatResult: any = await this.evolutionRequest(
         'POST',
@@ -474,15 +472,11 @@ export class WhatsAppService {
           where: { id: dto.jid },
         },
       );
-      console.log('[CRM] Method 1 (chat/retrieve):', JSON.stringify(chatResult).slice(0, 200));
-      
-      // If chat has messages, extract them
       if (chatResult?.messages) {
         raw = this.extractMessagesFromResponse(chatResult.messages);
-        console.log('[CRM] Method 1 extracted:', raw.length, 'messages from chat');
       }
     } catch (e) {
-      console.log('[CRM] Method 1 failed:', e);
+      // Method 1 not available, try next
     }
 
     // Try 2: Use chat endpoint with remoteJid filter (nested inside key)
@@ -497,9 +491,8 @@ export class WhatsAppService {
           },
         );
         raw = this.extractMessagesFromResponse(result2);
-        console.log('[CRM] Method 2 (chat/findMessages):', raw.length, 'messages');
       } catch (e) {
-        console.log('[CRM] Method 2 failed:', e);
+        // Method 2 not available, try next
       }
     }
 
@@ -511,9 +504,8 @@ export class WhatsAppService {
           `/chat/findMessages/${config.instanceName}?remoteJid=${dto.jid}&limit=${count}`,
         );
         raw = this.extractMessagesFromResponse(result3);
-        console.log('[CRM] Method 3 (GET with query param):', raw.length, 'messages');
       } catch (e) {
-        console.log('[CRM] Method 3 failed:', e);
+        // Method 3 not available, try next
       }
     }
 
@@ -529,9 +521,8 @@ export class WhatsAppService {
           },
         );
         raw = this.extractMessagesFromResponse(result4);
-        console.log('[CRM] Method 4 (message/find):', raw.length, 'messages');
       } catch (e) {
-        console.log('[CRM] Method 4 failed:', e);
+        // Method 4 not available, try next
       }
     }
 
@@ -543,9 +534,8 @@ export class WhatsAppService {
           `/message/find/${config.instanceName}?remoteJid=${dto.jid}&limit=${count}`,
         );
         raw = this.extractMessagesFromResponse(result5);
-        console.log('[CRM] Method 5 (GET message/find):', raw.length, 'messages');
       } catch (e) {
-        console.log('[CRM] Method 5 failed:', e);
+        // Method 5 not available, try next
       }
     }
 
@@ -559,55 +549,31 @@ export class WhatsAppService {
             where: { id: dto.jid },
           },
         );
-        console.log('[CRM] Method 6 (chat/find):', JSON.stringify(chatFindResult).slice(0, 200));
-        
-        // If chat found, try to get messages
         if (chatFindResult?.id) {
           const messagesResult: any = await this.evolutionRequest(
             'GET',
             `/chat/findMessages/${config.instanceName}?where=${JSON.stringify({ chatId: chatFindResult.id })}&limit=${count}`,
           );
           raw = this.extractMessagesFromResponse(messagesResult);
-          console.log('[CRM] Method 6 extracted:', raw.length, 'messages from chat');
         }
       } catch (e) {
-        console.log('[CRM] Method 6 failed:', e);
+        // Method 6 not available
       }
     }
 
-    // If all methods fail, return empty
     if (raw.length === 0) {
-      console.log('[CRM] All methods failed, returning empty array');
       return [];
-    }
-
-    const fromMeCount = raw.filter((m: any) => m.key?.fromMe === true).length;
-    console.log('[CRM] fetchMessages count:', raw.length, '| fromMe:', fromMeCount, '| fromThem:', raw.length - fromMeCount);
-
-    if (raw.length > 0) {
-      console.log('[CRM] Sample message keys:', Object.keys(raw[0]));
-      console.log('[CRM] Sample message remoteJid:', raw[0].key?.remoteJid || raw[0].remoteJid);
-      
-      // Log all remoteJids to see if they match
-      const remoteJids = raw.map((m: any) => m.key?.remoteJid || m.remoteJid);
-      console.log('[CRM] All remoteJids in response:', remoteJids);
-      console.log('[CRM] Requested JID:', dto.jid);
-      console.log('[CRM] Matches:', remoteJids.filter((rjid: string) => rjid === dto.jid).length, '/', remoteJids.length);
     }
 
     // Filter messages to only include those matching the requested JID
     const filtered = raw.filter((msg: any) => {
       const msgRemoteJid = msg.key?.remoteJid || msg.remoteJid;
-      // Direct match
       if (msgRemoteJid === dto.jid) return true;
-      // Try to match phone number (extract from JID)
       const requestedPhone = dto.jid.replace('@s.whatsapp.net', '').replace('@lid', '');
       const msgPhone = msgRemoteJid.replace('@s.whatsapp.net', '').replace('@lid', '').replace('@g.us', '');
       if (requestedPhone === msgPhone) return true;
       return false;
     });
-
-    console.log('[CRM] After JID filter:', filtered.length, '/', raw.length);
 
     // Deduplicate by message ID
     const seen = new Set<string>();
