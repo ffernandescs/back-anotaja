@@ -716,6 +716,22 @@ export class WhatsAppService {
     return 'document';
   }
 
+  async downloadMedia(url: string): Promise<Buffer> {
+    console.log('[WhatsApp] downloadMedia - url:', url);
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to download media: ${response.statusText}`);
+      }
+      const buffer = Buffer.from(await response.arrayBuffer());
+      console.log('[WhatsApp] downloadMedia - buffer size:', buffer.length);
+      return buffer;
+    } catch (error) {
+      console.error('[WhatsApp] downloadMedia - error:', error);
+      throw error;
+    }
+  }
+
   async markChatAsRead(branchId: string, jid: string) {
     try {
       // Try to ensure WhatsAppConfig exists for this branch

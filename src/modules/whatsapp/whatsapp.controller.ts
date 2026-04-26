@@ -10,6 +10,8 @@ import {
   BadRequestException,
   UseInterceptors,
   UploadedFile,
+  Query,
+  Res,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { WhatsAppService } from './whatsapp.service';
@@ -150,6 +152,17 @@ export class WhatsAppController {
     try {
       const branchId = req.user.branchId;
       return this.whatsappService.sendCrmMedia(branchId, body.jid, file, body.caption);
+    } catch (error) {
+      throw new BadRequestException((error as Error).message);
+    }
+  }
+
+  @Get('crm/media-proxy')
+  async mediaProxy(@Query('url') url: string, @Res() res: any) {
+    try {
+      const buffer = await this.whatsappService.downloadMedia(url);
+      res.set('Content-Type', 'audio/mpeg');
+      res.send(buffer);
     } catch (error) {
       throw new BadRequestException((error as Error).message);
     }
