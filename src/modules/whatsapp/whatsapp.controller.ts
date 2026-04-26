@@ -8,7 +8,10 @@ import {
   Request,
   UseGuards,
   BadRequestException,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { WhatsAppService } from './whatsapp.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -132,6 +135,21 @@ export class WhatsAppController {
     try {
       const branchId = req.user.branchId;
       return this.whatsappService.sendCrmMessage(branchId, dto);
+    } catch (error) {
+      throw new BadRequestException((error as Error).message);
+    }
+  }
+
+  @Post('crm/send-media')
+  @UseInterceptors(FileInterceptor('file'))
+  async sendCrmMedia(
+    @Request() req,
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: { jid: string; caption?: string },
+  ) {
+    try {
+      const branchId = req.user.branchId;
+      return this.whatsappService.sendCrmMedia(branchId, body.jid, file, body.caption);
     } catch (error) {
       throw new BadRequestException((error as Error).message);
     }

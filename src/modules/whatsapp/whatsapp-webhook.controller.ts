@@ -50,8 +50,10 @@ export class WhatsAppWebhookController {
       phone,
       status: key.fromMe ? 'sent' : 'received',
       mediaType: this.detectMediaType(msg),
+      mediaUrl: this.extractMediaUrl(msg),
     };
 
+    console.log('[WhatsAppWebhook] Emitting crm:message event:', JSON.stringify(payload, null, 2));
     this.wsGateway.emitCRMEvent(branchRoom, 'crm:message', payload);
 
     // Increment unread count in database for incoming messages
@@ -221,8 +223,10 @@ export class WhatsAppWebhookController {
           phone,
           status: key.fromMe ? 'sent' : 'received',
           mediaType: this.detectMediaType(msg),
+          mediaUrl: this.extractMediaUrl(msg),
         };
 
+        console.log('[WhatsAppWebhook] (handleWebhook) Emitting crm:message event:', JSON.stringify(payload, null, 2));
         this.wsGateway.emitCRMEvent(branchRoom, 'crm:message', payload);
 
         // Increment unread count in database for incoming messages
@@ -375,6 +379,15 @@ export class WhatsAppWebhookController {
     if (m.contactMessage) return 'contact';
     if (m.stickerMessage) return 'sticker';
     return 'text';
+  }
+
+  private extractMediaUrl(msg: any): string | null {
+    const m = msg.message || msg || {};
+    if (m.imageMessage?.url) return m.imageMessage.url;
+    if (m.videoMessage?.url) return m.videoMessage.url;
+    if (m.audioMessage?.url) return m.audioMessage.url;
+    if (m.documentMessage?.url) return m.documentMessage.url;
+    return null;
   }
 
   private async incrementUnreadCount(branchId: string, jid: string, timestamp: number) {
