@@ -587,7 +587,14 @@ export class WhatsAppService {
   }
 
   async fetchMessages(branchId: string, dto: FetchMessagesDto) {
-    const config = await this.getFullConfig(branchId);
+    const config = await prisma.whatsAppConfig.findUnique({
+      where: { branchId },
+    });
+
+    if (!config?.instanceName) {
+      return [];
+    }
+
     const count = dto.count || 50;
 
     // WhatsApp uses two JID formats:
@@ -1024,7 +1031,10 @@ async sendCrmMedia(
   }
 
   async getFullConfigPublic(branchId: string) {
-    return this.getFullConfig(branchId);
+    const config = await prisma.whatsAppConfig.findUnique({
+      where: { branchId },
+    });
+    return config;
   }
 
   // ─── Webhook registration ────────────────────────────────────
