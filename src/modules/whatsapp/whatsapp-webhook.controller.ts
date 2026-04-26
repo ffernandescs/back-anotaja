@@ -40,14 +40,21 @@ export class WhatsAppWebhookController {
     this.logger.log(`[Webhook] Branch room: ${branchRoom}`);
     
     const data = body.data;
-    if (!data) return { received: true };
+    if (!data) {
+      this.logger.warn('[Webhook] No data in body');
+      return { received: true };
+    }
 
     const msg = data.message || data;
     const key = msg.key || {};
     const remoteJid: string = key.remoteJid || data.remoteJid || '';
+    this.logger.log(`[Webhook] Remote JID: ${remoteJid}`);
 
     // Skip group messages and status broadcasts
-    if (!remoteJid.endsWith('@s.whatsapp.net')) return { received: true };
+    if (!remoteJid.endsWith('@s.whatsapp.net')) {
+      this.logger.log(`[Webhook] Skipping non-individual message: ${remoteJid}`);
+      return { received: true };
+    }
 
     const phone = remoteJid.replace('@s.whatsapp.net', '');
 
@@ -177,7 +184,7 @@ export class WhatsAppWebhookController {
   @Public()
   @Post()
   async handleWebhook(@Body() body: any) {
-    this.logger.log('[Webhook] Received webhook:', JSON.stringify(body).slice(0, 500));
+    this.logger.log('[Webhook] Received webhook (generic):', JSON.stringify(body).slice(0, 500));
     
     const event = body.event;
     const instanceName: string = body.instance || '';
@@ -198,6 +205,7 @@ export class WhatsAppWebhookController {
 
     this.logger.log(`[Webhook] Resolved branchId: ${branchId}`);
     const branchRoom = `branch:${branchId}`;
+    this.logger.log(`[Webhook] Branch room: ${branchRoom}`);
 
     switch (event) {
       case 'MESSAGES_UPSERT': {
@@ -261,7 +269,7 @@ export class WhatsAppWebhookController {
         break;
       }
 
-      case 'PRESENCE_UPDATE': {
+      case 'presence.update': {
         const data = body.data;
         if (!data) break;
 
