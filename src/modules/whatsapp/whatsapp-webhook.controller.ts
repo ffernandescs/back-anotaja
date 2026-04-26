@@ -14,7 +14,7 @@ import { prisma } from '../../../lib/prisma';
  *  - chats.update       → unread count, last message
  *  - contacts.update    → contact profile changes
  */
-@Controller('api/whatsapp/webhook')
+@Controller('whatsapp/webhook')
 export class WhatsAppWebhookController {
   private readonly logger = new Logger(WhatsAppWebhookController.name);
 
