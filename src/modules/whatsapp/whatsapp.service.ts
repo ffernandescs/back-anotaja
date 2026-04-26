@@ -560,7 +560,17 @@ export class WhatsAppService {
           phone: true,
           email: true,
           createdAt: true,
-          _count: { select: { orders: true } },
+          _count: {
+            select: {
+              orders: {
+                where: {
+                  status: {
+                    in: ['PENDING', 'CONFIRMED', 'PREPARING'],
+                  },
+                },
+              },
+            },
+          },
           orders: {
             select: {
               id: true,
@@ -1008,15 +1018,24 @@ async sendCrmMedia(
   private extractTextFromMessage(msg: any): string {
     if (!msg) return '';
     if (typeof msg === 'string') return msg;
-    if (msg.message?.conversation) return msg.message.conversation;
-    if (msg.message?.extendedTextMessage?.text) return msg.message.extendedTextMessage.text;
-    if (msg.message?.imageMessage?.caption) return msg.message.imageMessage.caption;
-    if (msg.message?.videoMessage?.caption) return msg.message.videoMessage.caption;
-    if (msg.message?.documentMessage?.caption) return msg.message.documentMessage.caption;
-    if (msg.message?.audioMessage?.caption) return msg.message.audioMessage.caption;
-    if (msg.message?.buttonsResponseMessage?.selectedDisplayText) return msg.message.buttonsResponseMessage.selectedDisplayText;
-    if (msg.message?.listResponseMessage?.description) return msg.message.listResponseMessage.description;
-    if (msg.message?.reactionMessage?.text) return msg.message.reactionMessage.text;
+    const m = msg.message || msg;
+
+    // Check for text content first
+    if (m.conversation) return m.conversation;
+    if (m.extendedTextMessage?.text) return m.extendedTextMessage.text;
+    if (m.buttonsResponseMessage?.selectedDisplayText) return m.buttonsResponseMessage.selectedDisplayText;
+    if (m.listResponseMessage?.description) return m.listResponseMessage.description;
+    if (m.reactionMessage?.text) return m.reactionMessage.text;
+
+    // For media messages, return descriptive text
+    if (m.imageMessage) return m.imageMessage.caption || '📷 Foto';
+    if (m.videoMessage) return m.videoMessage.caption || '🎥 Vídeo';
+    if (m.documentMessage) return m.documentMessage.caption || m.documentMessage.title || '📄 Documento';
+    if (m.audioMessage) return m.audioMessage.caption || '🎤 Mensagem de voz';
+    if (m.stickerMessage) return '😀 Sticker';
+    if (m.locationMessage) return `📍 ${m.locationMessage.name || 'Localização'}`;
+    if (m.contactMessage) return `👤 ${m.contactMessage.displayName || 'Contato'}`;
+
     return '';
   }
 
