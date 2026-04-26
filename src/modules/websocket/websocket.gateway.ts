@@ -783,12 +783,60 @@ export class OrdersWebSocketGateway
   @SubscribeMessage('heartbeat')
   async handleHeartbeat(client: AuthenticatedSocket) {
     const deliveryPersonId = client.user?.deliveryPersonId;
-    
+
     if (deliveryPersonId) {
       await this.redisService.setEntregadorOnlineStatus(deliveryPersonId, true);
     }
-    
+
     client.emit('heartbeat:ack', { timestamp: new Date().toISOString() });
+  }
+
+  // ─── WhatsApp CRM: Send Message ───────────────────────────────────
+
+  @SubscribeMessage('crm:message:send')
+  async handleCRMMessageSend(
+    client: AuthenticatedSocket,
+    payload: { jid: string; text: string },
+  ) {
+    if (!client.user?.branchId) {
+      client.emit('error', { message: 'Not authenticated or no branchId' });
+      return;
+    }
+
+    try {
+      const { WhatsAppService } = await import('../whatsapp/whatsapp.service');
+      const whatsappService = new WhatsAppService();
+
+      const result = await whatsappService.sendCrmMessage(
+        client.user.branchId,
+        payload,
+      );
+
+      // Emit confirmation back to sender
+      client.emit('crm:message:sent', {
+        messageId: result.messageId,
+        jid: payload.jid,
+        text: payload.text,
+        status: 'sent',
+      });
+
+      // Also broadcast to branch room for other users
+      this.emitCRMEvent(`branch:${client.user.branchId}`, 'crm:message', {
+        id: result.messageId,
+        remoteJid: payload.jid,
+        fromMe: true,
+        text: payload.text,
+        timestamp: Math.floor(Date.now() / 1000),
+        status: 'sent',
+        mediaType: 'text',
+      });
+    } catch (error) {
+      this.logger.error('Error sending CRM message via WebSocket:', error);
+      client.emit('crm:message:error', {
+        jid: payload.jid,
+        error: error instanceof Error ? error.message : 'Failed to send message',
+      });
+    }
   }
 
   /**
