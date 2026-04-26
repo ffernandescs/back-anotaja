@@ -14,11 +14,66 @@ import { prisma } from '../../../lib/prisma';
  *  - chats.update       → unread count, last message
  *  - contacts.update    → contact profile changes
  */
-@Controller('api/webhook')
+@Controller('api/whatsapp/webhook')
 export class WhatsAppWebhookController {
   private readonly logger = new Logger(WhatsAppWebhookController.name);
 
   constructor(private readonly wsGateway: OrdersWebSocketGateway) {}
+
+  @Public()
+  @Post('messages-upsert')
+  async handleMessagesUpsert(@Body() body: any) {
+    this.logger.log('[Webhook] Messages upsert received:', JSON.stringify(body).slice(0, 500));
+    
+    const instanceName: string = body.instance || '';
+    const branchId = await this.resolveBranchId(instanceName);
+    if (!branchId) {
+      this.logger.warn(`[Webhook] Could not resolve branchId for instance: ${instanceName}`);
+      return { received: true };
+    }
+
+    const branchRoom = `branch:${branchId}`;
+    const data = body.data;
+    if (!data) return { received: true };
+
+    const msg = data.message || data;
+    const key = msg.key || {};
+    const remoteJid: string = key.remoteJid || data.remoteJid || '';
+
+    // Skip group messages and status broadcasts
+    if (!remoteJid.endsWith('@s.whatsapp.net')) return { received: true };
+
+    const phone = remoteJid.replace('@s.whatsapp.net', '');
+
+    const payload = {
+      id: key.id || String(Date.now()),
+      remoteJid,
+      fromMe: key.fromMe ?? false,
+      text: this.extractText(msg),
+      timestamp: msg.messageTimestamp || Math.floor(Date.now() / 1000),
+      pushName: msg.pushName || data.pushName || '',
+      phone,
+      status: key.fromMe ? 'sent' : 'received',
+      mediaType: this.detectMediaType(msg),
+    };
+
+    this.logger.log(
+      `[Webhook] Message ${payload.fromMe ? '→' : '←'} ${phone}: ${(payload.text || '').slice(0, 50)}`,
+    );
+
+    this.wsGateway.emitCRMEvent(branchRoom, 'crm:message', payload);
+
+    // Also emit chat update so sidebar refreshes
+    this.wsGateway.emitCRMEvent(branchRoom, 'crm:chat:update', {
+      remoteJid,
+      lastMessage: payload.text,
+      lastMsgTimestamp: payload.timestamp,
+      pushName: payload.pushName,
+      phone,
+    });
+
+    return { received: true };
+  }
 
   @Public()
   @Post('contacts-update')
