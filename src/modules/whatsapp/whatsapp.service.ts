@@ -560,17 +560,6 @@ export class WhatsAppService {
           phone: true,
           email: true,
           createdAt: true,
-          _count: {
-            select: {
-              orders: {
-                where: {
-                  status: {
-                    in: ['PENDING', 'CONFIRMED', 'PREPARING'],
-                  },
-                },
-              },
-            },
-          },
           orders: {
             select: {
               id: true,
@@ -611,6 +600,15 @@ export class WhatsAppService {
     const spentMap = new Map<string, number>(
       spentByCustomer.map((s) => [s.customerId!, s._sum.total ?? 0]),
     );
+
+    // Calculate new orders count per customer (PENDING, CONFIRMED, READY)
+    const newOrdersMap = new Map<string, number>();
+    for (const customer of customers) {
+      const newOrdersCount = customer.orders.filter(
+        (o) => ['PENDING', 'CONFIRMED', 'READY'].includes(o.status)
+      ).length;
+      newOrdersMap.set(customer.id, newOrdersCount);
+    }
 
     const customerByPhone = new Map<string, typeof customers[number]>();
     for (const customer of customers) {
@@ -664,7 +662,7 @@ export class WhatsAppService {
         formattedTimestamp: this.formatTimestamp(c.lastMsgTimestamp || c.updatedAt || 0),
         unreadCount: unreadCountMap.get(c._jid) || 0,
         customerId: customer?.id ?? null,
-        totalOrders: customer?._count.orders ?? 0,
+        totalOrders: customer ? (newOrdersMap.get(customer.id) ?? 0) : 0,
         totalSpent,
         lastOrderId: lastOrder?.orderNumber?.toString() ?? null,
         lastOrderTotal: lastOrder?.total ?? null,
@@ -677,7 +675,6 @@ export class WhatsAppService {
           email: customer.email,
           createdAt: customer.createdAt,
           orders: customer.orders,
-          _count: customer._count,
           address: defaultAddress ? {
             id: defaultAddress.id,
             label: defaultAddress.label,
