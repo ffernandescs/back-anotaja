@@ -23,5 +23,11 @@ export class UpdateBranchDto extends PartialType(CreateBranchDto) {
     soundEnabled?: boolean;
     notificationSound?: string;
     browserNotificationsEnabled?: boolean;
+    // PIX-related fields
+    pixMode?: 'disabled' | 'manual' | 'automatic';
+    pixKeyType?: string;
+    pixKey?: string;
+    pixHolderName?: string;
+    mercadoPagoAccessToken?: string;
   };
 }

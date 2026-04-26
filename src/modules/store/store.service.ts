@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { Customer, CustomerType, DeliveryType, DispatchStatus, OrderChannel, OrderStatus, PaymentStatus, PreparationStatus, Prisma, ServiceType, StockMovement } from '@prisma/client';
+import { CashMovementType, Customer, CustomerType, DeliveryType, DispatchStatus, OrderChannel, OrderStatus, PaymentMethodType, PaymentStatus, PreparationStatus, Prisma, ServiceType, StockMovement } from '@prisma/client';
 import { prisma } from '../../../lib/prisma';
 import { CouponsService } from '../coupons/coupons.service';
 import { ValidateCouponDto } from './dto/validate-coupon.dto';
@@ -75,9 +75,21 @@ async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPer
     where: { id: orderId },
     data: updates,
     include: {
-      items: true,
+      items: {
+        include: {
+          product: true,
+          complements: {
+            include: {
+              complement: true,
+              options: { include: { option: true } },
+            },
+          },
+        },
+      },
       customer: true,
       deliveryPerson: true,
+      payments: true,
+      coupon: true,
     },
   });
 
@@ -136,7 +148,10 @@ async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPer
   }
 
   this.webSocketGateway.emitOrderUpdate(
-    { ...updatedOrder },
+    {
+      ...updatedOrder,
+      availableTransitions: stateMachine.getAvailableTransitions(updatedOrder),
+    },
     'order:status_changed',
   );
 
@@ -1877,6 +1892,18 @@ async createOrder(
     }
   }
 
+  if (createOrderDto.pixPaid && finalOrder?.payments?.length) {
+    await this.generateCashMovementsForPixOrder({
+      orderId: finalOrder.id,
+      branchId: finalOrder.branchId,
+      payments: finalOrder.payments.map((p: any) => ({
+        amount: p.amount,
+        method: p.type,
+      })),
+      orderNumber: finalOrder.orderNumber ?? undefined,
+    });
+  }
+
   this.webSocketGateway.emitOrderUpdate(
     {
       ...finalOrder,
@@ -3498,6 +3525,60 @@ if (!fullOrder) {
     }));
 
     return grouped;
+  }
+
+  // ── Movimentação de caixa para PIX automático ────────────────────────────
+
+  /**
+   * Gera movimentações de caixa para pedidos cujo pagamento PIX foi confirmado
+   * automaticamente. Reutilizável por qualquer fluxo que receba status "pago".
+   * Não lança exceção se não houver caixa aberto — apenas ignora silenciosamente.
+   */
+  async generateCashMovementsForPixOrder(params: {
+    orderId: string;
+    branchId: string;
+    payments: { amount: number; method: string }[];
+    orderNumber?: number;
+  }): Promise<void> {
+    const { orderId, branchId, payments, orderNumber } = params;
+
+    const openCashSession = await prisma.cashSession.findFirst({
+      where: { branchId, status: 'OPEN' },
+      orderBy: { openedAt: 'desc' },
+    });
+
+    if (!openCashSession) return;
+
+    const alreadyExists = await prisma.cashMovement.findFirst({
+      where: { orderId, type: CashMovementType.SALE },
+    });
+
+    if (alreadyExists) return;
+
+    const normalizePaymentMethod = (method: string): PaymentMethodType => {
+      const v = String(method || '').toUpperCase();
+      if (['PIX', 'PIX_AUTOMATIC', 'PIX_MANUAL'].includes(v)) return PaymentMethodType.PIX;
+      if (v === 'CASH') return PaymentMethodType.CASH;
+      if (['CREDIT', 'CREDIT_CARD'].includes(v)) return PaymentMethodType.CREDIT;
+      if (['DEBIT', 'DEBIT_CARD'].includes(v)) return PaymentMethodType.DEBIT;
+      if (v === 'ONLINE') return PaymentMethodType.ONLINE;
+      return PaymentMethodType.PIX;
+    };
+
+    for (const payment of payments) {
+      const paymentMethod = normalizePaymentMethod(payment.method);
+      await prisma.cashMovement.create({
+        data: {
+          cashSessionId: openCashSession.id,
+          type: CashMovementType.SALE,
+          amount: payment.amount,
+          userId: openCashSession.openedBy,
+          orderId,
+          paymentMethod,
+          description: `Pedido #${orderNumber ?? orderId.slice(0, 8)} - ${paymentMethod} (PIX Automático)`,
+        },
+      });
+    }
   }
 
   // ── PIX Automático (Mercado Pago) ───────────────────────────────────────
