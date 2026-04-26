@@ -177,6 +177,11 @@ export class WhatsAppController {
     try {
       const config = await this.whatsappService.getFullConfigPublic(branchId);
 
+      if (!config?.instanceName) {
+        this.logger.error('[media-proxy] No instance config found');
+        return res.status(404).json({ error: 'Configuração não encontrada' });
+      }
+
       const base64Result = await fetch(
         `${process.env.EVOLUTION_API_URL}/chat/getBase64FromMediaMessage/${config.instanceName}`,
         {
