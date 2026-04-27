@@ -12,12 +12,16 @@ import {
   SendCrmMessageDto,
 } from './dto/whatsapp.dto';
 import { UploadService } from '../upload/upload.service';
+import { OrderStateMachineService } from '../store/store-state-machine.service';
 
 @Injectable()
 export class WhatsAppService {
   private logger = new Logger(WhatsAppService.name);
+  private orderStateMachine = new OrderStateMachineService();
 
-  constructor(private uploadService: UploadService) {}
+  constructor(
+    private uploadService: UploadService,
+  ) {}
 
   private get serverUrl(): string {
     const url = process.env.EVOLUTION_API_URL;
@@ -843,11 +847,41 @@ export class WhatsAppService {
       return null;
     };
 
+    // Collect all last order IDs to fetch complete orders
+    const lastOrderIds = new Set<string>();
+    for (const c of individualChats) {
+      const customer = findCustomer(c._jid);
+      const lastOrder = customer?.orders[0];
+      if (lastOrder?.id) {
+        lastOrderIds.add(lastOrder.id);
+      }
+    }
+
+    // Fetch complete orders with all properties needed for state machine
+    const completeOrders = await prisma.order.findMany({
+      where: { id: { in: Array.from(lastOrderIds) } },
+    });
+
+    const ordersMap = new Map(completeOrders.map(o => [o.id, o]));
+
     return individualChats.map((c: any) => {
       const customer = findCustomer(c._jid);
       const lastOrder = customer?.orders[0] ?? null;
       const totalSpent = customer ? (spentMap.get(customer.id) ?? 0) : 0;
       const defaultAddress = customer?.addresses[0] ?? null;
+
+      // Get available transitions for the last order using complete order data
+      const completeOrder = lastOrder?.id ? ordersMap.get(lastOrder.id) : null;
+      const availableTransitions = completeOrder
+        ? this.orderStateMachine.getAvailableTransitions(completeOrder)
+        : [];
+
+      // Debug log
+      if (completeOrder) {
+        console.log('[WhatsApp CRM] Order ID:', completeOrder.id, 'Status:', completeOrder.status);
+        console.log('[WhatsApp CRM] Available transitions:', availableTransitions);
+        console.log('[WhatsApp CRM] Complete order object:', JSON.stringify(completeOrder, null, 2));
+      }
 
       return {
         jid: c._jid,
@@ -866,6 +900,7 @@ export class WhatsAppService {
         lastOrderTotal: lastOrder?.total ?? null,
         lastOrderStatus: lastOrder?.status ?? null,
         lastOrderDate: lastOrder?.createdAt ?? null,
+        lastOrderAvailableTransitions: availableTransitions,
         customer: customer ? {
           id: customer.id,
           name: customer.name,
