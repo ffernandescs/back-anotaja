@@ -51,11 +51,13 @@ export class MenuBuilderService {
                 id: feature.id,
                 label: feature.name,
                 icon: feature.icon,
+                isPlugin: feature.isPlugin || false,
                 children: children.map((c) => ({
                   id: c.id,
                   label: c.name,
                   icon: c.icon,
                   href: c.href,
+                  isPlugin: c.isPlugin || false,
                 })),
               };
             }
@@ -68,6 +70,7 @@ export class MenuBuilderService {
               label: feature.name,
               icon: feature.icon,
               href: feature.href,
+              isPlugin: feature.isPlugin || false,
             };
           })
           .filter(Boolean);

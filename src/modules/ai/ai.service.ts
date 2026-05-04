@@ -113,6 +113,30 @@ export class AiService {
     }
   }
 
+  async generateWhatsAppTemplate(
+    type: 'confirmation' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled',
+  ): Promise<string> {
+    try {
+      // Tentar usar Groq primeiro
+      let template = await this.generateWhatsAppTemplateWithGroq(type);
+
+      // Se falhar, usar fallback inteligente
+      if (!template || template.trim().length === 0) {
+        template = this.generateIntelligentWhatsAppTemplate(type);
+      }
+
+      // Limpar e formatar o template
+      template = template
+        .replace(/^["']|["']$/g, '') // Remover aspas
+        .replace(/\n+/g, '\n') // Manter quebras de linha
+        .trim();
+
+      return template;
+    } catch {
+      return this.generateIntelligentWhatsAppTemplate(type);
+    }
+  }
+
   private async generatePrinterMessageWithGroq(
     type: 'delivery' | 'table',
   ): Promise<string> {
@@ -531,5 +555,123 @@ export class AiService {
       return 'https://exemplo.com/avaliar-pedido';
     }
     return 'https://exemplo.com/avaliar-atendimento';
+  }
+
+  private async generateWhatsAppTemplateWithGroq(
+    type: 'confirmation' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled',
+  ): Promise<string> {
+    if (!this.GROQ_API_KEY) {
+      return '';
+    }
+
+    const systemMessage =
+      'Você é um especialista em comunicação para restaurantes. Crie mensagens amigáveis e profissionais para WhatsApp. Use as variáveis: {orderNumber}, {customerName}, {total}, {items}, {branchName}.';
+
+    const typeMessages: Record<string, string> = {
+      confirmation: 'Crie uma mensagem de confirmação de pedido para WhatsApp',
+      ready: 'Crie uma mensagem de pedido pronto para WhatsApp',
+      out_for_delivery: 'Crie uma mensagem de saiu para entrega para WhatsApp',
+      delivered: 'Crie uma mensagem de pedido entregue para WhatsApp',
+      cancelled: 'Crie uma mensagem de pedido cancelado para WhatsApp',
+    };
+
+    try {
+      const response = await axios.post<OpenAIResponse>(
+        this.GROQ_API_URL,
+        {
+          model: 'llama-3.1-8b-instant',
+          messages: [
+            {
+              role: 'system',
+              content: systemMessage,
+            },
+            {
+              role: 'user',
+              content: typeMessages[type],
+            },
+          ],
+          max_tokens: 200,
+          temperature: 0.7,
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${this.GROQ_API_KEY}`,
+          },
+          timeout: 10000,
+        },
+      );
+
+      if (
+        response.data &&
+        response.data.choices &&
+        response.data.choices[0] &&
+        response.data.choices[0].message
+      ) {
+        return response.data.choices[0].message.content.trim();
+      }
+
+      return '';
+    } catch (error: any) {
+      console.error('Erro ao gerar template de WhatsApp com Groq:', error);
+      return '';
+    }
+  }
+
+  private generateIntelligentWhatsAppTemplate(
+    type: 'confirmation' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled',
+  ): string {
+    const templates: Record<string, string> = {
+      confirmation: `📱 *Confirmação de Pedido*
+
+Olá {customerName}!
+
+Seu pedido #{orderNumber} foi *recebido* e está sendo preparado.
+
+🛒 *Itens:* {items}
+💰 *Total:* R$ {total}
+
+📍 {branchName}
+
+Agradecemos pela preferência!`,
+      ready: `✅ *Pedido Pronto!*
+
+Olá {customerName}!
+
+Seu pedido #{orderNumber} está *pronto* para retirada.
+
+📍 {branchName}
+
+Agradecemos pela preferência!`,
+      out_for_delivery: `🚀 *Pedido em Rota!*
+
+Olá {customerName}!
+
+Seu pedido #{orderNumber} *saiu para entrega*.
+
+📍 {branchName}
+
+Agradecemos pela preferência!`,
+      delivered: `✅ *Pedido Entregue!*
+
+Olá {customerName}!
+
+Seu pedido #{orderNumber} foi *entregue* com sucesso.
+
+📍 {branchName}
+
+Agradecemos pela preferência!`,
+      cancelled: `❌ *Pedido Cancelado*
+
+Olá {customerName}!
+
+Seu pedido #{orderNumber} foi *cancelado*.
+
+📍 {branchName}
+
+Se tiver alguma dúvida, entre em contato conosco.`,
+    };
+
+    return templates[type] || '';
   }
 }

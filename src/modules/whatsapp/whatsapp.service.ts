@@ -1,0 +1,1458 @@
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { prisma } from '../../../lib/prisma';
+import ffmpeg from 'fluent-ffmpeg';
+import * as path from 'path';
+import * as fs from 'fs';
+import { randomUUID } from 'crypto';
+import {
+  UpdateWhatsAppConfigDto,
+  SendTestMessageDto,
+  FetchMessagesDto,
+  SendCrmMessageDto,
+} from './dto/whatsapp.dto';
+import { UploadService } from '../upload/upload.service';
+import { OrderStateMachineService } from '../store/store-state-machine.service';
+
+@Injectable()
+export class WhatsAppService {
+  private logger = new Logger(WhatsAppService.name);
+  private orderStateMachine = new OrderStateMachineService();
+
+  constructor(
+    private uploadService: UploadService,
+  ) {}
+
+  private get serverUrl(): string {
+    const url = process.env.EVOLUTION_API_URL;
+    if (!url) throw new BadRequestException('EVOLUTION_API_URL nao configurada');
+    return url.replace(/\/+$/, '');
+  }
+
+  private get globalApiKey(): string {
+    const key = process.env.EVOLUTION_API_KEY;
+    if (!key) throw new BadRequestException('EVOLUTION_API_KEY nao configurada');
+    return key;
+  }
+
+  // ─── Monitor Instance Connection ──────────────────────────────────
+
+  private monitorInstanceConnection(branchId: string, instanceName: string) {
+    const maxAttempts = 60; // 10 minutos (60 * 10 segundos)
+    let attempts = 0;
+
+    const checkConnection = async () => {
+      if (attempts >= maxAttempts) {
+        console.log('[WhatsApp] Stopped monitoring instance connection (max attempts reached)');
+        return;
+      }
+
+      attempts++;
+
+      try {
+        const status = await this.getStatus(branchId);
+        
+        if (status.status === 'connected') {
+          console.log('[WhatsApp] Instance connected via QR, fetching conversations...');
+          await this.fetchChats(branchId);
+          console.log('[WhatsApp] Conversations fetched successfully');
+          return;
+        }
+
+        // Continua monitorando
+        setTimeout(checkConnection, 10000); // Verifica a cada 10 segundos
+      } catch (error) {
+        console.error('[WhatsApp] Error checking instance connection:', error);
+        setTimeout(checkConnection, 10000);
+      }
+    };
+
+    // Inicia o monitoramento após 5 segundos
+    setTimeout(checkConnection, 5000);
+  }
+
+  // ─── Config CRUD ──────────────────────────────────────────────
+
+  async getConfig(branchId: string) {
+    const config = await prisma.whatsAppConfig.findUnique({
+      where: { branchId },
+    });
+
+    if (!config) {
+      return {
+        status: 'disconnected',
+        enabled: false,
+        notifyNewOrder: true,
+        notifyOrderStatus: true,
+        notifyDelivery: true,
+        orderConfirmationEnabled: true,
+        orderReadyEnabled: true,
+        deliveryStartEnabled: true,
+        deliveryCancelEnabled: true,
+      };
+    }
+
+    return {
+      ...config,
+      serverUrl: undefined,
+      apiKey: undefined,
+    };
+  }
+
+  async updateConfig(branchId: string, dto: UpdateWhatsAppConfigDto) {
+    return prisma.whatsAppConfig.upsert({
+      where: { branchId },
+      update: dto,
+      create: { branchId, ...dto },
+    });
+  }
+
+  // ─── Evolution API – Instance management ──────────────────────
+
+  async setup(branchId: string) {
+    const instanceName = `anotaja_${branchId}`;
+
+    console.log('[WhatsApp] Setting up instance:', instanceName);
+    console.log('[WhatsApp] Evolution API URL:', this.serverUrl);
+
+    await prisma.whatsAppConfig.upsert({
+      where: { branchId },
+      update: {
+        serverUrl: this.serverUrl,
+        apiKey: this.globalApiKey,
+        instanceName,
+        status: 'connecting',
+      },
+      create: {
+        branchId,
+        serverUrl: this.serverUrl,
+        apiKey: this.globalApiKey,
+        instanceName,
+        status: 'connecting',
+      },
+    });
+
+    try {
+      console.log('[WhatsApp] Creating instance with:', {
+        instanceName,
+        integration: 'WHATSAPP-BAILEYS',
+        qrcode: true,
+      });
+
+      const createRes = await this.evolutionRequest(
+        'POST',
+        '/instance/create',
+        {
+          instanceName,
+          integration: 'WHATSAPP-BAILEYS',
+          qrcode: true,
+          storeMessages: true,
+          storeFullMessages: true,
+        },
+      );
+
+      // Enable sync_full_history to import historical messages (one-time sync)
+      // Note: This will sync on connection, then automatically stop after completion
+      await this.evolutionRequest(
+        'POST',
+        `/settings/set/${instanceName}`,
+        {
+          sync_full_history: false, // Disabled to prevent continuous sync loop
+          read_messages: true,
+          read_status: true,
+        },
+      ).catch((e) => {
+        console.log('[WhatsApp] Failed to set sync settings:', e);
+      });
+
+      // Configure webhook automatically
+      const webhookUrl = process.env.EVOLUTION_WEBHOOK_URL;
+      if (webhookUrl) {
+        await this.evolutionRequest(
+          'POST',
+          `/webhook/set/${instanceName}`,
+          {
+            url: webhookUrl,
+            webhook_by_events: false,
+            events: [
+              'MESSAGES_UPSERT',
+              'MESSAGES_UPDATE',
+              'SEND_MESSAGE',
+              'CONTACTS_UPDATE',
+              'CHATS_UPDATE',
+              'CHATS_UPSERT',
+              'CHATS_DELETE',
+              'CHATS_SET',
+            ],
+          },
+        ).catch((e) => {
+          console.log('[WhatsApp] Failed to configure webhook:', e);
+        });
+        console.log('[WhatsApp] Webhook configured automatically:', webhookUrl);
+      }
+
+      console.log('[WhatsApp] Create response:', JSON.stringify(createRes, null, 2));
+
+      const instanceId = createRes?.instance?.instanceId || createRes?.instance?.id;
+
+      if (!instanceId) {
+        console.error('[WhatsApp] No instance ID in create response');
+        throw new BadRequestException('Failed to get instance ID from Evolution API');
+      }
+
+      await prisma.whatsAppConfig.update({
+        where: { branchId },
+        data: {
+          instanceId,
+          status: 'qr_code',
+        },
+      });
+
+      // Fetch QR code from connect endpoint
+      console.log('[WhatsApp] Fetching QR code from connect endpoint');
+      const connectRes = await this.evolutionRequest(
+        'GET',
+        `/instance/connect/${instanceName}`,
+      );
+
+      console.log('[WhatsApp] Connect response:', JSON.stringify(connectRes, null, 2));
+
+      const qrCode = connectRes?.base64 || connectRes?.qrcode?.base64 || connectRes?.pairingCode || null;
+
+      if (!qrCode) {
+        console.error('[WhatsApp] No QR code in connect response');
+      }
+
+      await prisma.whatsAppConfig.update({
+        where: { branchId },
+        data: {
+          qrCode,
+        },
+      });
+
+      // Inicia monitoramento para baixar conversas quando a instância for conectada via QR
+      this.monitorInstanceConnection(branchId, instanceName);
+
+      return {
+        status: 'qr_code',
+        qrCode,
+        instanceName,
+      };
+    } catch (error: any) {
+      console.error('[WhatsApp] Setup error:', error);
+
+      if (error?.status === 403 || error?.message?.includes('already')) {
+        console.log('[WhatsApp] Instance already exists, calling connect');
+        return this.connect(branchId);
+      }
+
+      await prisma.whatsAppConfig.update({
+        where: { branchId },
+        data: { status: 'disconnected' },
+      });
+
+      throw new BadRequestException(
+        `Falha ao conectar Evolution API: ${error?.message || 'Erro desconhecido'}`,
+      );
+    }
+  }
+
+  async enableSyncHistory(branchId: string) {
+    const config = await this.getFullConfig(branchId);
+    
+    try {
+      await this.evolutionRequest(
+        'POST',
+        `/settings/set/${config.instanceName}`,
+        {
+          sync_full_history: false, // Disabled to prevent continuous sync loop
+          read_messages: true,
+          read_status: true,
+        },
+      );
+      
+      console.log('[WhatsApp] sync settings configured for instance:', config.instanceName);
+      
+      return { success: true, message: 'sync settings configured successfully' };
+    } catch (error: any) {
+      console.error('[WhatsApp] Failed to configure sync settings:', error);
+      throw new BadRequestException('Failed to configure sync settings');
+    }
+  }
+
+  async connect(branchId: string) {
+    const config = await this.getFullConfig(branchId);
+
+    const res = await this.evolutionRequest(
+      'GET',
+      `/instance/connect/${config.instanceName}`,
+    );
+
+    const status = res?.base64 ? 'qr_code' : 'connecting';
+
+    await prisma.whatsAppConfig.update({
+      where: { branchId },
+      data: {
+        status,
+        qrCode: res?.base64 || null,
+      },
+    });
+
+    // Configure webhook automatically on connect (in case it wasn't configured before)
+    const webhookUrl = process.env.EVOLUTION_WEBHOOK_URL;
+    if (webhookUrl) {
+      await this.evolutionRequest(
+        'POST',
+        `/webhook/set/${config.instanceName}`,
+        {
+          url: webhookUrl,
+          webhook_by_events: false,
+          events: [
+            'MESSAGES_UPSERT',
+            'MESSAGES_UPDATE',
+            'SEND_MESSAGE',
+            'CONTACTS_UPDATE',
+            'CHATS_UPDATE',
+            'CHATS_UPSERT',
+            'CHATS_DELETE',
+            'CHATS_SET',
+          ],
+        },
+      ).catch((e) => {
+        console.log('[WhatsApp] Failed to configure webhook on connect:', e);
+      });
+      console.log('[WhatsApp] Webhook configured on connect:', webhookUrl);
+    }
+
+    // Se já estiver conectado (sem QR code), baixa conversas automaticamente
+    if (status === 'connecting' && !res?.base64) {
+      // Verifica o status real da conexão após um pequeno delay
+      setTimeout(async () => {
+        try {
+          const currentStatus = await this.getStatus(branchId);
+          if (currentStatus.status === 'connected') {
+            console.log('[WhatsApp] Instance connected, fetching conversations...');
+            await this.fetchChats(branchId);
+            console.log('[WhatsApp] Conversations fetched successfully');
+          }
+        } catch (error) {
+          console.error('[WhatsApp] Error fetching conversations after connect:', error);
+        }
+      }, 3000);
+    }
+
+    return { status, qrCode: res?.base64 || null };
+  }
+
+  async disconnect(branchId: string) {
+    const config = await this.getFullConfig(branchId);
+
+    console.log('[WhatsApp] Disconnecting instance:', config.instanceName);
+
+    try {
+      await this.evolutionRequest(
+        'DELETE',
+        `/instance/logout/${config.instanceName}`,
+      );
+      console.log('[WhatsApp] Logout successful');
+    } catch (error) {
+      console.log('[WhatsApp] Logout failed:', error);
+    }
+
+    try {
+      await this.evolutionRequest(
+        'DELETE',
+        `/instance/delete/${config.instanceName}`,
+      );
+      console.log('[WhatsApp] Instance deleted successfully');
+    } catch (error) {
+      console.log('[WhatsApp] Delete instance failed:', error);
+    }
+
+    // Limpa todos os contadores de mensagens não lidas do banco
+    await prisma.whatsAppChatRead.deleteMany({
+      where: { branchId },
+    });
+    console.log('[WhatsApp] Cleared all message read status for branch:', branchId);
+
+    await prisma.whatsAppConfig.update({
+      where: { branchId },
+      data: {
+        status: 'disconnected',
+        qrCode: null,
+        phoneNumber: null,
+        profileName: null,
+        profilePicUrl: null,
+        // Mantém instanceName e instanceId para o webhook continuar funcionando
+        // Eles são usados para resolver o branchId nos eventos
+      },
+    });
+
+    return { status: 'disconnected' };
+  }
+
+  async getStatus(branchId: string) {
+    const config = await prisma.whatsAppConfig.findUnique({
+      where: { branchId },
+    });
+
+    if (!config?.instanceName) {
+      return { status: 'disconnected' };
+    }
+
+    try {
+      const res = await this.evolutionRequest(
+        'GET',
+        `/instance/connectionState/${config.instanceName}`,
+      );
+
+      const state = res?.instance?.state || res?.state || 'close';
+      let status: string;
+
+      if (state === 'open') {
+        status = 'connected';
+
+        if (config.status !== 'connected') {
+          // Atualiza apenas o status sem buscar informações adicionais da instância
+          // Isso evita chamadas desnecessárias à Evolution API que causam lentidão
+          await prisma.whatsAppConfig.update({
+            where: { branchId },
+            data: { status: 'connected', qrCode: null },
+          });
+        }
+      } else if (state === 'connecting') {
+        if (config.qrCode) {
+          status = 'qr_code';
+        } else {
+          status = 'connecting';
+        }
+      } else {
+        status = 'disconnected';
+      }
+
+      return {
+        status,
+        phoneNumber: config.phoneNumber,
+        profileName: config.profileName,
+        profilePicUrl: config.profilePicUrl,
+      };
+    } catch {
+      return { status: config.status || 'disconnected' };
+    }
+  }
+
+  // ─── Send messages ────────────────────────────────────────────
+
+  async sendTestMessage(branchId: string, dto: SendTestMessageDto) {
+    const config = await this.getFullConfig(branchId);
+
+    if (config.status !== 'connected') {
+      throw new BadRequestException('WhatsApp nao esta conectado');
+    }
+
+    const phone = this.formatPhone(dto.phone);
+    const message =
+      dto.message ||
+      'Mensagem de teste do Anotaja! Sua integracao WhatsApp esta funcionando.';
+
+    await this.evolutionRequest(
+      'POST',
+      `/message/sendText/${config.instanceName}`,
+      { number: phone, text: message },
+    );
+
+    return { success: true, message: 'Mensagem de teste enviada!' };
+  }
+
+  async sendMessage(branchId: string, phone: string, text: string) {
+    const config = await prisma.whatsAppConfig.findUnique({
+      where: { branchId },
+    });
+
+    if (!config || config.status !== 'connected' || !config.enabled) {
+      return;
+    }
+
+    const formattedPhone = this.formatPhone(phone);
+
+    try {
+      await this.evolutionRequest(
+        'POST',
+        `/message/sendText/${config.instanceName}`,
+        { number: formattedPhone, text },
+      );
+    } catch (error) {
+      console.error(`[WhatsApp] Falha ao enviar mensagem para ${phone}:`, error);
+    }
+  }
+
+  // ─── CRM – Chats & Messages ────────────────────────────────────
+
+  async fetchSingleChat(branchId: string, jid: string) {
+    const config = await prisma.whatsAppConfig.findUnique({
+      where: { branchId },
+    });
+
+    if (!config?.instanceName) {
+      return null;
+    }
+
+    // Fetch customer data
+    const customers = await prisma.customer.findMany({
+      where: { branchId },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        email: true,
+        createdAt: true,
+        orders: {
+          select: {
+            id: true,
+            orderNumber: true,
+            total: true,
+            status: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 5,
+        },
+        addresses: {
+          where: { isDefault: true },
+          select: {
+            id: true,
+            label: true,
+            street: true,
+            number: true,
+            complement: true,
+            neighborhood: true,
+            city: true,
+            state: true,
+            zipCode: true,
+            reference: true,
+          },
+          take: 1,
+        },
+      },
+    });
+
+    // Calculate new orders count per customer (PENDING, CONFIRMED, READY)
+    const newOrdersMap = new Map<string, number>();
+    for (const customer of customers) {
+      const newOrdersCount = customer.orders.filter(
+        (o) => ['PENDING', 'CONFIRMED', 'READY'].includes(o.status)
+      ).length;
+      newOrdersMap.set(customer.id, newOrdersCount);
+    }
+
+    const spentByCustomer = await prisma.order.groupBy({
+      by: ['customerId'],
+      where: { branchId, customerId: { not: null } },
+      _sum: { total: true },
+    });
+
+    const spentMap = new Map<string, number>(
+      spentByCustomer.map((s) => [s.customerId!, s._sum.total ?? 0]),
+    );
+
+    const customerByPhone = new Map<string, typeof customers[number]>();
+    for (const customer of customers) {
+      const normalized = customer.phone.replace(/\D/g, '');
+      customerByPhone.set(normalized, customer);
+    }
+
+    const findCustomer = (targetJid: string) => {
+      const waPhone = targetJid.replace('@s.whatsapp.net', '');
+      if (customerByPhone.has(waPhone)) return customerByPhone.get(waPhone)!;
+
+      const stripCountry = (p: string) =>
+        p.startsWith('55') && p.length >= 12 ? p.slice(2) : p;
+      const waLocal = stripCountry(waPhone);
+
+      for (const [phone, customer] of customerByPhone) {
+        const dbLocal = stripCountry(phone);
+        if (waLocal === dbLocal) return customer;
+        if (waLocal.length === 9 && dbLocal.length === 8 && waLocal.startsWith('9') && waLocal.slice(1) === dbLocal) {
+          return customer;
+        }
+      }
+      return null;
+    };
+
+    const customer = findCustomer(jid);
+    const lastOrder = customer?.orders[0] ?? null;
+    const totalSpent = customer ? (spentMap.get(customer.id) ?? 0) : 0;
+    const defaultAddress = customer?.addresses[0] ?? null;
+
+    // Fetch chat data from Evolution API
+    const raw = await this.evolutionRequest(
+      'POST',
+      `/chat/findChats/${config.instanceName}`,
+      { where: { remoteJid: jid } },
+    );
+
+    const rawChats: any[] = Array.isArray(raw)
+      ? raw
+      : raw?.chats || raw?.data || raw?.records || [];
+
+    const chat = rawChats.find((c: any) => {
+      if (c.remoteJid === jid) return true;
+      if (c.jid === jid) return true;
+      if (c.id === jid) return true;
+      return false;
+    });
+
+    if (!chat) {
+      // If chat not found in Evolution API, return customer data only
+      return {
+        jid,
+        name: customer?.name || this.jidToPhone(jid),
+        phone: this.jidToPhone(jid),
+        profilePicUrl: null,
+        lastMessage: '',
+        lastMessageType: 'text',
+        lastMsgTimestamp: 0,
+        formattedTimestamp: '',
+        unreadCount: 0,
+        customerId: customer?.id ?? null,
+        totalOrders: customer ? (newOrdersMap.get(customer.id) ?? 0) : 0,
+        totalSpent,
+        lastOrderId: lastOrder?.orderNumber?.toString() ?? null,
+        lastOrderTotal: lastOrder?.total ?? null,
+        lastOrderStatus: lastOrder?.status ?? null,
+        lastOrderDate: lastOrder?.createdAt ?? null,
+        customer: customer ? {
+          id: customer.id,
+          name: customer.name,
+          phone: customer.phone,
+          email: customer.email,
+          createdAt: customer.createdAt,
+          orders: customer.orders,
+          address: defaultAddress ? {
+            id: defaultAddress.id,
+            label: defaultAddress.label,
+            street: defaultAddress.street,
+            number: defaultAddress.number,
+            complement: defaultAddress.complement,
+            neighborhood: defaultAddress.neighborhood,
+            city: defaultAddress.city,
+            state: defaultAddress.state,
+            zipCode: defaultAddress.zipCode,
+            reference: defaultAddress.reference,
+          } : null,
+        } : null,
+      };
+    }
+
+    return {
+      jid,
+      name: customer?.name || chat.name || chat.pushName || chat.verifiedName || this.jidToPhone(jid),
+      phone: this.jidToPhone(jid),
+      profilePicUrl: chat.profilePicUrl || null,
+      lastMessage: this.extractTextFromMessage(chat.lastMessage) || '',
+      lastMessageType: this.detectMediaType(chat.lastMessage),
+      lastMsgTimestamp: chat.lastMsgTimestamp || chat.updatedAt || 0,
+      formattedTimestamp: this.formatTimestamp(chat.lastMsgTimestamp || chat.updatedAt || 0),
+      unreadCount: 0,
+      customerId: customer?.id ?? null,
+      totalOrders: customer ? (newOrdersMap.get(customer.id) ?? 0) : 0,
+      totalSpent,
+      lastOrderId: lastOrder?.orderNumber?.toString() ?? null,
+      lastOrderTotal: lastOrder?.total ?? null,
+      lastOrderStatus: lastOrder?.status ?? null,
+      lastOrderDate: lastOrder?.createdAt ?? null,
+      customer: customer ? {
+        id: customer.id,
+        name: customer.name,
+        phone: customer.phone,
+        email: customer.email,
+        createdAt: customer.createdAt,
+        orders: customer.orders,
+        address: defaultAddress ? {
+          id: defaultAddress.id,
+          label: defaultAddress.label,
+          street: defaultAddress.street,
+          number: defaultAddress.number,
+          complement: defaultAddress.complement,
+          neighborhood: defaultAddress.neighborhood,
+          city: defaultAddress.city,
+          state: defaultAddress.state,
+          zipCode: defaultAddress.zipCode,
+          reference: defaultAddress.reference,
+        } : null,
+      } : null,
+    };
+  }
+
+  async fetchChats(branchId: string) {
+    const config = await this.getFullConfig(branchId);
+
+    const raw = await this.evolutionRequest(
+      'POST',
+      `/chat/findChats/${config.instanceName}`,
+      { where: {} },
+    );
+
+    const rawChats: any[] = Array.isArray(raw)
+      ? raw
+      : raw?.chats || raw?.data || raw?.records || [];
+
+    const extractJid = (c: any): string => {
+      if (typeof c.remoteJid === 'string' && c.remoteJid.includes('@')) return c.remoteJid;
+      if (typeof c.jid === 'string' && c.jid.includes('@')) return c.jid;
+      if (typeof c.id === 'string' && c.id.includes('@')) return c.id;
+      if (c.key?.remoteJid && c.key.remoteJid.includes('@')) return c.key.remoteJid;
+      if (typeof c.owner === 'string' && c.owner.includes('@')) return c.owner;
+      return '';
+    };
+
+    const chatsByJid = new Map<string, any>();
+    for (const c of rawChats) {
+      const jid = extractJid(c);
+      if (!jid || !jid.endsWith('@s.whatsapp.net')) continue;
+      chatsByJid.set(jid, { ...c, _jid: jid });
+    }
+
+    // Merge LID chats: incoming messages are stored under @lid JIDs.
+    // If a @lid chat has lastMessage.key.remoteJidAlt pointing to an existing
+    // @s.whatsapp.net chat with a newer timestamp, update that chat's lastMessage.
+    for (const c of rawChats) {
+      const jid = extractJid(c);
+      if (!jid || !jid.endsWith('@lid')) continue;
+
+      const altJid: string =
+        c.lastMessage?.key?.remoteJidAlt ||
+        c.lastMessage?.key?.participantAlt ||
+        '';
+      if (!altJid.endsWith('@s.whatsapp.net')) continue;
+
+      const existing = chatsByJid.get(altJid);
+      if (!existing) continue;
+
+      const lidTs = c.lastMessage?.messageTimestamp || c.updatedAt || 0;
+      const existingTs = existing.lastMessage?.messageTimestamp || existing.lastMsgTimestamp || existing.updatedAt || 0;
+
+      if (Number(lidTs) > Number(existingTs)) {
+        existing.lastMessage = c.lastMessage;
+        existing.lastMsgTimestamp = lidTs;
+        existing.updatedAt = c.updatedAt || existing.updatedAt;
+      }
+    }
+
+    const individualChats = Array.from(chatsByJid.values());
+
+    // Fetch unread counts from database
+    const chatReadStatuses = await prisma.whatsAppChatRead.findMany({
+      where: { branchId },
+    });
+
+    const unreadCountMap = new Map<string, number>();
+    for (const status of chatReadStatuses) {
+      unreadCountMap.set(status.jid, status.unreadCount);
+    }
+
+    const [customers, spentByCustomer] = await Promise.all([
+      prisma.customer.findMany({
+        where: { branchId },
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          email: true,
+          createdAt: true,
+          orders: {
+            select: {
+              id: true,
+              orderNumber: true,
+              total: true,
+              status: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 5,
+          },
+          addresses: {
+            where: { isDefault: true },
+            select: {
+              id: true,
+              label: true,
+              street: true,
+              number: true,
+              complement: true,
+              neighborhood: true,
+              city: true,
+              state: true,
+              zipCode: true,
+              reference: true,
+            },
+            take: 1,
+          },
+        },
+      }),
+      prisma.order.groupBy({
+        by: ['customerId'],
+        where: { branchId, customerId: { not: null } },
+        _sum: { total: true },
+      }),
+    ]);
+
+    const spentMap = new Map<string, number>(
+      spentByCustomer.map((s) => [s.customerId!, s._sum.total ?? 0]),
+    );
+
+    // Calculate new orders count per customer (PENDING, CONFIRMED, READY)
+    const newOrdersMap = new Map<string, number>();
+    for (const customer of customers) {
+      const newOrdersCount = customer.orders.filter(
+        (o) => ['PENDING', 'CONFIRMED', 'READY'].includes(o.status)
+      ).length;
+      newOrdersMap.set(customer.id, newOrdersCount);
+    }
+
+    const customerByPhone = new Map<string, typeof customers[number]>();
+    for (const customer of customers) {
+      const normalized = customer.phone.replace(/\D/g, '');
+      customerByPhone.set(normalized, customer);
+    }
+
+    const findCustomer = (jid: string) => {
+      const waPhone = jid.replace('@s.whatsapp.net', '');
+      if (customerByPhone.has(waPhone)) return customerByPhone.get(waPhone)!;
+
+      const stripCountry = (p: string) =>
+        p.startsWith('55') && p.length >= 12 ? p.slice(2) : p;
+      const waLocal = stripCountry(waPhone);
+
+      for (const [phone, customer] of customerByPhone) {
+        const dbLocal = stripCountry(phone);
+        if (waLocal === dbLocal) return customer;
+
+        if (waLocal.length >= 10 && dbLocal.length >= 10) {
+          const waArea = waLocal.slice(0, 2);
+          const dbArea = dbLocal.slice(0, 2);
+          if (waArea === dbArea) {
+            const waNum = waLocal.slice(2);
+            const dbNum = dbLocal.slice(2);
+            if (waNum.length === 8 && dbNum.length === 9 && dbNum.startsWith('9') && dbNum.slice(1) === waNum) {
+              return customer;
+            }
+            if (waNum.length === 9 && dbNum.length === 8 && waNum.startsWith('9') && waNum.slice(1) === dbNum) {
+              return customer;
+            }
+          }
+        }
+      }
+      return null;
+    };
+
+    // Collect all last order IDs to fetch complete orders
+    const lastOrderIds = new Set<string>();
+    for (const c of individualChats) {
+      const customer = findCustomer(c._jid);
+      const lastOrder = customer?.orders[0];
+      if (lastOrder?.id) {
+        lastOrderIds.add(lastOrder.id);
+      }
+    }
+
+    // Fetch complete orders with all properties needed for state machine
+    const completeOrders = await prisma.order.findMany({
+      where: { id: { in: Array.from(lastOrderIds) } },
+    });
+
+    const ordersMap = new Map(completeOrders.map(o => [o.id, o]));
+
+    return individualChats.map((c: any) => {
+      const customer = findCustomer(c._jid);
+      const lastOrder = customer?.orders[0] ?? null;
+      const totalSpent = customer ? (spentMap.get(customer.id) ?? 0) : 0;
+      const defaultAddress = customer?.addresses[0] ?? null;
+
+      // Get available transitions for the last order using complete order data
+      const completeOrder = lastOrder?.id ? ordersMap.get(lastOrder.id) : null;
+      const availableTransitions = completeOrder
+        ? this.orderStateMachine.getAvailableTransitions(completeOrder)
+        : [];
+
+      // Debug log
+      if (completeOrder) {
+        console.log('[WhatsApp CRM] Order ID:', completeOrder.id, 'Status:', completeOrder.status);
+        console.log('[WhatsApp CRM] Available transitions:', availableTransitions);
+        console.log('[WhatsApp CRM] Complete order object:', JSON.stringify(completeOrder, null, 2));
+      }
+
+      return {
+        jid: c._jid,
+        name: customer?.name || c.name || c.pushName || c.verifiedName || this.jidToPhone(c._jid),
+        phone: this.jidToPhone(c._jid),
+        profilePicUrl: c.profilePicUrl || null,
+        lastMessage: this.extractTextFromMessage(c.lastMessage) || '',
+        lastMessageType: this.detectMediaType(c.lastMessage),
+        lastMsgTimestamp: c.lastMsgTimestamp || c.updatedAt || 0,
+        formattedTimestamp: this.formatTimestamp(c.lastMsgTimestamp || c.updatedAt || 0),
+        unreadCount: unreadCountMap.get(c._jid) || 0,
+        customerId: customer?.id ?? null,
+        totalOrders: customer ? (newOrdersMap.get(customer.id) ?? 0) : 0,
+        totalSpent,
+        lastOrderId: lastOrder?.id ?? null,
+        lastOrderNumber: lastOrder?.orderNumber?.toString() ?? null,
+        lastOrderTotal: lastOrder?.total ?? null,
+        lastOrderStatus: lastOrder?.status ?? null,
+        lastOrderDate: lastOrder?.createdAt ?? null,
+        lastOrderAvailableTransitions: availableTransitions,
+        customer: customer ? {
+          id: customer.id,
+          name: customer.name,
+          phone: customer.phone,
+          email: customer.email,
+          createdAt: customer.createdAt,
+          orders: customer.orders,
+          address: defaultAddress ? {
+            id: defaultAddress.id,
+            label: defaultAddress.label,
+            street: defaultAddress.street,
+            number: defaultAddress.number,
+            complement: defaultAddress.complement,
+            neighborhood: defaultAddress.neighborhood,
+            city: defaultAddress.city,
+            state: defaultAddress.state,
+            zipCode: defaultAddress.zipCode,
+            reference: defaultAddress.reference,
+          } : null,
+        } : null,
+      };
+    });
+  }
+
+  async fetchMessages(branchId: string, dto: FetchMessagesDto) {
+    const config = await prisma.whatsAppConfig.findUnique({
+      where: { branchId },
+    });
+
+    if (!config?.instanceName) {
+      return [];
+    }
+
+    const count = dto.count || 50;
+
+    // WhatsApp uses two JID formats:
+    //   - Outgoing msgs: key.remoteJid = "558182647354@s.whatsapp.net"
+    //   - Incoming msgs: key.remoteJid = "39771615309944@lid", key.remoteJidAlt = "558182647354@s.whatsapp.net"
+    // We query BOTH key.remoteJid AND key.remoteJidAlt to get the full conversation.
+    const [outgoing, incoming] = await Promise.all([
+      this.evolutionRequest(
+        'POST',
+        `/chat/findMessages/${config.instanceName}`,
+        { where: { key: { remoteJid: dto.jid } }, limit: count },
+      )
+        .then((r) => this.extractMessagesFromResponse(r))
+        .catch(() => [] as any[]),
+
+      this.evolutionRequest(
+        'POST',
+        `/chat/findMessages/${config.instanceName}`,
+        { where: { key: { remoteJidAlt: dto.jid } }, limit: count },
+      )
+        .then((r) => this.extractMessagesFromResponse(r))
+        .catch(() => [] as any[]),
+    ]);
+
+    const raw = [...outgoing, ...incoming];
+
+    if (raw.length === 0) {
+      return [];
+    }
+
+    // Deduplicate by message ID
+    const seen = new Set<string>();
+    const deduped = raw.filter((msg: any) => {
+      const id = msg.key?.id || msg.id || String(msg.messageTimestamp);
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+
+    // Sort newest first
+    deduped.sort((a, b) => {
+      const tA = typeof a.messageTimestamp === 'number' ? a.messageTimestamp : Number(a.messageTimestamp) || 0;
+      const tB = typeof b.messageTimestamp === 'number' ? b.messageTimestamp : Number(b.messageTimestamp) || 0;
+      return tB - tA;
+    });
+
+    // Cursor-based pagination
+    let paginated = deduped;
+    if (dto.cursor) {
+      paginated = deduped.filter((msg: any) => {
+        const ts = typeof msg.messageTimestamp === 'number' ? msg.messageTimestamp : Number(msg.messageTimestamp) || 0;
+        return ts < dto.cursor!;
+      });
+    }
+
+    return paginated.slice(0, count).map((msg: any) => ({
+      id: msg.key?.id || msg.id || String(msg.messageTimestamp),
+      fromMe: msg.key?.fromMe ?? false,
+      text: this.extractTextFromMessage(msg) || '',
+      timestamp: typeof msg.messageTimestamp === 'number'
+        ? msg.messageTimestamp
+        : Number(msg.messageTimestamp) || 0,
+      status: this.mapEvolutionStatus(msg.status),
+      mediaType: this.detectMediaType(msg),
+      mediaUrl: this.extractMediaUrl(msg),
+      pushName: msg.pushName || null,
+    }));
+  }
+
+
+
+  async sendCrmMessage(branchId: string, dto: SendCrmMessageDto) {
+    const config = await this.getFullConfig(branchId);
+
+    const result = await this.evolutionRequest(
+      'POST',
+      `/message/sendText/${config.instanceName}`,
+      { number: dto.jid, text: dto.text },
+    );
+
+    return {
+      success: true,
+      messageId: result?.key?.id || null,
+    };
+  }
+
+async sendCrmMedia(
+  branchId: string,
+  jid: string,
+  file: Express.Multer.File,
+  caption?: string,
+) {
+  const config = await this.getFullConfig(branchId);
+  const isAudio = file.mimetype.startsWith('audio/');
+
+  const base64File = file.buffer.toString('base64');
+
+  // Para áudio, usa sendWhatsAppAudio (PTT) em vez de sendMedia
+  const endpoint = isAudio
+    ? `/message/sendWhatsAppAudio/${config.instanceName}`
+    : `/message/sendMedia/${config.instanceName}`;
+
+  const body = isAudio
+    ? {
+        number: jid,
+        audio: base64File,
+        encoding: true,
+      }
+    : {
+        number: jid,
+        mediatype: this.detectMediaTypeFromMime(file.mimetype),
+        media: base64File,
+        fileName: file.originalname,
+        caption: caption || '',
+      };
+
+  const result = await this.evolutionRequest('POST', endpoint, body);
+
+  return {
+    success: true,
+    messageId: result?.key?.id || result?.messageId || null,
+  };
+}
+
+
+  private detectMediaTypeFromMime(mimeType: string): string {
+    if (mimeType.startsWith('image/')) return 'image';
+    if (mimeType.startsWith('video/')) return 'video';
+    if (mimeType.startsWith('audio/')) return 'audio';
+    if (mimeType.includes('pdf') || mimeType.includes('document')) return 'document';
+    return 'document';
+  }
+
+  async downloadMedia(url: string): Promise<Buffer> {
+    console.log('[WhatsApp] downloadMedia - url:', url);
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to download media: ${response.statusText}`);
+      }
+      const buffer = Buffer.from(await response.arrayBuffer());
+      console.log('[WhatsApp] downloadMedia - buffer size:', buffer.length);
+      return buffer;
+    } catch (error) {
+      console.error('[WhatsApp] downloadMedia - error:', error);
+      throw error;
+    }
+  }
+
+  async processWhatsAppAudio(url: string): Promise<string> {
+    this.logger.log(`[WhatsApp] processWhatsAppAudio - Processing audio from URL: ${url}`);
+    
+    try {
+      // Download audio from WhatsApp
+      const buffer = await this.downloadMedia(url);
+      
+      // Create temp file path
+      const tempDir = '/tmp';
+      const inputPath = path.join(tempDir, `${randomUUID()}.enc`);
+      const outputPath = path.join(tempDir, `${randomUUID()}.mp3`);
+      
+      // Write input file
+      fs.writeFileSync(inputPath, buffer);
+      
+      // Convert using FFmpeg
+      await new Promise<void>((resolve, reject) => {
+        ffmpeg(inputPath)
+          .output(outputPath)
+          .audioCodec('libmp3lame')
+          .audioBitrate('128k')
+          .on('end', () => resolve())
+          .on('error', (err) => reject(err))
+          .run();
+      });
+      
+      // Read converted file
+      const convertedBuffer = fs.readFileSync(outputPath);
+      
+      // Clean up temp files
+      fs.unlinkSync(inputPath);
+      fs.unlinkSync(outputPath);
+      
+      // Upload to R2
+      const file: Express.Multer.File = {
+        buffer: convertedBuffer,
+        originalname: 'audio.mp3',
+        mimetype: 'audio/mpeg',
+        size: convertedBuffer.length,
+        fieldname: 'audio',
+        encoding: '7bit',
+        stream: null as any,
+        destination: '',
+        filename: '',
+        path: '',
+      };
+      
+      const r2Url = await this.uploadService.uploadFile(file, 'whatsapp-audio');
+      
+      this.logger.log(`[WhatsApp] processWhatsAppAudio - Audio processed and uploaded to: ${r2Url}`);
+      return r2Url;
+    } catch (error) {
+      this.logger.error(`[WhatsApp] processWhatsAppAudio - Error:`, error);
+      throw error;
+    }
+  }
+
+  async markChatAsRead(branchId: string, jid: string) {
+    try {
+      // Try to ensure WhatsAppConfig exists for this branch
+      await prisma.whatsAppConfig.upsert({
+        where: { branchId },
+        create: { branchId },
+        update: {},
+      });
+    } catch (error) {
+      // If config creation fails, continue anyway
+      console.warn('Failed to ensure WhatsAppConfig:', error);
+    }
+
+    try {
+      await prisma.whatsAppChatRead.upsert({
+        where: {
+          branchId_jid: {
+            branchId,
+            jid,
+          },
+        },
+        create: {
+          branchId,
+          jid,
+          unreadCount: 0,
+          lastReadAt: new Date(),
+        },
+        update: {
+          unreadCount: 0,
+          lastReadAt: new Date(),
+        },
+      });
+    } catch (error) {
+      // If still fails due to FK, try without the relation
+      console.warn('Failed to upsert WhatsAppChatRead with FK, trying direct insert:', error);
+      // Skip the operation if FK constraint fails
+    }
+
+    return { success: true };
+  }
+
+  // ─── Helpers ──────────────────────────────────────────────────
+
+  /**
+   * Compara dois JIDs do WhatsApp tolerando:
+   * - sufixos @s.whatsapp.net / @lid
+   * - código do país 55
+   * - dígito 9 brasileiro (8 vs 9 dígitos após DDD)
+   */
+  private jidsMatch(a: string, b: string): boolean {
+    if (!a || !b) return false;
+    if (a === b) return true;
+
+    const normalize = (jid: string) =>
+      jid
+        .replace(/@s\.whatsapp\.net|@lid|@g\.us/g, '')
+        .replace(/\D/g, ''); // só números
+
+    const nA = normalize(a);
+    const nB = normalize(b);
+
+    if (nA === nB) return true;
+
+    // Remove código do país BR
+    const stripBR = (p: string) =>
+      p.startsWith('55') && p.length >= 12 ? p.slice(2) : p;
+
+    const lA = stripBR(nA);
+    const lB = stripBR(nB);
+
+    if (lA === lB) return true;
+
+    // Dígito 9 brasileiro: DDD (2) + número (8 ou 9 dígitos)
+    if (lA.length >= 10 && lB.length >= 10) {
+      const areaA = lA.slice(0, 2);
+      const areaB = lB.slice(0, 2);
+
+      if (areaA === areaB) {
+        const numA = lA.slice(2);
+        const numB = lB.slice(2);
+
+        if (numA.length === 9 && numB.length === 8 && numA.startsWith('9') && numA.slice(1) === numB) return true;
+        if (numB.length === 9 && numA.length === 8 && numB.startsWith('9') && numB.slice(1) === numA) return true;
+      }
+    }
+
+    return false;
+  }
+
+  private extractMessagesFromResponse(result: any): any[] {
+    if (Array.isArray(result)) return result;
+    if (Array.isArray(result?.messages)) return result.messages;
+    if (Array.isArray(result?.messages?.records)) return result.messages.records;
+    if (Array.isArray(result?.records)) return result.records;
+    if (Array.isArray(result?.data)) return result.data;
+    return [];
+  }
+
+  private jidToPhone(jid: string): string {
+    return '+' + (jid || '').replace('@s.whatsapp.net', '');
+  }
+
+  /**
+   * Extract text from a message object
+   */
+  private extractTextFromMessage(msg: any): string {
+    if (!msg) return '';
+    if (typeof msg === 'string') return msg;
+    const m = msg.message || msg;
+
+    // Check for text content first
+    if (m.conversation) return m.conversation;
+    if (m.extendedTextMessage?.text) return m.extendedTextMessage.text;
+    if (m.buttonsResponseMessage?.selectedDisplayText) return m.buttonsResponseMessage.selectedDisplayText;
+    if (m.listResponseMessage?.description) return m.listResponseMessage.description;
+    if (m.reactionMessage?.text) return m.reactionMessage.text;
+
+    // For media messages, return descriptive text
+    if (m.imageMessage) return m.imageMessage.caption || '📷 Foto';
+    if (m.videoMessage) return m.videoMessage.caption || '🎥 Vídeo';
+    if (m.documentMessage) return m.documentMessage.caption || m.documentMessage.title || '📄 Documento';
+    if (m.audioMessage) return m.audioMessage.caption || '🎤 Mensagem de voz';
+    if (m.stickerMessage) return '😀 Sticker';
+    if (m.locationMessage) return `📍 ${m.locationMessage.name || 'Localização'}`;
+    if (m.contactMessage) return `👤 ${m.contactMessage.displayName || 'Contato'}`;
+
+    return '';
+  }
+
+  /**
+   * Format timestamp for display:
+   * - Today: show time (e.g., 14:30)
+   * - Yesterday (24-48h): show "ontem"
+   * - 2+ days ago: show date (e.g., 24/03/2026)
+   */
+  private formatTimestamp(timestamp: number | string | Date): string {
+    if (!timestamp) return '';
+    
+    const ts = typeof timestamp === 'string' ? new Date(timestamp) : new Date(timestamp);
+    if (isNaN(ts.getTime())) return '';
+    
+    const now = new Date();
+    const diffMs = now.getTime() - ts.getTime();
+    const diffHours = diffMs / (1000 * 60 * 60);
+    
+    // Today: show time
+    if (diffHours < 24) {
+      const hours = ts.getHours().toString().padStart(2, '0');
+      const minutes = ts.getMinutes().toString().padStart(2, '0');
+      return `${hours}:${minutes}`;
+    }
+    
+    // Yesterday (24-48h): show "ontem"
+    if (diffHours < 48) {
+      return 'ontem';
+    }
+    
+    // 2+ days ago: show date
+    const day = ts.getDate().toString().padStart(2, '0');
+    const month = (ts.getMonth() + 1).toString().padStart(2, '0');
+    const year = ts.getFullYear();
+    return `${day}/${month}/${year}`;
+  }
+
+  /**
+   * Detect media type from message
+   */
+  private detectMediaType(msg: any): string {
+    if (!msg.message) return 'text';
+    if (msg.message.imageMessage) return 'image';
+    if (msg.message.videoMessage) return 'video';
+    if (msg.message.audioMessage) return 'audio';
+    if (msg.message.documentMessage) return 'document';
+    if (msg.message.stickerMessage) return 'sticker';
+    return 'text';
+  }
+
+  private extractMediaUrl(msg: any): string | null {
+    if (!msg.message) return null;
+    if (msg.message.imageMessage?.url) return msg.message.imageMessage.url;
+    if (msg.message.videoMessage?.url) return msg.message.videoMessage.url;
+    if (msg.message.audioMessage?.url) return msg.message.audioMessage.url;
+    if (msg.message.documentMessage?.url) return msg.message.documentMessage.url;
+    if (msg.message.stickerMessage?.url) return msg.message.stickerMessage.url;
+    return null;
+  }
+
+  /**
+   * Map Evolution API status to CRM status
+   */
+  private mapEvolutionStatus(status: string | number): string {
+  // Status numérico (Evolution API padrão conforme documentação WhatsApp Business)
+  if (typeof status === 'number') {
+    const numericMap: Record<number, string> = {
+      0: 'error',    // ERROR
+      1: 'pending',  // PENDING
+      2: 'sent',     // SERVER_ACK — chegou ao servidor WhatsApp
+      3: 'received', // DELIVERY_ACK — entregue no aparelho
+      4: 'read',     // READ — destinatário visualizou
+      5: 'read',     // PLAYED — áudio ouvido (equivalente a read)
+    };
+    return numericMap[status] ?? 'sent';
+  }
+ 
+  // Status string
+  const statusMap: Record<string, string> = {
+    'PENDING': 'pending',
+    'SERVER_ACK': 'sent',
+    'DELIVERY_ACK': 'received', // CORRIGIDO: era 'delivered', agora 'received'
+    'READ': 'read',
+    'PLAYED': 'read',
+    'ERROR': 'error',
+  };
+  return statusMap[String(status).toUpperCase()] || 'sent';
+}
+
+  private async getFullConfig(branchId: string) {
+    const config = await prisma.whatsAppConfig.findUnique({
+      where: { branchId },
+    });
+
+    if (!config?.instanceName) {
+      throw new BadRequestException(
+        'WhatsApp nao configurado. Conecte o WhatsApp primeiro.',
+      );
+    }
+
+    return config;
+  }
+
+  private formatPhone(phone: string): string {
+    let cleaned = phone.replace(/\D/g, '');
+    if (!cleaned.startsWith('55')) {
+      cleaned = '55' + cleaned;
+    }
+    return cleaned;
+  }
+
+  async getFullConfigPublic(branchId: string) {
+    const config = await prisma.whatsAppConfig.findUnique({
+      where: { branchId },
+    });
+    return config;
+  }
+
+  // ─── Webhook registration ────────────────────────────────────
+
+  async registerWebhook(branchId: string, webhookUrl: string) {
+    const config = await this.getFullConfig(branchId);
+
+    console.log('[WhatsApp] Registering webhook for', config.instanceName, '→', webhookUrl);
+
+    try {
+      await this.evolutionRequest('POST', `/webhook/set/${config.instanceName}`, {
+        webhook: {
+          enabled: false,
+          url: webhookUrl,
+          webhookByEvents: false,
+          webhookBase64: false,
+        },
+      });
+      console.log('[WhatsApp] Old webhook disabled');
+    } catch {
+      console.log('[WhatsApp] Could not disable old webhook (may not exist)');
+    }
+
+    const result = await this.evolutionRequest(
+      'POST',
+      `/webhook/set/${config.instanceName}`,
+      {
+        webhook: {
+          enabled: true,
+          url: webhookUrl,
+          webhookByEvents: true,
+          webhookBase64: false,
+          events: [
+            'MESSAGES_UPSERT',
+            'MESSAGES_UPDATE',
+            'PRESENCE_UPDATE',
+            'CHATS_UPDATE',
+          ],
+        },
+      },
+    );
+
+    console.log('[WhatsApp] Webhook registered:', JSON.stringify(result));
+    return result;
+  }
+
+  private async evolutionRequest(
+    method: string,
+    path: string,
+    body?: any,
+  ): Promise<any> {
+    const url = `${this.serverUrl}${path}`;
+
+    const res = await fetch(url, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: this.globalApiKey,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    if (!res.ok) {
+      const errorBody = await res.text();
+      throw new BadRequestException(
+        `Evolution API error (${res.status}): ${errorBody}`,
+      );
+    }
+
+    return res.json();
+  }
+}

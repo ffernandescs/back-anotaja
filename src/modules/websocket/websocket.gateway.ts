@@ -12,6 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtPayload } from './types';
 import { prisma } from '../../../lib/prisma';
 import { RedisService, LocationUpdate } from './redis.service';
+import { UploadService } from '../upload/upload.service';
 
 interface AuthenticatedSocket extends Socket {
   user?: {
@@ -42,6 +43,7 @@ export class OrdersWebSocketGateway
     private jwtService: JwtService,
     private configService: ConfigService,
     private redisService: RedisService,
+    private uploadService: UploadService,
   ) {
     console.log('🖨️ WebSocketGateway constructor initialized');
   }
@@ -659,6 +661,33 @@ export class OrdersWebSocketGateway
     );
   }
 
+  // ─── CRM Events (WhatsApp) ──────────────────────────────────────
+
+  /**
+   * Emit CRM event to a specific branch room.
+   * Used by the WhatsApp webhook controller to push real-time events.
+   */
+  emitCRMEvent(room: string, event: string, data: any) {
+    if (!this.server || !this.server.sockets) {
+      this.logger.warn('WebSocket server not initialized, cannot emit CRM event');
+      return;
+    }
+
+    // Count clients in the room
+    let clientCount = 0;
+    try {
+      if (this.server.sockets.adapter?.rooms) {
+        const clientsInRoom = this.server.sockets.adapter.rooms.get(room);
+        clientCount = clientsInRoom ? clientsInRoom.size : 0;
+      }
+    } catch (error) {
+      this.logger.debug('Could not count clients in room:', error);
+    }
+
+    this.server.to(room).emit(event, data);
+    this.logger.log(`📤 CRM event ${event} → ${room} (${clientCount} clients listening)`);
+  }
+
   @SubscribeMessage('location:update')
   async handleLocationUpdate(
     client: AuthenticatedSocket,
@@ -767,12 +796,60 @@ export class OrdersWebSocketGateway
   @SubscribeMessage('heartbeat')
   async handleHeartbeat(client: AuthenticatedSocket) {
     const deliveryPersonId = client.user?.deliveryPersonId;
-    
+
     if (deliveryPersonId) {
       await this.redisService.setEntregadorOnlineStatus(deliveryPersonId, true);
     }
-    
+
     client.emit('heartbeat:ack', { timestamp: new Date().toISOString() });
+  }
+
+  // ─── WhatsApp CRM: Send Message ───────────────────────────────────
+
+  @SubscribeMessage('crm:message:send')
+  async handleCRMMessageSend(
+    client: AuthenticatedSocket,
+    payload: { jid: string; text: string },
+  ) {
+    if (!client.user?.branchId) {
+      client.emit('error', { message: 'Not authenticated or no branchId' });
+      return;
+    }
+
+    try {
+      const { WhatsAppService } = await import('../whatsapp/whatsapp.service');
+      const whatsappService = new WhatsAppService(this.uploadService);
+
+      const result = await whatsappService.sendCrmMessage(
+        client.user.branchId,
+        payload,
+      );
+
+      // Emit confirmation back to sender
+      client.emit('crm:message:sent', {
+        messageId: result.messageId,
+        jid: payload.jid,
+        text: payload.text,
+        status: 'sent',
+      });
+
+      // Also broadcast to branch room for other users
+      this.emitCRMEvent(`branch:${client.user.branchId}`, 'crm:message', {
+        id: result.messageId,
+        remoteJid: payload.jid,
+        fromMe: true,
+        text: payload.text,
+        timestamp: Math.floor(Date.now() / 1000),
+        status: 'sent',
+        mediaType: 'text',
+      });
+    } catch (error) {
+      this.logger.error('Error sending CRM message via WebSocket:', error);
+      client.emit('crm:message:error', {
+        jid: payload.jid,
+        error: error instanceof Error ? error.message : 'Failed to send message',
+      });
+    }
   }
 
   /**
