@@ -36,6 +36,10 @@ export class CreateGeneralConfigDto {
   @IsBoolean()
   printRatingQRCode?: boolean = true;
 
+  @IsOptional()
+  @IsBoolean()
+  autoPrintOnNewOrder?: boolean = false;
+
   // Configurações de texto
   @IsOptional()
   @IsString()
