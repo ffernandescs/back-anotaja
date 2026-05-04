@@ -1769,6 +1769,7 @@ model GeneralConfig {
   multiplyOptionsByQuantity                                                                                                                                                       Boolean   @default(false)
   printCancellationReceipt                                                                                                                                                        Boolean   @default(false)
   printRatingQRCode                                                                                                                                                               Boolean   @default(true)
+  autoPrintOnNewOrder                                                                                                                                                             Boolean   @default(false)
 
   // Configurações de mensagem
   standardRouteMessage      String?   // Mensagem para via padrão delivery, retirada e no local
