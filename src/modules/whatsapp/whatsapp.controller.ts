@@ -201,6 +201,7 @@ export class WhatsAppController {
     }
   }
 
+  @Public()
   @UseGuards(JwtPartnerAuthGuard)
   @Get('messages/history/:phone')
   async getMessageHistory(
@@ -221,6 +222,7 @@ export class WhatsAppController {
     }
   }
 
+  @Public()
   @UseGuards(JwtPartnerAuthGuard)
   @Post('messages/check-duplicate')
   async checkDuplicateMessage(

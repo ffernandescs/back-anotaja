@@ -818,7 +818,28 @@ Se precisar de ajuda, entre em contato!
       orderBy: { createdAt: 'desc' },
     });
 
-    return customers;
+    // Get message counts for each customer
+    const customerIds = customers.map(c => c.id);
+    const messageCounts = await prisma.whatsAppMessage.groupBy({
+      by: ['customerId'],
+      where: {
+        customerId: { in: customerIds },
+        status: 'sent',
+      },
+      _count: {
+        customerId: true,
+      },
+    });
+
+    const messageCountMap = new Map(
+      messageCounts.map(mc => [mc.customerId, mc._count.customerId])
+    );
+
+    return customers.map(customer => ({
+      ...customer,
+      messageCount: messageCountMap.get(customer.id) || 0,
+      hasMessages: (messageCountMap.get(customer.id) || 0) > 0,
+    }));
   }
 
   async getCustomerById(id: string) {

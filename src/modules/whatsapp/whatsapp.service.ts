@@ -695,6 +695,16 @@ export class WhatsAppService {
       errors: [] as string[],
     };
 
+    // Fetch partner code if partnerId is provided
+    let partnerCode: string | null = null;
+    if (partnerId) {
+      const partner = await prisma.partner.findUnique({
+        where: { id: partnerId },
+        select: { code: true },
+      });
+      partnerCode = partner?.code || null;
+    }
+
     for (const { phone, name, segment, customerId } of phonesWithPersonalization) {
       try {
         // Personalize the message
@@ -706,6 +716,28 @@ export class WhatsAppService {
           personalizedMessage = personalizedMessage.replace(/{segmento}/g, segment);
         }
         personalizedMessage = personalizedMessage.replace(/{telefone}/g, phone);
+        
+        // Replace link variables
+        const frontendUrl = process.env.FRONTEND_URL || 'https://app.anotaja.com';
+        if (partnerCode) {
+          personalizedMessage = personalizedMessage.replace(
+            /{register-company}/g,
+            `${frontendUrl}/register-company?partner=${partnerCode}`
+          );
+        } else {
+          personalizedMessage = personalizedMessage.replace(
+            /{register-company}/g,
+            `${frontendUrl}/register-company`
+          );
+        }
+        personalizedMessage = personalizedMessage.replace(
+          /{admin-login}/g,
+          `${frontendUrl}/admin/login`
+        );
+        personalizedMessage = personalizedMessage.replace(
+          /{loja}/g,
+          frontendUrl
+        );
 
         await this.sendMessage(phone, personalizedMessage, branchId, partnerId, customerId, name);
         results.success++;
