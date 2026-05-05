@@ -168,6 +168,27 @@ export class PartnerController {
     return this.partnerService.getPartnerCompanies(req.user.partnerId);
   }
 
+  @Public()
+  @Get('me/plans')
+  @UseGuards(JwtPartnerAuthGuard)
+  async getAvailablePlans() {
+    return this.partnerService.getAvailablePlans();
+  }
+
+  @Public()
+  @Post('me/companies/:companyId/activate')
+  @UseGuards(JwtPartnerAuthGuard)
+  async activateMyCompany(@Param('companyId') companyId: string, @Body() body: { planId?: string; withTrial?: boolean }, @Request() req) {
+    return this.partnerService.activateClient(companyId, req.user.partnerId, body.planId, body.withTrial);
+  }
+
+  @Public()
+  @Post('me/companies/:companyId/resend-credentials')
+  @UseGuards(JwtPartnerAuthGuard)
+  async resendCredentials(@Param('companyId') companyId: string, @Request() req) {
+    return this.partnerService.resendCredentials(companyId, req.user.partnerId);
+  }
+
   @Get(':id/companies')
   @UseGuards(JwtPartnerAuthGuard)
   async getPartnerCompanies(@Param('id') id: string) {

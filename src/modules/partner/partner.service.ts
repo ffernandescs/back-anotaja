@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, UnauthorizedException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, UnauthorizedException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { prisma } from '../../../lib/prisma';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
@@ -8,10 +8,18 @@ import { CreatePartnerCustomerDto } from './dto/create-partner-customer.dto';
 import { UpdatePartnerCustomerDto } from './dto/update-partner-customer.dto';
 import { ImportCustomersDto } from './dto/import-customers.dto';
 import { Prisma } from '@prisma/client';
+import { MailService } from '../mail/mail.service';
+import { SubscriptionHistoryService } from '../subscription/subscription-history.service';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
 
 @Injectable()
 export class PartnerService {
-  constructor(private jwtService: JwtService) {}
+  constructor(
+    private jwtService: JwtService, 
+    private mailService: MailService,
+    private subscriptionHistoryService: SubscriptionHistoryService,
+    private whatsappService: WhatsAppService,
+  ) {}
 
   // ─── Authentication ─────────────────────────────────────
 
@@ -185,6 +193,422 @@ export class PartnerService {
       planPrice: company.subscription?.plan?.price || null,
       planBillingPeriod: company.subscription?.plan?.billingPeriod || null,
     }));
+  }
+
+  async getAvailablePlans() {
+    const plans = await prisma.plan.findMany({
+      where: { active: true },
+      orderBy: [
+        { displayOrder: 'asc' },
+        { name: 'asc' }
+      ],
+      include: {
+        planFeatures: {
+          include: {
+            feature: {
+              select: {
+                name: true,
+                description: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return plans.map(plan => ({
+      id: plan.id,
+      name: plan.name,
+      description: plan.description,
+      price: plan.price,
+      billingPeriod: plan.billingPeriod,
+      trialDays: plan.trialDays,
+      type: plan.type,
+      isTrial: plan.isTrial,
+      features: plan.planFeatures.map(pf => ({
+        name: pf.feature.name,
+        description: pf.feature.description,
+      })),
+    }));
+  }
+
+  async activateClient(companyId: string, partnerId: string, planId?: string, withTrial?: boolean) {
+    // Buscar a empresa
+    const company = await prisma.company.findUnique({
+      where: { id: companyId },
+      include: {
+        branches: {
+          include: {
+            users: true,
+          },
+          take: 1,
+        },
+        groups: {
+          take: 1,
+        },
+        subscription: true,
+      },
+    });
+
+    if (!company) {
+      throw new NotFoundException('Empresa não encontrada');
+    }
+
+    if (company.partnerId !== partnerId) {
+      throw new ForbiddenException('Esta empresa não pertence ao seu parceiro');
+    }
+
+    // Buscar o plano (usar o plano informado ou buscar trial)
+    let plan;
+    if (planId) {
+      plan = await prisma.plan.findUnique({
+        where: { id: planId },
+      });
+    } else {
+      plan = await prisma.plan.findFirst({
+        where: {
+          type: 'TRIAL',
+          active: true,
+        },
+      });
+    }
+
+    if (!plan) {
+      throw new BadRequestException('Plano não encontrado');
+    }
+
+    // Se withTrial for false e o plano não for trial, usar plano direto sem trial
+    const useTrial = withTrial !== false && (plan.type === 'TRIAL' || withTrial === true);
+
+    // Criar grupo administrador com permissões do plano
+    const planFeatures = await prisma.planFeature.findMany({
+      where: { planId: plan.id },
+      include: {
+        feature: true,
+      },
+    });
+
+    // Gerar permissões baseadas nas features do plano
+    const trialPermissions = planFeatures.flatMap(({ feature }) => {
+      const defaultActions = feature.defaultActions ? JSON.parse(feature.defaultActions) : ['read'];
+      
+      return defaultActions.map((action: string) => ({
+        action: action as any,
+        subject: feature.key as any,
+        inverted: false,
+      }));
+    });
+
+    const adminGroup = await prisma.group.create({
+      data: {
+        name: 'Administrador',
+        branchId: company.branches[0].id,
+        companyId: company.id,
+        description: 'Grupo com acesso total às funcionalidades do plano',
+        permissions: {
+          create: trialPermissions,
+        },
+      },
+    });
+
+    // Verificar se já existe um usuário para a empresa
+    let user = company.branches[0]?.users[0];
+    let generatedPassword: string | null = null;
+
+    if (!user) {
+      // Gerar senha temporária
+      generatedPassword = this.generateTemporaryPassword(company.email);
+
+      // Criar usuário
+      const hashedPassword = await bcrypt.hash(generatedPassword, 10);
+
+      user = await prisma.user.create({
+        data: {
+          name: company.name,
+          email: company.email,
+          password: hashedPassword,
+          phone: company.phone,
+          branchId: company.branches[0].id,
+          companyId: company.id,
+          groupId: adminGroup.id,
+          active: true,
+        },
+      });
+    } else {
+      // Se usuário já existe, gerar nova senha
+      generatedPassword = this.generateTemporaryPassword(company.email);
+      const hashedPassword = await bcrypt.hash(generatedPassword, 10);
+
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { password: hashedPassword, groupId: adminGroup.id },
+      });
+    }
+
+    // Criar ou atualizar subscription
+    const now = new Date();
+    const trialDays = plan.trialDays ?? 7;
+    const trialEndDate = new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000);
+
+    let subscription;
+    if (!company.subscription) {
+      // Se for plano pago com trial, criar com trial e integrar com Stripe
+      if (plan.type !== 'TRIAL' && useTrial) {
+        // TODO: Integrar com Stripe - criar checkout session
+        // Por enquanto, cria subscription local com trial
+        subscription = await prisma.subscription.create({
+          data: {
+            companyId: company.id,
+            planId: plan.id,
+            status: 'ACTIVE',
+            billingPeriod: plan.billingPeriod,
+            startDate: now,
+            trialEndsAt: trialEndDate,
+            nextBillingDate: trialEndDate,
+            notes: `Trial de ${trialDays} dias do plano ${plan.name} - Ativado pelo parceiro. Trial válido até ${trialEndDate.toLocaleDateString('pt-BR')}`,
+          },
+        });
+      } else if (plan.type !== 'TRIAL' && !useTrial) {
+        // Plano pago sem trial - integrar com Stripe
+        // TODO: Integrar com Stripe - criar checkout session
+        // Por enquanto, cria subscription local como ACTIVE
+        subscription = await prisma.subscription.create({
+          data: {
+            companyId: company.id,
+            planId: plan.id,
+            status: 'ACTIVE',
+            billingPeriod: plan.billingPeriod,
+            startDate: now,
+            notes: `Plano ${plan.name} ativado manualmente pelo parceiro sem trial`,
+          },
+        });
+      } else {
+        // Plano trial
+        subscription = await prisma.subscription.create({
+          data: {
+            companyId: company.id,
+            planId: plan.id,
+            status: 'ACTIVE',
+            billingPeriod: plan.billingPeriod,
+            startDate: now,
+            trialEndsAt: trialEndDate,
+            nextBillingDate: trialEndDate,
+            notes: `Trial de ${trialDays} dias - Criado automaticamente na ativação. Trial válido até ${trialEndDate.toLocaleDateString('pt-BR')}`,
+          },
+        });
+      }
+    } else {
+      // Atualizar subscription existente
+      if (plan.type !== 'TRIAL' && useTrial) {
+        subscription = await prisma.subscription.update({
+          where: { id: company.subscription.id },
+          data: {
+            planId: plan.id,
+            status: 'ACTIVE',
+            billingPeriod: plan.billingPeriod,
+            trialEndsAt: trialEndDate,
+            nextBillingDate: trialEndDate,
+            notes: `Trial de ${trialDays} dias do plano ${plan.name} - Atualizado pelo parceiro`,
+          },
+        });
+      } else if (plan.type !== 'TRIAL' && !useTrial) {
+        subscription = await prisma.subscription.update({
+          where: { id: company.subscription.id },
+          data: {
+            planId: plan.id,
+            status: 'ACTIVE',
+            billingPeriod: plan.billingPeriod,
+            notes: `Plano ${plan.name} ativado manualmente pelo parceiro sem trial`,
+          },
+        });
+      } else {
+        subscription = await prisma.subscription.update({
+          where: { id: company.subscription.id },
+          data: {
+            planId: plan.id,
+            status: 'ACTIVE',
+            billingPeriod: plan.billingPeriod,
+            trialEndsAt: plan.type === 'TRIAL' ? trialEndDate : company.subscription.trialEndsAt,
+            nextBillingDate: trialEndDate,
+            notes: `Plano atualizado para ${plan.name} na ativação`,
+          },
+        });
+      }
+    }
+
+    // Registrar no histórico
+    try {
+      await this.subscriptionHistoryService.createHistoryEntry({
+        subscriptionId: subscription.id,
+        eventType: 'CREATED',
+        newPlanId: plan.id,
+        newStatus: 'ACTIVE',
+        newBillingPeriod: plan.billingPeriod,
+        reason: plan.type === 'TRIAL' 
+          ? 'Subscription trial criada automaticamente na ativação da empresa'
+          : `Plano ${plan.name} ativado manualmente pelo parceiro`,
+        metadata: {
+          trialDays: plan.type === 'TRIAL' ? trialDays : undefined,
+          trialEndsAt: plan.type === 'TRIAL' ? trialEndDate.toISOString() : undefined,
+          companyName: company.name,
+          partnerId,
+        },
+      });
+
+      if (plan.type === 'TRIAL') {
+        await this.subscriptionHistoryService.logTrialStarted(
+          subscription.id,
+          trialEndDate,
+        );
+      }
+    } catch (historyError) {
+      console.error('⚠️ Erro ao registrar histórico (não crítico):', historyError);
+    }
+
+    // Enviar email com credenciais
+    try {
+      await this.mailService.sendClientActivationEmail({
+        email: company.email,
+        companyName: company.companyName,
+        userName: user.name,
+        userEmail: user.email || company.email,
+        password: generatedPassword!,
+        adminUrl: `${process.env.FRONTEND_URL}/admin`,
+      });
+    } catch (error) {
+      console.error('Erro ao enviar email de ativação:', error);
+    }
+
+    // Enviar WhatsApp com credenciais
+    try {
+      const whatsappMessage = `
+🚀 *Acesso ao AnotaJá*
+
+Olá ${user.name}!
+
+Sua conta foi ativada com sucesso!
+
+📧 *Email:* ${user.email}
+🔑 *Senha:* ${generatedPassword}
+
+🌐 *Acessar Painel Admin:* ${process.env.FRONTEND_URL}/admin
+
+Se precisar de ajuda, entre em contato!
+      `.trim();
+
+      // Enviar via WhatsApp do parceiro se estiver conectado
+      try {
+        await this.whatsappService.sendMessage(company.phone, whatsappMessage, undefined, partnerId);
+      } catch (whatsappError) {
+        console.error('Erro ao enviar WhatsApp de ativação:', whatsappError);
+      }
+    } catch (error) {
+      console.error('Erro ao preparar mensagem WhatsApp de ativação:', error);
+    }
+
+    return {
+      success: true,
+      message: 'Cliente ativado com sucesso',
+      userEmail: user.email,
+      password: generatedPassword,
+    };
+  }
+
+  async resendCredentials(companyId: string, partnerId: string) {
+    // Buscar a empresa e usuário
+    const company = await prisma.company.findUnique({
+      where: { id: companyId },
+      include: {
+        branches: {
+          include: {
+            users: {
+              where: { active: true },
+              take: 1,
+            },
+          },
+          take: 1,
+        },
+      },
+    });
+
+    if (!company) {
+      throw new NotFoundException('Empresa não encontrada');
+    }
+
+    if (company.partnerId !== partnerId) {
+      throw new ForbiddenException('Esta empresa não pertence ao seu parceiro');
+    }
+
+    const user = company.branches[0]?.users[0];
+    if (!user) {
+      throw new BadRequestException('Usuário não encontrado para esta empresa');
+    }
+
+    // Gerar nova senha temporária
+    const generatedPassword = this.generateTemporaryPassword(user.email || undefined);
+    const hashedPassword = await bcrypt.hash(generatedPassword, 10);
+
+    // Atualizar senha do usuário
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { password: hashedPassword },
+    });
+
+    // Enviar email com credenciais
+    try {
+      await this.mailService.sendClientActivationEmail({
+        email: company.email,
+        companyName: company.companyName,
+        userName: user.name,
+        userEmail: user.email || company.email,
+        password: generatedPassword,
+        adminUrl: `${process.env.FRONTEND_URL}/admin`,
+      });
+    } catch (error) {
+      console.error('Erro ao enviar email de reenvio de credenciais:', error);
+    }
+
+    // Enviar WhatsApp com credenciais
+    try {
+      const whatsappMessage = `
+🔐 *Credenciais de Acesso - AnotaJá*
+
+Olá ${user.name}!
+
+Suas credenciais foram redefinidas:
+
+📧 *Email:* ${user.email}
+🔑 *Nova Senha:* ${generatedPassword}
+
+🌐 *Acessar Painel Admin:* ${process.env.FRONTEND_URL}/admin
+
+Se precisar de ajuda, entre em contato!
+      `.trim();
+
+      // Enviar via WhatsApp do parceiro se estiver conectado
+      try {
+        await this.whatsappService.sendMessage(company.phone, whatsappMessage, undefined, partnerId);
+      } catch (whatsappError) {
+        console.error('Erro ao enviar WhatsApp de reenvio de credenciais:', whatsappError);
+      }
+    } catch (error) {
+      console.error('Erro ao preparar mensagem WhatsApp de reenvio de credenciais:', error);
+    }
+
+    return {
+      success: true,
+      message: 'Credenciais reenviadas com sucesso',
+      userEmail: user.email,
+      password: generatedPassword,
+    };
+  }
+
+  private generateTemporaryPassword(email?: string): string {
+    if (email) {
+      const emailLocalPart = email.split('@')[0];
+      return `${emailLocalPart}123`;
+    }
+    return Math.random().toString(36).substring(2, 8) + '123';
   }
 
   async getAllPartners() {

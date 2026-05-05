@@ -28,9 +28,9 @@ export class CreateCompanyDto {
   @IsString()
   phone!: string;
 
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
-  password!: string;
+  password?: string;
 
   // Dados da primeira branch (matriz)
   // Endereço da branch
@@ -67,6 +67,10 @@ export class CreateCompanyDto {
   @IsOptional()
   @IsString()
   segment?: string;
+
+  @IsOptional()
+  @IsString()
+  partnerCode?: string;
 
   // Latitude e Longitude opcionais
 }

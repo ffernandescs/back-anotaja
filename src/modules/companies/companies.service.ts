@@ -28,367 +28,7 @@ export class CompaniesService {
     private readonly historyService: SubscriptionHistoryService,
   ) {}
 
-  async createCompany(dto: CreateCompanyDto) {
-    const {
-      name,
-      document,
-      email,
-      phone,
-      password,
-      companyName,
-      segment,
-      street,
-      number,
-      complement,
-      neighborhood,
-      city,
-      state,
-      zipCode,
-      reference,
-    } = dto;
-
-    // Validações básicas
-    if (!name || !document || !email || !phone || !password || !companyName) {
-      throw new BadRequestException(
-        'Todos os campos obrigatórios da empresa devem ser preenchidos.',
-      );
-    }
-
-    if (!street || !neighborhood || !city || !state || !zipCode) {
-      throw new BadRequestException(
-        'Todos os campos obrigatórios do endereço devem ser preenchidos.',
-      );
-    }
-
-    // Criptografar senha
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Buscar coordenadas do endereço usando Nominatim (OpenStreetMap)
-    const cleanZipCode = zipCode.replace(/-/g, '');
-    let lat: number | null = null;
-    let lng: number | null = null;
-
-    try {
-      // Tentar geocodificação com endereço completo primeiro
-      const fullAddress = `${street}, ${number || ''} ${neighborhood || ''}, ${city}, ${state}, ${cleanZipCode}, Brasil`;
-      
-      const geocodeResponse = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
-          fullAddress,
-        )}&limit=1`,
-        {
-          headers: {
-            'User-Agent': 'AnotaJa/1.0',
-          },
-        },
-      );
-
-      if (geocodeResponse.ok) {
-        const geocodeData = await geocodeResponse.json();
-        if (
-          geocodeData &&
-          geocodeData.length > 0 &&
-          geocodeData[0].lat &&
-          geocodeData[0].lon
-        ) {
-          lat = parseFloat(geocodeData[0].lat);
-          lng = parseFloat(geocodeData[0].lon);
-        }
-      }
-
-      // Se não conseguiu com endereço completo, tentar apenas com CEP
-      if (!lat || !lng) {
-        const cepGeocode = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&postalcode=${cleanZipCode}&country=Brasil&limit=1`,
-          {
-            headers: {
-              'User-Agent': 'AnotaJa/1.0',
-            },
-          },
-        );
-
-        if (cepGeocode.ok) {
-          const cepData = await cepGeocode.json();
-          if (
-            cepData &&
-            cepData.length > 0 &&
-            cepData[0].lat &&
-            cepData[0].lon
-          ) {
-            lat = parseFloat(cepData[0].lat);
-            lng = parseFloat(cepData[0].lon);
-          }
-        }
-      }
-    } catch (error) {
-      console.warn('Erro ao buscar coordenadas da empresa:', error);
-    }
-
-    try {
-      const company = await prisma.$transaction(async (prisma) => {
-        // Verificar duplicidade de document, email, phone e subdomain
-        const existingCompany = await prisma.company.findFirst({
-          where: {
-            OR: [{ document }, { email }, { phone }],
-          },
-        });
-
-        if (existingCompany) {
-          let message = 'Empresa já existe com: ';
-          if (existingCompany.document === document) message += 'documento, ';
-          if (existingCompany.email === email) message += 'email, ';
-          if (existingCompany.phone === phone) message += 'telefone, ';
-          message = message.replace(/, $/, ''); // remove última vírgula
-          throw new BadRequestException(message);
-        }
-
-        // Verificar duplicidade de email e phone na tabela User
-        const existingUser = await prisma.user.findFirst({
-          where: {
-            OR: [{ email }, { phone }],
-          },
-        });
-
-        if (existingUser) {
-          let message = 'Usuário já existe com: ';
-          if (existingUser.email === email) message += 'email, ';
-          if (existingUser.phone === phone) message += 'telefone, ';
-          message = message.replace(/, $/, ''); // remove última vírgula
-          throw new BadRequestException(message);
-        }
-
-        // Criar empresa
-        const createdCompany = await prisma.company.create({
-          data: {
-            companyName,
-            name,
-            document,
-            email,
-            phone,
-            segment,
-            active: true,
-            onboardingCompleted: false,
-            onboardingStep: 'SCHEDULE',
-          },
-        });
-
-        // Criar endereço da empresa
-        const createdCompanyAddress = await prisma.companyAddress.create({
-          data: {
-            street,
-            number,
-            complement,
-            neighborhood,
-            city,
-            state,
-            zipCode,
-            isDefault: true,
-            reference,
-            lat,
-            lng,
-            companyId: createdCompany.id,
-          },
-        });
-
-        const createdBranchAddress = await prisma.branchAddress.create({
-          data: {
-            street,
-            number,
-            complement,
-            neighborhood,
-            city,
-            state,
-            zipCode,
-            reference,
-            lat: lat ? Math.round(lat) : null,
-            lng: lng ? Math.round(lng) : null,
-            isDefault: true,
-          },
-        });
-
-        // Criar branch com coordenadas
-        const createdBranch = await prisma.branch.create({
-          data: {
-            branchName: createdCompany.companyName,
-            phone: createdCompany.phone,
-            document,
-            latitude: lat,
-            longitude: lng,
-            companyId: createdCompany.id,
-            addressId: createdBranchAddress.id,
-          },
-        });
-
-        return {
-          createdCompany,
-          createdBranch,
-          createdCompanyAddress,
-          createdBranchAddress,
-        };
-      }, {
-        timeout: 10000, // Aumentar timeout para 10 segundos
-      });
-
-      // Buscar plano trial FORA da transação
-      const trialPlan = await prisma.plan.findFirst({
-        where: {
-          isTrial: true,
-          active: true,
-        },
-      });
-
-      if (!trialPlan) {
-        throw new BadRequestException(
-          'Plano trial não encontrado. Configure um plano trial no sistema.',
-        );
-      }
-
-      // ✅ Criar grupo e subscription em transações separadas para evitar timeout
-      const adminGroup = await prisma.$transaction(async (prisma) => {
-        // 6️⃣ Criar grupo Administrador com permissões do plano trial
-        const planFeatures = await prisma.planFeature.findMany({
-          where: { planId: trialPlan.id },
-          include: {
-            feature: true,
-          },
-        });
-
-        // Gerar permissões baseadas nas features do plano
-        const trialPermissions = planFeatures.flatMap(({ feature }) => {
-          const defaultActions = feature.defaultActions ? JSON.parse(feature.defaultActions) : ['read'];
-          
-          return defaultActions.map((action: string) => ({
-            action: action as any,
-            subject: feature.key as any,
-            inverted: false,
-          }));
-        });
-
-        return await prisma.group.create({
-          data: {
-            name: 'Administrador',
-            branchId: company.createdBranch.id,
-            companyId: company.createdBranch.companyId,
-            description: 'Grupo com acesso total às funcionalidades do plano',
-            permissions: {
-              create: trialPermissions,
-            },
-          },
-        });
-      }, {
-        timeout: 10000,
-      });
-
-      // ✅ Criar usuário em transação separada
-      await prisma.$transaction(async (prisma) => {
-        await prisma.user.create({
-          data: {
-            name,
-            email,
-            phone,
-            password: hashedPassword,
-            companyId: company.createdCompany.id,
-            branchId: company.createdBranch.id,
-            groupId: adminGroup.id,
-          },
-        });
-
-        // 8️⃣ Criar subscription trial automaticamente
-        const now = new Date();
-        const trialDays = trialPlan.trialDays ?? 7;
-
-        // ✅ Trial termina exatamente `trialDays * 24h` após o cadastro.
-        // Não manipular setHours(23,59,59) pois:
-        //  - Isso empurra o fim para 23:59 do fuso local do servidor,
-        //    tornando a janela real > 7 dias.
-        //  - O frontend usa Math.ceil na diferença em ms, resultando em
-        //    "8 dias" ao invés de 7.
-        //  - O mesmo timestamp é enviado ao Stripe via `trial_end`,
-        //    mantendo a fonte da verdade consistente.
-        const trialEndDate = new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000);
-
-        const subscription = await prisma.subscription.create({
-          data: {
-            companyId: company.createdCompany.id,
-            planId: trialPlan.id,
-            status: 'ACTIVE',
-            billingPeriod: trialPlan.billingPeriod,
-            startDate: now,
-            trialEndsAt: trialEndDate, // ✅ ESSENCIAL: Define quando o trial termina
-            nextBillingDate: trialEndDate, // Primeira cobrança após trial
-            notes: `Trial de ${trialDays} dias - Criado automaticamente no cadastro. Trial válido até ${trialEndDate.toLocaleDateString('pt-BR')}`,
-          },
-        });
-
-        // Retornar dados para registrar histórico fora da transação
-        return { subscription, trialDays, trialEndDate, companyName: company.createdCompany.name };
-      }, {
-        timeout: 10000,
-      });
-
-      // ✅ Registrar no histórico FORA da transação para evitar conflitos
-      try {
-        const { subscription: createdSubscription, trialDays, trialEndDate, companyName } = await prisma.subscription.findUniqueOrThrow({
-          where: { companyId: company.createdCompany.id },
-          select: { id: true }
-        }).then(async (sub) => {
-          return {
-            subscription: sub,
-            trialDays,
-            trialEndDate,
-            companyName: company.createdCompany.name
-          };
-        });
-
-        await this.historyService.createHistoryEntry({
-          subscriptionId: createdSubscription.id,
-          eventType: 'CREATED',
-          newPlanId: trialPlan.id,
-          newStatus: 'ACTIVE',
-          newBillingPeriod: trialPlan.billingPeriod,
-          reason: 'Subscription trial criada automaticamente no cadastro da empresa',
-          metadata: {
-            trialDays,
-            trialEndsAt: trialEndDate.toISOString(),
-            companyName,
-          },
-        });
-
-        await this.historyService.logTrialStarted(
-          createdSubscription.id,
-          trialEndDate,
-        );
-      } catch (historyError) {
-        // Não bloquear criação da empresa se falhar o histórico
-        console.error('⚠️ Erro ao registrar histórico (não crítico):', historyError);
-      }
-
-      // 7️⃣ Enviar email de boas-vindas (não bloqueia o cadastro se falhar)
-      try {
-        await this.mailService.sendWelcomeEmail(email, name, trialPlan.trialDays ?? 7);
-      } catch (emailError) {
-        console.error('Erro ao enviar email de boas-vindas:', emailError);
-        // Não lança erro para não bloquear o cadastro
-      }
-
-      return company.createdCompany;
-
-    } catch (error) {
-      // A transação já fez rollback automaticamente
-      // Apenas logamos o erro para diagnóstico
-      console.error(' Erro ao criar empresa - transação desfeita:', error);
-      
-      // Se for erro de negócio (BadRequest), repassa
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-      
-      // Para outros erros, mensagem genérica
-      throw new InternalServerErrorException(
-        'Não foi possível criar a empresa. Por favor, tente novamente.'
-      );
-    }
-  }
+ 
 
   async verifyCompanyExist(dto: VerifyCompanyExistDto): Promise<{ exists: boolean; fields?: string[]; message?: string }> {
     const { phone, document, email } = dto;
@@ -422,6 +62,36 @@ export class CompaniesService {
       };
 
       const message = `Já existe uma empresa cadastrada com: ${duplicateFields.map(f => fieldLabels[f]).join(', ')}`;
+
+      return { exists: true, fields: duplicateFields, message };
+    }
+
+    // Verificar também branches
+    const branchOrConditions: Prisma.BranchWhereInput[] = [];
+
+    if (phone) branchOrConditions.push({ phone });
+    if (document) branchOrConditions.push({ document });
+    if (email) branchOrConditions.push({ email });
+
+    const branch = await prisma.branch.findFirst({
+      where: {
+        OR: branchOrConditions,
+      },
+    });
+
+    if (branch) {
+      const duplicateFields: string[] = [];
+      if (branch.phone === phone) duplicateFields.push('phone');
+      if (branch.email === email) duplicateFields.push('email');
+      if (branch.document === document) duplicateFields.push('document');
+
+      const fieldLabels: Record<string, string> = {
+        phone: 'telefone',
+        email: 'email',
+        document: 'documento',
+      };
+
+      const message = `Já existe uma filial cadastrada com: ${duplicateFields.map(f => fieldLabels[f]).join(', ')}`;
 
       return { exists: true, fields: duplicateFields, message };
     }
@@ -602,6 +272,246 @@ export class CompaniesService {
     };
   }
 
+  async createCompany(dto: CreateCompanyDto) {
+    const {
+      name,
+      document,
+      email,
+      phone,
+      password,
+      companyName,
+      segment,
+      street,
+      number,
+      complement,
+      neighborhood,
+      city,
+      state,
+      zipCode,
+      reference,
+      partnerCode,
+    } = dto;
+
+    // Se houver código de parceiro, buscar o parceiro
+    let partnerId: string | undefined;
+    if (partnerCode) {
+      const partner = await prisma.partner.findUnique({
+        where: { code: partnerCode },
+        select: { id: true },
+      });
+
+      if (partner) {
+        partnerId = partner.id;
+      }
+    }
+
+    // Validações básicas
+    if (!name || !document || !email || !phone || !companyName) {
+      throw new BadRequestException(
+        'Todos os campos obrigatórios da empresa devem ser preenchidos.',
+      );
+    }
+
+    if (!street || !neighborhood || !city || !state || !zipCode) {
+      throw new BadRequestException(
+        'Todos os campos obrigatórios do endereço devem ser preenchidos.',
+      );
+    }
+
+    // Criptografar senha
+
+    // Buscar coordenadas do endereço usando Nominatim (OpenStreetMap)
+    const cleanZipCode = zipCode.replace(/-/g, '');
+    let lat: number | null = null;
+    let lng: number | null = null;
+
+    try {
+      // Tentar geocodificação com endereço completo primeiro
+      const fullAddress = `${street}, ${number || ''} ${neighborhood || ''}, ${city}, ${state}, ${cleanZipCode}, Brasil`;
+      
+      const geocodeResponse = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+          fullAddress,
+        )}&limit=1`,
+        {
+          headers: {
+            'User-Agent': 'AnotaJa/1.0',
+          },
+        },
+      );
+
+      if (geocodeResponse.ok) {
+        const geocodeData = await geocodeResponse.json();
+        if (
+          geocodeData &&
+          geocodeData.length > 0 &&
+          geocodeData[0].lat &&
+          geocodeData[0].lon
+        ) {
+          lat = parseFloat(geocodeData[0].lat);
+          lng = parseFloat(geocodeData[0].lon);
+        }
+      }
+
+      // Se não conseguiu com endereço completo, tentar apenas com CEP
+      if (!lat || !lng) {
+        const cepGeocode = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&postalcode=${cleanZipCode}&country=Brasil&limit=1`,
+          {
+            headers: {
+              'User-Agent': 'AnotaJa/1.0',
+            },
+          },
+        );
+
+        if (cepGeocode.ok) {
+          const cepData = await cepGeocode.json();
+          if (
+            cepData &&
+            cepData.length > 0 &&
+            cepData[0].lat &&
+            cepData[0].lon
+          ) {
+            lat = parseFloat(cepData[0].lat);
+            lng = parseFloat(cepData[0].lon);
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('Erro ao buscar coordenadas da empresa:', error);
+    }
+
+    try {
+      const company = await prisma.$transaction(async (prisma) => {
+        // Verificar duplicidade de document, email, phone e subdomain
+        const existingCompany = await prisma.company.findFirst({
+          where: {
+            OR: [{ document }, { email }, { phone }],
+          },
+        });
+
+        if (existingCompany) {
+          let message = 'Empresa já existe com: ';
+          if (existingCompany.document === document) message += 'documento, ';
+          if (existingCompany.email === email) message += 'email, ';
+          if (existingCompany.phone === phone) message += 'telefone, ';
+          message = message.replace(/, $/, ''); // remove última vírgula
+          throw new BadRequestException(message);
+        }
+
+        // Verificar duplicidade de email e phone na tabela User
+        const existingUser = await prisma.user.findFirst({
+          where: {
+            OR: [{ email }, { phone }],
+          },
+        });
+
+        if (existingUser) {
+          let message = 'Usuário já existe com: ';
+          if (existingUser.email === email) message += 'email, ';
+          if (existingUser.phone === phone) message += 'telefone, ';
+          message = message.replace(/, $/, ''); // remove última vírgula
+          throw new BadRequestException(message);
+        }
+
+        // Criar empresa
+        const createdCompany = await prisma.company.create({
+          data: {
+            companyName,
+            name,
+            document,
+            email,
+            phone,
+            segment,
+            active: false,
+            onboardingCompleted: false,
+            onboardingStep: 'SCHEDULE',
+            ...(partnerId && { partnerId }),
+          },
+        });
+
+        // Criar endereço da empresa
+        const createdCompanyAddress = await prisma.companyAddress.create({
+          data: {
+            street,
+            number,
+            complement,
+            neighborhood,
+            city,
+            state,
+            zipCode,
+            isDefault: true,
+            reference,
+            lat,
+            lng,
+            companyId: createdCompany.id,
+          },
+        });
+
+        const createdBranchAddress = await prisma.branchAddress.create({
+          data: {
+            street,
+            number,
+            complement,
+            neighborhood,
+            city,
+            state,
+            zipCode,
+            reference,
+            lat: lat ? Math.round(lat) : null,
+            lng: lng ? Math.round(lng) : null,
+            isDefault: true,
+          },
+        });
+
+        // Criar branch com coordenadas
+        const createdBranch = await prisma.branch.create({
+          data: {
+            branchName: createdCompany.companyName,
+            phone: createdCompany.phone,
+            document,
+            latitude: lat,
+            longitude: lng,
+            companyId: createdCompany.id,
+            addressId: createdBranchAddress.id,
+          },
+        });
+
+        return {
+          createdCompany,
+          createdBranch,
+          createdCompanyAddress,
+          createdBranchAddress,
+        };
+      }, {
+        timeout: 10000, // Aumentar timeout para 10 segundos
+      });
+
+      return {
+        message: 'Empresa criada com sucesso',
+        whatsapp: process.env.MASTER_WHATSAPP,
+        partnerId: partnerId || null,
+        companyId: company.createdCompany.id,
+        company: company.createdCompany,
+      };
+
+    } catch (error) {
+      // A transação já fez rollback automaticamente
+      // Apenas logamos o erro para diagnóstico
+      console.error(' Erro ao criar empresa - transação desfeita:', error);
+      
+      // Se for erro de negócio (BadRequest), repassa
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      
+      // Para outros erros, mensagem genérica
+      throw new InternalServerErrorException(
+        'Não foi possível criar a empresa. Por favor, tente novamente.'
+      );
+    }
+  }
+
   async registerCompanyInterest(dto: CompanyInterestDto) {
     try {
       let partnerId: string | undefined;
@@ -618,8 +528,14 @@ export class CompaniesService {
         }
       }
 
-      // Verificar duplicidade de document, email e phone
+      // Verificar duplicidade de document, email e phone em empresas e branches
       const existingCompany = await prisma.company.findFirst({
+        where: {
+          OR: [{ document: dto.document }, { email: dto.email }, { phone: dto.phone }],
+        },
+      });
+
+      const existingBranch = await prisma.branch.findFirst({
         where: {
           OR: [{ document: dto.document }, { email: dto.email }, { phone: dto.phone }],
         },
@@ -638,6 +554,22 @@ export class CompaniesService {
         };
 
         const message = `Empresa já existe com: ${duplicateFields.map(f => fieldLabels[f]).join(', ')}`;
+        throw new BadRequestException(message);
+      }
+
+      if (existingBranch) {
+        const duplicateFields: string[] = [];
+        if (existingBranch.document === dto.document) duplicateFields.push('document');
+        if (existingBranch.email === dto.email) duplicateFields.push('email');
+        if (existingBranch.phone === dto.phone) duplicateFields.push('phone');
+
+        const fieldLabels: Record<string, string> = {
+          phone: 'telefone',
+          email: 'email',
+          document: 'documento',
+        };
+
+        const message = `Filial já existe com: ${duplicateFields.map(f => fieldLabels[f]).join(', ')}`;
         throw new BadRequestException(message);
       }
 

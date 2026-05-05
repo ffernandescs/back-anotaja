@@ -352,6 +352,167 @@ export class MailService {
     }
   }
 
+  async sendClientActivationEmail(
+    data: {
+      email: string;
+      companyName: string;
+      userName: string;
+      userEmail: string;
+      password: string;
+      adminUrl: string;
+    },
+  ): Promise<boolean> {
+    try {
+      await this.transporter.sendMail({
+        from: `"AnotaJá - Ativação de Conta" <${process.env.SMTP_USER}>`,
+        to: data.email,
+        subject: '🚀 Sua conta foi ativada - Acesse o Painel Admin',
+        html: `
+          <!DOCTYPE html>
+          <html lang="pt-BR">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Ativação de Conta</title>
+          </head>
+          <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f5f5f5;">
+            <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 40px 20px;">
+              <tr>
+                <td align="center">
+                  <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; background-color: #ffffff; border-radius: 16px; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1); overflow: hidden;">
+                    
+                    <!-- Header -->
+                    <tr>
+                      <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 50px 30px; text-align: center;">
+                        <div style="background-color: rgba(255, 255, 255, 0.25); width: 100px; height: 100px; border-radius: 50%; margin: 0 auto 24px; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);">
+                          <span style="font-size: 50px;">🚀</span>
+                        </div>
+                        <h1 style="margin: 0; color: #ffffff; font-size: 32px; font-weight: 800; letter-spacing: -0.5px; text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
+                          Sua conta foi ativada!
+                        </h1>
+                        <p style="margin: 12px 0 0; color: rgba(255, 255, 255, 0.95); font-size: 18px; font-weight: 500;">
+                          ${data.companyName}
+                        </p>
+                      </td>
+                    </tr>
+          
+                    <!-- Conteúdo Principal -->
+                    <tr>
+                      <td style="padding: 40px 30px;">
+                        <p style="margin: 0 0 24px; color: #374151; font-size: 18px; line-height: 1.6;">
+                          Olá, <strong style="color: #667eea;">${data.userName}</strong>! 👋
+                        </p>
+                        <p style="margin: 0 0 32px; color: #374151; font-size: 16px; line-height: 1.7;">
+                          Sua conta foi ativada com sucesso! Abaixo estão suas credenciais de acesso ao painel administrativo da AnotaJá.
+                        </p>
+
+                        <!-- Credenciais Card -->
+                        <div style="background: linear-gradient(135deg, #dbeafe 0%, #e0e7ff 100%); border-radius: 12px; padding: 32px; margin: 0 0 32px; border: 2px solid #3b82f6;">
+                          <h2 style="margin: 0 0 24px; color: #1e40af; font-size: 18px; font-weight: 700; text-align: center;">
+                            🔐 Credenciais de Acesso
+                          </h2>
+                          
+                          <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 20px;">
+                            <tr>
+                              <td style="padding: 12px 0; color: #1e40af; font-size: 14px; font-weight: 600; width: 80px;">Email:</td>
+                              <td style="padding: 12px 0; color: #1e3a8a; font-size: 15px; font-weight: 500;">${data.userEmail}</td>
+                            </tr>
+                            <tr>
+                              <td style="padding: 12px 0; color: #1e40af; font-size: 14px; font-weight: 600;">Senha:</td>
+                              <td style="padding: 12px 0; color: #1e3a8a; font-size: 18px; font-weight: 700; letter-spacing: 1px;">${data.password}</td>
+                            </tr>
+                          </table>
+
+                          <div style="background-color: rgba(255, 255, 255, 0.5); border-radius: 8px; padding: 12px; margin-top: 16px;">
+                            <p style="margin: 0; color: #1e40af; font-size: 13px; line-height: 1.5; text-align: center;">
+                              ⚠️ <strong>Importante:</strong> Recomendamos alterar sua senha após o primeiro acesso.
+                            </p>
+                          </div>
+                        </div>
+
+                        <!-- CTA Button -->
+                        <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 32px;">
+                          <tr>
+                            <td align="center">
+                              <a href="${data.adminUrl}" style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #ffffff; text-decoration: none; padding: 16px 48px; border-radius: 8px; font-size: 16px; font-weight: 700; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4); transition: transform 0.2s;">
+                                🚀 Acessar Painel Admin
+                              </a>
+                            </td>
+                          </tr>
+                        </table>
+
+                        <!-- Dicas -->
+                        <div style="background-color: #f0fdf4; border-left: 4px solid #10b981; border-radius: 8px; padding: 20px; margin: 0 0 24px;">
+                          <p style="margin: 0 0 12px; color: #065f46; font-size: 16px; font-weight: 700;">
+                            💡 Próximos Passos:
+                          </p>
+                          <ul style="margin: 0; padding-left: 20px; color: #047857; font-size: 14px; line-height: 2;">
+                            <li>Acesse o painel admin com suas credenciais</li>
+                            <li>Complete o onboarding inicial</li>
+                            <li>Configure horários e área de entrega</li>
+                            <li>Cadastre seus produtos</li>
+                            <li>Comece a vender! 🎉</li>
+                          </ul>
+                        </div>
+
+                        <p style="margin: 0; color: #374151; font-size: 15px; line-height: 1.6; text-align: center;">
+                          Qualquer dúvida, nossa equipe está pronta para ajudar! 💬
+                        </p>
+                      </td>
+                    </tr>
+          
+                    <!-- Footer -->
+                    <tr>
+                      <td style="background-color: #f9fafb; padding: 30px; text-align: center; border-top: 1px solid #e5e7eb;">
+                        <p style="margin: 0 0 16px; color: #6b7280; font-size: 14px; font-weight: 600;">
+                          Precisa de ajuda? Estamos aqui!
+                        </p>
+                        <a href="mailto:${EMAIL_FROM}" style="display: inline-block; margin: 0 0 20px; color: #667eea; text-decoration: none; font-weight: 700; font-size: 15px;">
+                          📧 ${EMAIL_FROM}
+                        </a>
+                        <p style="margin: 0 0 8px; color: #9ca3af; font-size: 13px; line-height: 1.5;">
+                          © ${new Date().getFullYear()} AnotaJá - Gestão Inteligente para Restaurantes
+                        </p>
+                        <p style="margin: 0; color: #9ca3af; font-size: 12px;">
+                          Todos os direitos reservados.
+                        </p>
+                      </td>
+                    </tr>
+                  </table>
+
+                  <!-- Mensagem Adicional -->
+                  <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; margin-top: 20px;">
+                    <tr>
+                      <td align="center" style="padding: 0 20px;">
+                        <p style="margin: 0; color: #9ca3af; font-size: 12px; line-height: 1.5;">
+                          Você está recebendo este email porque sua conta foi ativada no AnotaJá.
+                        </p>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </body>
+          </html>
+        `,
+      });
+
+      return true;
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        this.logger.error(`Erro ao enviar email de ativação para ${data.email}`, error.stack);
+      } else {
+        this.logger.error(
+          `Erro desconhecido ao enviar email de ativação para ${data.email}`,
+          JSON.stringify(error),
+        );
+      }
+
+      return false;
+    }
+  }
+
   async sendCompanyInterestEmail(
     customerData: {
       name: string;

@@ -29,8 +29,8 @@ export class CompaniesController {
 
   @Public()
   @Post('register-interest')
-  async registerInterest(@Body() dto: CompanyInterestDto) {
-    return this.companiesService.registerCompanyInterest(dto);
+  async registerInterest(@Body() dto: CreateCompanyDto) {
+    return this.companiesService.createCompany(dto);
   }
 
   

@@ -63,21 +63,18 @@ export class WhatsAppController {
     }
   }
 
+  @Public()
+  @UseGuards(JwtPartnerAuthGuard)
   @Post('setup')
-  async setup(@Request() req) {
+  async setupPartner(@Request() req) {
     try {
-      const branchId = req.user.branchId;
-      return this.whatsappService.setup(branchId);
-    } catch (error) {
-      throw new BadRequestException((error as Error).message);
-    }
-  }
+      const partnerId = req.user?.partnerId;
 
-  @Post('enable-sync-history')
-  async enableSyncHistory(@Request() req) {
-    try {
-      const branchId = req.user.branchId;
-      return this.whatsappService.enableSyncHistory(branchId);
+      if (!partnerId) {
+        throw new BadRequestException('partnerId é necessário');
+      }
+
+      return this.whatsappService.setupPartner(partnerId);
     } catch (error) {
       throw new BadRequestException((error as Error).message);
     }

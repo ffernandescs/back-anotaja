@@ -257,26 +257,165 @@ export class WhatsAppService {
     }
   }
 
-  async enableSyncHistory(branchId: string) {
-    const config = await this.getFullConfig(branchId);
-    
+  async setupPartner(partnerId: string) {
+    const instanceName = `anotaja_partner_${partnerId}`;
+
+    console.log('[WhatsApp] Setting up partner instance:', instanceName);
+    console.log('[WhatsApp] Evolution API URL:', this.serverUrl);
+
+    await prisma.whatsAppConfig.upsert({
+      where: { partnerId },
+      update: {
+        serverUrl: this.serverUrl,
+        apiKey: this.globalApiKey,
+        instanceName,
+        status: 'connecting',
+      },
+      create: {
+        partnerId,
+        serverUrl: this.serverUrl,
+        apiKey: this.globalApiKey,
+        instanceName,
+        status: 'connecting',
+      },
+    });
+
     try {
-      await this.evolutionRequest(
+      console.log('[WhatsApp] Creating partner instance with:', {
+        instanceName,
+        integration: 'WHATSAPP-BAILEYS',
+        qrcode: true,
+      });
+
+      const createRes = await this.evolutionRequest(
         'POST',
-        `/settings/set/${config.instanceName}`,
+        '/instance/create',
         {
-          sync_full_history: false, // Disabled to prevent continuous sync loop
-          read_messages: true,
-          read_status: true,
+          instanceName,
+          integration: 'WHATSAPP-BAILEYS',
+          qrcode: true,
+          storeMessages: true,
+          storeFullMessages: true,
         },
       );
-      
-      console.log('[WhatsApp] sync settings configured for instance:', config.instanceName);
-      
-      return { success: true, message: 'sync settings configured successfully' };
+
+      // Configure webhook automatically
+      const webhookUrl = process.env.EVOLUTION_WEBHOOK_URL;
+      if (webhookUrl) {
+        await this.evolutionRequest(
+          'POST',
+          `/webhook/set/${instanceName}`,
+          {
+            url: webhookUrl,
+            webhook_by_events: false,
+            events: [
+              'MESSAGES_UPSERT',
+              'MESSAGES_UPDATE',
+              'SEND_MESSAGE',
+              'CONTACTS_UPDATE',
+              'CHATS_UPDATE',
+              'CHATS_UPSERT',
+              'CHATS_DELETE',
+              'CHATS_SET',
+            ],
+          },
+        ).catch((e) => {
+          console.log('[WhatsApp] Failed to configure webhook:', e);
+        });
+        console.log('[WhatsApp] Webhook configured automatically:', webhookUrl);
+      }
+
+      console.log('[WhatsApp] Create response:', JSON.stringify(createRes, null, 2));
+
+      const instanceId = createRes?.instance?.instanceId || createRes?.instance?.id;
+
+      if (!instanceId) {
+        console.error('[WhatsApp] No instance ID in create response');
+        throw new BadRequestException('Failed to get instance ID from Evolution API');
+      }
+
+      await prisma.whatsAppConfig.update({
+        where: { partnerId },
+        data: {
+          instanceId,
+          status: 'qr_code',
+        },
+      });
+
+      // Fetch QR code from connect endpoint
+      console.log('[WhatsApp] Fetching QR code from connect endpoint');
+      const connectRes = await this.evolutionRequest(
+        'GET',
+        `/instance/connect/${instanceName}`,
+      );
+
+      console.log('[WhatsApp] Connect response:', JSON.stringify(connectRes, null, 2));
+
+      const qrCode = connectRes?.base64 || connectRes?.qrcode?.base64 || connectRes?.pairingCode || null;
+
+      if (!qrCode) {
+        console.error('[WhatsApp] No QR code in connect response');
+      }
+
+      await prisma.whatsAppConfig.update({
+        where: { partnerId },
+        data: {
+          qrCode,
+        },
+      });
+
+      return {
+        status: 'qr_code',
+        qrCode,
+        instanceName,
+      };
     } catch (error: any) {
-      console.error('[WhatsApp] Failed to configure sync settings:', error);
-      throw new BadRequestException('Failed to configure sync settings');
+      console.error('[WhatsApp] Partner setup error:', error);
+
+      if (error?.status === 403 || error?.message?.includes('already') || error?.message?.includes('already in use')) {
+        console.log('[WhatsApp] Instance already exists, fetching QR code directly');
+        
+        // Se a instância já existe, apenas busca o QR code diretamente
+        try {
+          const connectRes = await this.evolutionRequest(
+            'GET',
+            `/instance/connect/${instanceName}`,
+          );
+
+          console.log('[WhatsApp] Connect response for existing instance:', JSON.stringify(connectRes, null, 2));
+
+          const qrCode = connectRes?.base64 || connectRes?.qrcode?.base64 || connectRes?.pairingCode || null;
+          const status = qrCode ? 'qr_code' : 'connecting';
+
+          await prisma.whatsAppConfig.update({
+            where: { partnerId },
+            data: {
+              qrCode,
+              status,
+            },
+          });
+
+          return {
+            status,
+            qrCode,
+            instanceName,
+          };
+        } catch (connectError: any) {
+          console.error('[WhatsApp] Error fetching QR code for existing instance:', connectError);
+          
+          // Se falhar, retorna o connect normal
+          return this.connect(undefined, partnerId);
+        }
+      }
+
+      await prisma.whatsAppConfig.update({
+        where: { partnerId },
+        data: { status: 'disconnected' },
+      });
+
+      throw new BadRequestException(
+        `Falha ao conectar Evolution API: ${error?.message || 'Erro desconhecido'}`,
+      );
     }
   }
 
@@ -427,7 +566,7 @@ export class WhatsAppService {
           // Atualiza apenas o status sem buscar informações adicionais da instância
           // Isso evita chamadas desnecessárias à Evolution API que causam lentidão
           await prisma.whatsAppConfig.update({
-            where: { branchId },
+            where: { id: config.id },
             data: { status: 'connected', qrCode: null },
           });
         }
