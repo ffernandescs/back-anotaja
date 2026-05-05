@@ -629,7 +629,7 @@ export class WhatsAppService {
     return { success: true, message: 'Mensagem de teste enviada!' };
   }
 
-  async sendMessage(phone: string, text: string, branchId?: string, partnerId?: string) {
+  async sendMessage(phone: string, text: string, branchId?: string, partnerId?: string, customerId?: string, customerName?: string) {
     const where = this.getConfigWhere(branchId, partnerId);
     const config = await prisma.whatsAppConfig.findFirst({
       where,
@@ -647,15 +647,44 @@ export class WhatsAppService {
         `/message/sendText/${config.instanceName}`,
         { number: formattedPhone, text },
       );
+
+      // Rastrear mensagem enviada
+      await prisma.whatsAppMessage.create({
+        data: {
+          partnerId,
+          branchId,
+          customerId,
+          customerPhone: formattedPhone,
+          customerName,
+          message: text,
+          status: 'sent',
+          sentAt: new Date(),
+        },
+      });
+
       return { success: true };
     } catch (error) {
       console.error(`[WhatsApp] Falha ao enviar mensagem para ${phone}:`, error);
+      
+      // Rastrear mensagem falha
+      await prisma.whatsAppMessage.create({
+        data: {
+          partnerId,
+          branchId,
+          customerId,
+          customerPhone: formattedPhone,
+          customerName,
+          message: text,
+          status: 'failed',
+          sentAt: new Date(),
+        },
+      });
       throw new BadRequestException(`Falha ao enviar mensagem para ${phone}`);
     }
   }
 
   async sendBulkMessages(
-    phonesWithPersonalization: Array<{ phone: string; name?: string; segment?: string }>,
+    phonesWithPersonalization: Array<{ phone: string; name?: string; segment?: string; customerId?: string }>,
     message: string,
     branchId?: string,
     partnerId?: string,
@@ -666,7 +695,7 @@ export class WhatsAppService {
       errors: [] as string[],
     };
 
-    for (const { phone, name, segment } of phonesWithPersonalization) {
+    for (const { phone, name, segment, customerId } of phonesWithPersonalization) {
       try {
         // Personalize the message
         let personalizedMessage = message;
@@ -678,7 +707,7 @@ export class WhatsAppService {
         }
         personalizedMessage = personalizedMessage.replace(/{telefone}/g, phone);
 
-        await this.sendMessage(phone, personalizedMessage, branchId, partnerId);
+        await this.sendMessage(phone, personalizedMessage, branchId, partnerId, customerId, name);
         results.success++;
       } catch (error) {
         results.failed++;
@@ -687,6 +716,47 @@ export class WhatsAppService {
     }
 
     return results;
+  }
+
+  async getMessageHistoryByPhone(phone: string, partnerId?: string, branchId?: string) {
+    const formattedPhone = this.formatPhone(phone);
+    
+    const messages = await prisma.whatsAppMessage.findMany({
+      where: {
+        customerPhone: formattedPhone,
+        partnerId,
+        branchId,
+      },
+      orderBy: {
+        sentAt: 'desc',
+      },
+      take: 50,
+    });
+
+    return messages;
+  }
+
+  async checkDuplicateMessage(phone: string, message: string, partnerId?: string, branchId?: string) {
+    const formattedPhone = this.formatPhone(phone);
+    
+    // Check if the same message was sent in the last 24 hours
+    const oneDayAgo = new Date();
+    oneDayAgo.setHours(oneDayAgo.getHours() - 24);
+
+    const duplicate = await prisma.whatsAppMessage.findFirst({
+      where: {
+        customerPhone: formattedPhone,
+        message,
+        partnerId,
+        branchId,
+        status: 'sent',
+        sentAt: {
+          gte: oneDayAgo,
+        },
+      },
+    });
+
+    return !!duplicate;
   }
 
   // ─── CRM – Chats & Messages ────────────────────────────────────

@@ -183,7 +183,7 @@ export class WhatsAppController {
     @Request() req,
     @Body()
     dto: {
-      phones: Array<{ phone: string; name?: string; segment?: string }>;
+      phones: Array<{ phone: string; name?: string; segment?: string; customerId?: string }>;
       message: string;
     },
   ) {
@@ -196,6 +196,51 @@ export class WhatsAppController {
       }
 
       return this.whatsappService.sendBulkMessages(dto.phones, dto.message, branchId, partnerId);
+    } catch (error) {
+      throw new BadRequestException((error as Error).message);
+    }
+  }
+
+  @UseGuards(JwtPartnerAuthGuard)
+  @Get('messages/history/:phone')
+  async getMessageHistory(
+    @Request() req,
+    @Param('phone') phone: string,
+  ) {
+    try {
+      const branchId = req.user?.branchId;
+      const partnerId = req.user?.partnerId;
+
+      if (!branchId && !partnerId) {
+        throw new BadRequestException('branchId ou partnerId é necessário');
+      }
+
+      return this.whatsappService.getMessageHistoryByPhone(phone, partnerId, branchId);
+    } catch (error) {
+      throw new BadRequestException((error as Error).message);
+    }
+  }
+
+  @UseGuards(JwtPartnerAuthGuard)
+  @Post('messages/check-duplicate')
+  async checkDuplicateMessage(
+    @Request() req,
+    @Body()
+    dto: {
+      phone: string;
+      message: string;
+    },
+  ) {
+    try {
+      const branchId = req.user?.branchId;
+      const partnerId = req.user?.partnerId;
+
+      if (!branchId && !partnerId) {
+        throw new BadRequestException('branchId ou partnerId é necessário');
+      }
+
+      const isDuplicate = await this.whatsappService.checkDuplicateMessage(dto.phone, dto.message, partnerId, branchId);
+      return { isDuplicate };
     } catch (error) {
       throw new BadRequestException((error as Error).message);
     }
