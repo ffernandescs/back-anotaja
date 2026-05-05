@@ -8,6 +8,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../../lib/prisma';
 import { CreateCompanyDto } from './dto/create-company.dto';
+import { CompanyInterestDto } from './dto/company-interest.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
 import * as bcrypt from 'bcrypt';
 import { GeocodingService } from '../geocoding/geocoding.service';
@@ -389,10 +390,12 @@ export class CompaniesService {
     }
   }
 
-  async verifyCompanyExist(dto: VerifyCompanyExistDto): Promise<void> {
+  async verifyCompanyExist(dto: VerifyCompanyExistDto): Promise<{ exists: boolean; fields?: string[]; message?: string }> {
     const { phone, document, email } = dto;
 
-    if (!phone && !document && !email) return;
+    if (!phone && !document && !email) {
+      return { exists: false };
+    }
 
     const orConditions: Prisma.CompanyWhereInput[] = [];
 
@@ -407,10 +410,23 @@ export class CompaniesService {
     });
 
     if (company) {
-      throw new BadRequestException(
-        'Já existe uma empresa cadastrada com estes dados',
-      );
+      const duplicateFields: string[] = [];
+      if (company.phone === phone) duplicateFields.push('phone');
+      if (company.email === email) duplicateFields.push('email');
+      if (company.document === document) duplicateFields.push('document');
+
+      const fieldLabels: Record<string, string> = {
+        phone: 'telefone',
+        email: 'email',
+        document: 'documento',
+      };
+
+      const message = `Já existe uma empresa cadastrada com: ${duplicateFields.map(f => fieldLabels[f]).join(', ')}`;
+
+      return { exists: true, fields: duplicateFields, message };
     }
+
+    return { exists: false };
   }
 
   async getOnboardingStatus(userId: string) {
@@ -584,5 +600,133 @@ export class CompaniesService {
       success: true,
       message: 'Onboarding concluído com sucesso',
     };
+  }
+
+  async registerCompanyInterest(dto: CompanyInterestDto) {
+    try {
+      let partnerId: string | undefined;
+
+      // Se houver código de parceiro, buscar o parceiro
+      if (dto.partnerCode) {
+        const partner = await prisma.partner.findUnique({
+          where: { code: dto.partnerCode },
+          select: { id: true },
+        });
+
+        if (partner) {
+          partnerId = partner.id;
+        }
+      }
+
+      // Verificar duplicidade de document, email e phone
+      const existingCompany = await prisma.company.findFirst({
+        where: {
+          OR: [{ document: dto.document }, { email: dto.email }, { phone: dto.phone }],
+        },
+      });
+
+      if (existingCompany) {
+        const duplicateFields: string[] = [];
+        if (existingCompany.document === dto.document) duplicateFields.push('document');
+        if (existingCompany.email === dto.email) duplicateFields.push('email');
+        if (existingCompany.phone === dto.phone) duplicateFields.push('phone');
+
+        const fieldLabels: Record<string, string> = {
+          phone: 'telefone',
+          email: 'email',
+          document: 'documento',
+        };
+
+        const message = `Empresa já existe com: ${duplicateFields.map(f => fieldLabels[f]).join(', ')}`;
+        throw new BadRequestException(message);
+      }
+
+      // Criar a empresa com a primeira branch
+      const company = await prisma.$transaction(async (prisma) => {
+        // Criar empresa
+        const createdCompany = await prisma.company.create({
+          data: {
+            companyName: dto.companyName,
+            name: dto.name,
+            document: dto.document,
+            email: dto.email,
+            phone: dto.phone,
+            segment: dto.segment,
+            active: true,
+            onboardingCompleted: false,
+            onboardingStep: 'SCHEDULE',
+            partnerId,
+          },
+        });
+
+        // Criar endereço da empresa
+        const createdCompanyAddress = await prisma.companyAddress.create({
+          data: {
+            street: dto.street,
+            number: dto.number,
+            complement: dto.complement,
+            neighborhood: dto.neighborhood,
+            city: dto.city,
+            state: dto.state,
+            zipCode: dto.zipCode,
+            isDefault: true,
+            reference: dto.reference,
+            companyId: createdCompany.id,
+          },
+        });
+
+        const createdBranchAddress = await prisma.branchAddress.create({
+          data: {
+            street: dto.street,
+            number: dto.number,
+            complement: dto.complement,
+            neighborhood: dto.neighborhood,
+            city: dto.city,
+            state: dto.state,
+            zipCode: dto.zipCode,
+            reference: dto.reference,
+            isDefault: true,
+          },
+        });
+
+        // Criar branch
+        const createdBranch = await prisma.branch.create({
+          data: {
+            branchName: createdCompany.companyName,
+            phone: createdCompany.phone,
+            document: dto.document,
+            companyId: createdCompany.id,
+            addressId: createdBranchAddress.id,
+          },
+        });
+
+        return {
+          createdCompany,
+          createdBranch,
+          createdCompanyAddress,
+          createdBranchAddress,
+        };
+      });
+
+      // Enviar email com os dados do cliente para o master
+      const emailSent = await this.mailService.sendCompanyInterestEmail(dto);
+
+      if (!emailSent) {
+        console.warn('Email de interesse não enviado, mas continuando com o processo');
+      }
+
+      const masterWhatsApp = process.env.MASTER_WHATSAPP || '5511999999999';
+
+      return {
+        success: true,
+        message: 'Interesse registrado com sucesso. Entraremos em contato em breve.',
+        whatsapp: masterWhatsApp,
+        partnerId,
+        companyId: company.createdCompany.id,
+      };
+    } catch (error) {
+      console.error('Erro ao registrar interesse:', error);
+      throw error;
+    }
   }
 }

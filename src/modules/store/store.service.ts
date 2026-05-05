@@ -173,6 +173,26 @@ async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPer
     );
   }
 
+  console.log(updatedOrder.status,'updatedOrder.status')
+console.log(action,"action")
+  // ─── Production Copy Printing ───────────────────────────────────
+  // Emit event for frontend to print production copy when status changes to IN_PROGRESS
+  if (action === 'START_COOKING' && updatedOrder.status === OrderStatus.IN_PROGRESS) {
+    this.webSocketGateway.emitOrderUpdate(
+      { ...updatedOrder, printProductionCopy: true },
+      'order:status_changed',
+    );
+  }
+
+  // ─── Standard Copy Printing on CONFIRMED ───────────────────────────
+  // Emit event for frontend to print standard copy when status changes to CONFIRMED
+  if (action === 'CONFIRM' && updatedOrder.status === OrderStatus.CONFIRMED) {
+    this.webSocketGateway.emitOrderUpdate(
+      { ...updatedOrder, printStandardCopy: true },
+      'order:status_changed',
+    );
+  }
+
   return {
     ...updatedOrder,
     availableTransitions: stateMachine.getAvailableTransitions(updatedOrder),

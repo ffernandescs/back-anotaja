@@ -280,8 +280,13 @@ export class WhatsAppService {
     }
   }
 
-  async connect(branchId: string) {
-    const config = await this.getFullConfig(branchId);
+  async connect(branchId?: string, partnerId?: string) {
+    const where = this.getConfigWhere(branchId, partnerId);
+    const config = await prisma.whatsAppConfig.findFirst({ where });
+
+    if (!config?.instanceName) {
+      throw new BadRequestException('WhatsApp não configurado. Conecte o WhatsApp primeiro.');
+    }
 
     const res = await this.evolutionRequest(
       'GET',
@@ -291,7 +296,7 @@ export class WhatsAppService {
     const status = res?.base64 ? 'qr_code' : 'connecting';
 
     await prisma.whatsAppConfig.update({
-      where: { branchId },
+      where: { id: config.id },
       data: {
         status,
         qrCode: res?.base64 || null,
@@ -329,11 +334,13 @@ export class WhatsAppService {
       // Verifica o status real da conexão após um pequeno delay
       setTimeout(async () => {
         try {
-          const currentStatus = await this.getStatus(branchId);
+          const currentStatus = await this.getStatus(branchId, partnerId);
           if (currentStatus.status === 'connected') {
             console.log('[WhatsApp] Instance connected, fetching conversations...');
-            await this.fetchChats(branchId);
-            console.log('[WhatsApp] Conversations fetched successfully');
+            if (branchId) {
+              await this.fetchChats(branchId);
+              console.log('[WhatsApp] Conversations fetched successfully');
+            }
           }
         } catch (error) {
           console.error('[WhatsApp] Error fetching conversations after connect:', error);
@@ -344,8 +351,13 @@ export class WhatsAppService {
     return { status, qrCode: res?.base64 || null };
   }
 
-  async disconnect(branchId: string) {
-    const config = await this.getFullConfig(branchId);
+  async disconnect(branchId?: string, partnerId?: string) {
+    const where = this.getConfigWhere(branchId, partnerId);
+    const config = await prisma.whatsAppConfig.findFirst({ where });
+
+    if (!config) {
+      throw new BadRequestException('WhatsApp não configurado. Conecte o WhatsApp primeiro.');
+    }
 
     console.log('[WhatsApp] Disconnecting instance:', config.instanceName);
 
@@ -371,12 +383,12 @@ export class WhatsAppService {
 
     // Limpa todos os contadores de mensagens não lidas do banco
     await prisma.whatsAppChatRead.deleteMany({
-      where: { branchId },
+      where,
     });
     console.log('[WhatsApp] Cleared all message read status for branch:', branchId);
 
     await prisma.whatsAppConfig.update({
-      where: { branchId },
+      where: { id: config.id },
       data: {
         status: 'disconnected',
         qrCode: null,
@@ -391,10 +403,9 @@ export class WhatsAppService {
     return { status: 'disconnected' };
   }
 
-  async getStatus(branchId: string) {
-    const config = await prisma.whatsAppConfig.findUnique({
-      where: { branchId },
-    });
+  async getStatus(branchId?: string, partnerId?: string) {
+    const where = this.getConfigWhere(branchId, partnerId);
+    const config = await prisma.whatsAppConfig.findFirst({ where });
 
     if (!config?.instanceName) {
       return { status: 'disconnected' };
@@ -441,6 +452,21 @@ export class WhatsAppService {
     }
   }
 
+  // ─── Helper methods ────────────────────────────────────────────
+
+  private formatPhone(phone: string): string {
+    // Remove all non-digit characters
+    const cleaned = phone.replace(/\D/g, '');
+
+    // If already has country code (55 for Brazil), return as is
+    if (cleaned.startsWith('55') && cleaned.length >= 12) {
+      return cleaned;
+    }
+
+    // Add Brazilian country code (55) if not present
+    return `55${cleaned}`;
+  }
+
   // ─── Send messages ────────────────────────────────────────────
 
   async sendTestMessage(branchId: string, dto: SendTestMessageDto) {
@@ -464,13 +490,14 @@ export class WhatsAppService {
     return { success: true, message: 'Mensagem de teste enviada!' };
   }
 
-  async sendMessage(branchId: string, phone: string, text: string) {
-    const config = await prisma.whatsAppConfig.findUnique({
-      where: { branchId },
+  async sendMessage(phone: string, text: string, branchId?: string, partnerId?: string) {
+    const where = this.getConfigWhere(branchId, partnerId);
+    const config = await prisma.whatsAppConfig.findFirst({
+      where,
     });
 
-    if (!config || config.status !== 'connected' || !config.enabled) {
-      return;
+    if (!config || config.status !== 'connected') {
+      throw new BadRequestException('WhatsApp não está conectado');
     }
 
     const formattedPhone = this.formatPhone(phone);
@@ -481,9 +508,46 @@ export class WhatsAppService {
         `/message/sendText/${config.instanceName}`,
         { number: formattedPhone, text },
       );
+      return { success: true };
     } catch (error) {
       console.error(`[WhatsApp] Falha ao enviar mensagem para ${phone}:`, error);
+      throw new BadRequestException(`Falha ao enviar mensagem para ${phone}`);
     }
+  }
+
+  async sendBulkMessages(
+    phonesWithPersonalization: Array<{ phone: string; name?: string; segment?: string }>,
+    message: string,
+    branchId?: string,
+    partnerId?: string,
+  ) {
+    const results = {
+      success: 0,
+      failed: 0,
+      errors: [] as string[],
+    };
+
+    for (const { phone, name, segment } of phonesWithPersonalization) {
+      try {
+        // Personalize the message
+        let personalizedMessage = message;
+        if (name) {
+          personalizedMessage = personalizedMessage.replace(/{nome}/g, name);
+        }
+        if (segment) {
+          personalizedMessage = personalizedMessage.replace(/{segmento}/g, segment);
+        }
+        personalizedMessage = personalizedMessage.replace(/{telefone}/g, phone);
+
+        await this.sendMessage(phone, personalizedMessage, branchId, partnerId);
+        results.success++;
+      } catch (error) {
+        results.failed++;
+        results.errors.push(`${phone}: ${error}`);
+      }
+    }
+
+    return results;
   }
 
   // ─── CRM – Chats & Messages ────────────────────────────────────
@@ -1371,12 +1435,14 @@ async sendCrmMedia(
     return config;
   }
 
-  private formatPhone(phone: string): string {
-    let cleaned = phone.replace(/\D/g, '');
-    if (!cleaned.startsWith('55')) {
-      cleaned = '55' + cleaned;
+  private getConfigWhere(branchId?: string, partnerId?: string) {
+    if (partnerId) {
+      return { partnerId };
     }
-    return cleaned;
+    if (branchId) {
+      return { branchId };
+    }
+    return {};
   }
 
   async getFullConfigPublic(branchId: string) {
@@ -1428,6 +1494,66 @@ async sendCrmMedia(
 
     console.log('[WhatsApp] Webhook registered:', JSON.stringify(result));
     return result;
+  }
+
+  // ─── Templates e Campanhas ─────────────────────────────────────
+
+  async getTemplates(branchId?: string, partnerId?: string) {
+    const where = this.getConfigWhere(branchId, partnerId);
+    // Se where está vazio, retorna array vazio para não expor dados de outros usuários
+    if (Object.keys(where).length === 0) {
+      return [];
+    }
+    return prisma.messageTemplate.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async createTemplate(dto: { name: string; content: string; category?: string }, branchId?: string, partnerId?: string) {
+    const where = this.getConfigWhere(branchId, partnerId);
+    return prisma.messageTemplate.create({
+      data: {
+        ...dto,
+        branchId: where.branchId || undefined,
+        partnerId: where.partnerId || undefined,
+      },
+    });
+  }
+
+  async updateTemplate(id: string, dto: { name?: string; content?: string; category?: string }) {
+    return prisma.messageTemplate.update({
+      where: { id },
+      data: dto,
+    });
+  }
+
+  async deleteTemplate(id: string) {
+    return prisma.messageTemplate.delete({
+      where: { id },
+    });
+  }
+
+  async getCampaigns(branchId?: string, partnerId?: string) {
+    const where = this.getConfigWhere(branchId, partnerId);
+    if (Object.keys(where).length === 0) {
+      return [];
+    }
+    return prisma.campaignRecord.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async createCampaign(dto: { name: string; message: string; recipients: number; sent: number; failed: number; status?: string }, branchId?: string, partnerId?: string) {
+    const where = this.getConfigWhere(branchId, partnerId);
+    return prisma.campaignRecord.create({
+      data: {
+        ...dto,
+        branchId: where.branchId || undefined,
+        partnerId: where.partnerId || undefined,
+      },
+    });
   }
 
   private async evolutionRequest(

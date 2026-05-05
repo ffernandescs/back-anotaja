@@ -1,0 +1,70 @@
+import {
+  IsEmail,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+} from 'class-validator';
+
+export class CompanyInterestDto {
+  // Dados da empresa
+  @IsNotEmpty()
+  @IsString()
+  name!: string;
+
+  @IsNotEmpty()
+  @IsString()
+  companyName!: string;
+
+  @IsNotEmpty()
+  @IsString()
+  document!: string;
+
+  @IsNotEmpty()
+  @IsEmail()
+  email!: string;
+
+  @IsNotEmpty()
+  @IsString()
+  phone!: string;
+
+  // Dados da primeira branch (matriz)
+  // Endereço da branch
+  @IsNotEmpty()
+  @IsString()
+  street!: string;
+
+  @IsString()
+  number!: string;
+
+  @IsOptional()
+  @IsString()
+  complement?: string;
+
+  @IsNotEmpty()
+  @IsString()
+  neighborhood!: string;
+
+  @IsNotEmpty()
+  @IsString()
+  city!: string;
+
+  @IsNotEmpty()
+  @IsString()
+  state!: string;
+
+  @IsNotEmpty()
+  @IsString()
+  zipCode!: string;
+
+  @IsString()
+  reference?: string;
+
+  @IsOptional()
+  @IsString()
+  segment?: string;
+
+  // Código do parceiro (opcional - para rastreamento de afiliados)
+  @IsOptional()
+  @IsString()
+  partnerCode?: string;
+}

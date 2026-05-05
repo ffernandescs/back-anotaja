@@ -43,27 +43,31 @@ enum OnboardingStep {
 }
 
 model Company {
-  id                  String            @id @default(cuid())
-  name                String
-  companyName         String
-  document            String            @unique
-  email               String            @unique
-  phone               String            @unique
-  segment             String?
-  active              Boolean           @default(true)
-  onboardingStep      OnboardingStep    @default(SCHEDULE)
-  onboardingCompleted Boolean           @default(false)
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @updatedAt
+  id                                                                         String            @id @default(cuid())
+  name                                                                       String
+  companyName                                                                String
+  document                                                                   String            @unique
+  email                                                                      String            @unique
+  phone                                                                      String            @unique
+  segment                                                                    String?
+  active                                                                     Boolean           @default(true)
+  onboardingStep                                                             OnboardingStep    @default(SCHEDULE)
+  onboardingCompleted                                                        Boolean           @default(false)
+  partnerId           String?           // Parceiro que indicou esta empresa
+  createdAt                                                                  DateTime          @default(now())
+  updatedAt                                                                  DateTime          @updatedAt
 
-  deliveryPersons     DeliveryPerson[]
-  usageCounters       UsageCounter[]
-  groups              Group[]
-  products            Product[]
-  branches            Branch[]
-  users               User[]
-  subscription        Subscription?
-  address             CompanyAddress?  @relation("CompanyAddress")
+  deliveryPersons                                                            DeliveryPerson[]
+  usageCounters                                                              UsageCounter[]
+  groups                                                                     Group[]
+  products                                                                   Product[]
+  branches                                                                   Branch[]
+  users                                                                      User[]
+  subscription                                                               Subscription?
+  address                                                                    CompanyAddress?  @relation("CompanyAddress")
+  partner                                                                    Partner?         @relation(fields: [partnerId], references: [id])
+
+  @@index([partnerId])
 }
 
 enum PlanType {
@@ -101,7 +105,7 @@ model Feature {
   href           String?         // Rota da feature (ex: "/admin/dashboard")
   displayOrder                                                               Int?                // Ordem de exibição
   parentId                                                                   String?             // ID da feature pai (null para features principais)
-  isPlugin                                                                   Boolean             @default(false) // Se é um plugin (exibe na sidebar de plugins)
+  isPlugin                                                                                                                                                           Boolean             @default(false) // Se é um plugin (exibe na sidebar de plugins)
   parent                                                                                                                                                             Feature?           @relation("FeatureHierarchy", fields: [parentId], references: [id])
   children                                                                                                                                                           Feature[]          @relation("FeatureHierarchy")
   createdAt                                                                                                                                                          DateTime            @default(now())
@@ -587,6 +591,8 @@ model Branch {
   generalConfig              GeneralConfig?
   pageViews                  PageView[]
   marketingIntegrationConfig MarketingIntegrationConfig?
+  messageTemplates           MessageTemplate[]
+  campaignRecords            CampaignRecord[]
   paymentGatewayConfigs      PaymentGatewayConfig[]
   whatsappConfig             WhatsAppConfig?
 }
@@ -1813,9 +1819,9 @@ model GeneralConfig {
   // Configurações de PIX
   pixMode                   String?   // disabled | manual | automatic
   pixKeyType                String?   // cpf | cnpj | phone | email | random
-  pixKey                    String?
-  pixHolderName             String?
-  mercadoPagoAccessToken    String?
+  pixKey                                                                                                                                                                          String?
+  pixHolderName                                                                                                                                                                   String?
+  mercadoPagoAccessToken                                                                                                                                                          String?
 
   // Informações do Estabelecimento (mantidos para compatibilidade)
   companyName                                                                                                                                                                     String?
@@ -1963,10 +1969,55 @@ model TableSession {
   @@map("table_sessions")
 }
 
+// Parceiros/Sócios - Contas de parceiros para gerenciar lista de clientes
+model Partner {
+  id                                                                                                    String             @id @default(cuid())
+  name              String    // Nome do parceiro/sócio
+  email                                                                                                 String             @unique // Email de login
+  password          String    // Senha hash
+  phone             String?   // Telefone
+  code                                                                                                  String?            @unique // Código único para o link de afiliado (ex: "xyz123")
+  commission                                                                                            Int                @default(10) // Porcentagem de comissão (ex: 10%)
+  active                                                                                                Boolean            @default(true) // Conta ativa
+  createdAt                                                                                             DateTime           @default(now())
+  updatedAt                                                                                             DateTime           @updatedAt
+
+  customers                                                                                             PartnerCustomer[]
+  companies                                             Company[] // Empresas que vieram deste parceiro
+  whatsappConfig                                                                                        WhatsAppConfig?
+  messageTemplates                                                                                      MessageTemplate[]
+  campaignRecords                                                                                       CampaignRecord[]
+
+  @@index([email])
+  @@index([code])
+  @@map("partners")
+}
+
+// Lista de clientes de um parceiro
+model PartnerCustomer {
+  id                                                                    String    @id @default(cuid())
+  partnerId         String    // ID do parceiro
+  companyName       String    // Nome da empresa
+  segment           String    // Segmento (Pizzaria, Restaurante, etc.)
+  phone             String    // Telefone
+  address           String    // Endereço
+  hasSubscription                                                       Boolean   @default(false) // Se fechou assinatura
+  notes             String?   // Observações
+  createdAt                                                             DateTime  @default(now())
+  updatedAt                                                             DateTime  @updatedAt
+
+  partner                                                               Partner  @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@index([partnerId])
+  @@index([partnerId,                                                   hasSubscription])
+  @@map("partner_customers")
+}
+
 // Configuração de integração WhatsApp via Evolution API
 model WhatsAppConfig {
-  id                String    @id @default(cuid())
-  branchId          String    @unique
+  id                                                                          String              @id @default(cuid())
+  branchId          String?   // Opcional: para branches
+  partnerId         String?   // Opcional: para partners
 
   // Configurações da instância Evolution API
   instanceName      String?   // Nome da instância na Evolution API
@@ -1975,24 +2026,24 @@ model WhatsAppConfig {
   serverUrl         String?   // URL do servidor Evolution API
 
   // Status da conexão
-  status            String    @default("disconnected") // disconnected, connecting, connected, qr_code
+  status                                                                      String              @default("disconnected") // disconnected, connecting, connected, qr_code
   qrCode            String?   // QR Code base64 para conexão
   phoneNumber       String?   // Número do WhatsApp conectado
   profileName       String?   // Nome do perfil conectado
   profilePicUrl     String?   // URL da foto de perfil
 
   // Configurações de notificações
-  enabled           Boolean   @default(false)
-  notifyNewOrder    Boolean   @default(true)  // Notificar novos pedidos
-  notifyOrderStatus Boolean   @default(true)  // Notificar mudanças de status
-  notifyDelivery    Boolean   @default(true)  // Notificar despacho/entrega
+  enabled                                                                     Boolean             @default(false)
+  notifyNewOrder                                                              Boolean             @default(true) // Notificar novos pedidos
+  notifyOrderStatus                                                           Boolean             @default(true) // Notificar mudanças de status
+  notifyDelivery                                                              Boolean             @default(true) // Notificar despacho/entrega
   notifyNumber      String?   // Número para receber alertas do restaurante
 
   // Configurações de mensagens automáticas
-  orderConfirmationEnabled  Boolean @default(true)  // Confirmação de pedido ao cliente
-  orderReadyEnabled         Boolean @default(true)  // Aviso de pedido pronto
-  deliveryStartEnabled      Boolean @default(true)  // Aviso de saída para entrega
-  deliveryCancelEnabled     Boolean @default(true)  // Aviso de cancelamento
+  orderConfirmationEnabled                                                    Boolean             @default(true) // Confirmação de pedido ao cliente
+  orderReadyEnabled                                                           Boolean             @default(true) // Aviso de pedido pronto
+  deliveryStartEnabled                                                        Boolean             @default(true) // Aviso de saída para entrega
+  deliveryCancelEnabled                                                       Boolean             @default(true) // Aviso de cancelamento
 
   // Templates de mensagens customizáveis
   templateConfirmation      String?  // Template para confirmação de pedido
@@ -2001,31 +2052,66 @@ model WhatsAppConfig {
   templateDelivered         String?  // Template para entregue
   templateCancelled         String?  // Template para cancelado
 
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  createdAt                                                                   DateTime            @default(now())
+  updatedAt                                                                   DateTime            @updatedAt
 
-  branch            Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branch                                                                      Branch?            @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  partner                                                                     Partner?           @relation(fields: [partnerId], references: [id], onDelete: Cascade)
 
-  chatReadStatus    WhatsAppChatRead[]
+  chatReadStatus                                                              WhatsAppChatRead[]
 
+  @@unique([branchId])
+  @@unique([partnerId])
   @@map("whatsapp_configs")
 }
 
 model WhatsAppChatRead {
-  id                String    @id @default(cuid())
-  branchId          String
+  id                                                                              String          @id @default(cuid())
+  branchId                                                                        String
   jid               String    // WhatsApp JID (e.g., 558182647354@s.whatsapp.net)
-  unreadCount       Int       @default(0)
+  unreadCount                                                                     Int             @default(0)
   lastMessageAt     DateTime? // Timestamp of last message
   lastReadAt        DateTime? // When the conversation was last marked as read
 
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  createdAt                                                                       DateTime        @default(now())
+  updatedAt                                                                       DateTime        @updatedAt
 
-  config            WhatsAppConfig @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  config                                                                          WhatsAppConfig @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
-  @@unique([branchId, jid])
+  @@unique([branchId,                                                             jid])
+}
+
+model MessageTemplate {
+  id        String    @id @default(cuid())
+  branchId  String?
+  partnerId String?
+  name      String
+  content   String
+  category  String    @default("Personalizado")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  branch    Branch?  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  partner   Partner? @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@map("message_templates")
+}
+
+model CampaignRecord {
+  id                                                     String    @id @default(cuid())
+  branchId                                               String?
+  partnerId                                              String?
+  name                                                   String
+  message                                                String
+  recipients  Int      // Total de destinatários
+  sent        Int      // Quantidade enviada com sucesso
+  failed      Int      // Quantidade que falhou
+  status                                                 String    @default("completed") // completed, failed, sending
+  createdAt                                              DateTime  @default(now())
+
+  branch                                                 Branch?  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  partner                                                Partner? @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@map("campaign_records")
   @@index([branchId])
-  @@index([jid])
-  @@map("whatsapp_chat_read")
 }

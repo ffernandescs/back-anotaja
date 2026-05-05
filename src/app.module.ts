@@ -55,6 +55,7 @@ import { PerformanceModule } from './modules/performance/performance.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { WhatsAppModule } from './modules/whatsapp/whatsapp.module';
+import { PartnerModule } from './modules/partner/partner.module';
 import { BullModule } from '@nestjs/bullmq';
 
 @Module({
@@ -121,6 +122,7 @@ import { BullModule } from '@nestjs/bullmq';
     AnalyticsModule,
     IntegrationsModule,
     WhatsAppModule,
+    PartnerModule,
   ],
   providers: [
     {

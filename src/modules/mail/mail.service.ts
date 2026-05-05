@@ -351,4 +351,203 @@ export class MailService {
       return false;
     }
   }
+
+  async sendCompanyInterestEmail(
+    customerData: {
+      name: string;
+      companyName: string;
+      document: string;
+      email: string;
+      phone: string;
+      segment?: string;
+      street: string;
+      number: string;
+      complement?: string;
+      neighborhood: string;
+      city: string;
+      state: string;
+      zipCode: string;
+      reference?: string;
+    },
+  ): Promise<boolean> {
+    const masterEmail = process.env.MASTER_EMAIL || 'master@anotaja.shop';
+
+    try {
+      await this.transporter.sendMail({
+        from: `"AnotaJá - Novo Interesse" <${process.env.SMTP_USER}>`,
+        to: masterEmail,
+        subject: `🎯 Novo Interesse em Testar o Sistema - ${customerData.companyName}`,
+        html: `
+          <!DOCTYPE html>
+          <html lang="pt-BR">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Novo Interesse em Testar o Sistema</title>
+          </head>
+          <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f5f5f5;">
+            <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 40px 20px;">
+              <tr>
+                <td align="center">
+                  <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); overflow: hidden;">
+                    
+                    <!-- Header -->
+                    <tr>
+                      <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 30px; text-align: center;">
+                        <div style="background-color: rgba(255, 255, 255, 0.2); width: 80px; height: 80px; border-radius: 50%; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center;">
+                          <span style="font-size: 40px;">🎯</span>
+                        </div>
+                        <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 700; letter-spacing: -0.5px;">
+                          Novo Interesse em Testar o Sistema
+                        </h1>
+                        <p style="margin: 10px 0 0; color: rgba(255, 255, 255, 0.9); font-size: 16px;">
+                          ${customerData.companyName}
+                        </p>
+                      </td>
+                    </tr>
+  
+                    <!-- Conteúdo -->
+                    <tr>
+                      <td style="padding: 40px 30px;">
+                        <p style="margin: 0 0 32px; color: #374151; font-size: 16px; line-height: 1.6;">
+                          Um novo cliente demonstrou interesse em testar o sistema AnotaJá. Abaixo estão os dados fornecidos:
+                        </p>
+  
+                        <!-- Dados do Cliente -->
+                        <div style="background-color: #f9fafb; border-radius: 8px; padding: 24px; margin: 0 0 32px; border: 1px solid #e5e7eb;">
+                          <h2 style="margin: 0 0 20px; color: #111827; font-size: 18px; font-weight: 700; border-bottom: 2px solid #667eea; padding-bottom: 12px;">
+                            📋 Dados do Cliente
+                          </h2>
+                          
+                          <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 16px;">
+                            <tr>
+                              <td style="padding: 8px 0; color: #6b7280; font-size: 14px; width: 140px; font-weight: 600;">Nome:</td>
+                              <td style="padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500;">${customerData.name}</td>
+                            </tr>
+                            <tr>
+                              <td style="padding: 8px 0; color: #6b7280; font-size: 14px; width: 140px; font-weight: 600;">Empresa:</td>
+                              <td style="padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500;">${customerData.companyName}</td>
+                            </tr>
+                            <tr>
+                              <td style="padding: 8px 0; color: #6b7280; font-size: 14px; width: 140px; font-weight: 600;">Segmento:</td>
+                              <td style="padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500;">${customerData.segment || 'Não informado'}</td>
+                            </tr>
+                            <tr>
+                              <td style="padding: 8px 0; color: #6b7280; font-size: 14px; width: 140px; font-weight: 600;">CPF/CNPJ:</td>
+                              <td style="padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500;">${customerData.document}</td>
+                            </tr>
+                            <tr>
+                              <td style="padding: 8px 0; color: #6b7280; font-size: 14px; width: 140px; font-weight: 600;">Email:</td>
+                              <td style="padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500;">
+                                <a href="mailto:${customerData.email}" style="color: #667eea; text-decoration: none;">${customerData.email}</a>
+                              </td>
+                            </tr>
+                            <tr>
+                              <td style="padding: 8px 0; color: #6b7280; font-size: 14px; width: 140px; font-weight: 600;">Telefone:</td>
+                              <td style="padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500;">
+                                <a href="tel:${customerData.phone}" style="color: #667eea; text-decoration: none;">${customerData.phone}</a>
+                              </td>
+                            </tr>
+                          </table>
+                        </div>
+  
+                        <!-- Endereço -->
+                        <div style="background-color: #f9fafb; border-radius: 8px; padding: 24px; margin: 0 0 32px; border: 1px solid #e5e7eb;">
+                          <h2 style="margin: 0 0 20px; color: #111827; font-size: 18px; font-weight: 700; border-bottom: 2px solid #667eea; padding-bottom: 12px;">
+                            📍 Endereço
+                          </h2>
+                          
+                          <table width="100%" cellpadding="0" cellspacing="0">
+                            <tr>
+                              <td style="padding: 8px 0; color: #6b7280; font-size: 14px; width: 140px; font-weight: 600;">Rua:</td>
+                              <td style="padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500;">${customerData.street}, ${customerData.number}</td>
+                            </tr>
+                            ${customerData.complement ? `
+                            <tr>
+                              <td style="padding: 8px 0; color: #6b7280; font-size: 14px; width: 140px; font-weight: 600;">Complemento:</td>
+                              <td style="padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500;">${customerData.complement}</td>
+                            </tr>
+                            ` : ''}
+                            <tr>
+                              <td style="padding: 8px 0; color: #6b7280; font-size: 14px; width: 140px; font-weight: 600;">Bairro:</td>
+                              <td style="padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500;">${customerData.neighborhood}</td>
+                            </tr>
+                            <tr>
+                              <td style="padding: 8px 0; color: #6b7280; font-size: 14px; width: 140px; font-weight: 600;">Cidade/UF:</td>
+                              <td style="padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500;">${customerData.city} - ${customerData.state}</td>
+                            </tr>
+                            <tr>
+                              <td style="padding: 8px 0; color: #6b7280; font-size: 14px; width: 140px; font-weight: 600;">CEP:</td>
+                              <td style="padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500;">${customerData.zipCode}</td>
+                            </tr>
+                            ${customerData.reference ? `
+                            <tr>
+                              <td style="padding: 8px 0; color: #6b7280; font-size: 14px; width: 140px; font-weight: 600;">Referência:</td>
+                              <td style="padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500;">${customerData.reference}</td>
+                            </tr>
+                            ` : ''}
+                          </table>
+                        </div>
+  
+                        <!-- Ações Rápidas -->
+                        <div style="background: linear-gradient(135deg, #dbeafe 0%, #e0e7ff 100%); border-radius: 8px; padding: 24px; margin: 0 0 24px; border: 2px solid #3b82f6;">
+                          <h2 style="margin: 0 0 16px; color: #1e40af; font-size: 16px; font-weight: 700;">
+                            ⚡ Ações Rápidas
+                          </h2>
+                          <table width="100%" cellpadding="0" cellspacing="0">
+                            <tr>
+                              <td style="padding: 8px 0;">
+                                <a href="mailto:${customerData.email}" style="display: inline-block; background-color: #667eea; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 6px; font-size: 14px; font-weight: 600; margin-right: 8px;">
+                                  📧 Enviar Email
+                                </a>
+                              </td>
+                              <td style="padding: 8px 0;">
+                                <a href="tel:${customerData.phone}" style="display: inline-block; background-color: #10b981; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 6px; font-size: 14px; font-weight: 600;">
+                                  📞 Ligar Agora
+                                </a>
+                              </td>
+                            </tr>
+                          </table>
+                        </div>
+  
+                        <p style="margin: 0; color: #374151; font-size: 14px; line-height: 1.6;">
+                          Entre em contato com o cliente o mais breve possível para converter este interesse em uma venda! 🚀
+                        </p>
+                      </td>
+                    </tr>
+  
+                    <!-- Footer -->
+                    <tr>
+                      <td style="background-color: #f9fafb; padding: 30px; text-align: center; border-top: 1px solid #e5e7eb;">
+                        <p style="margin: 0 0 8px; color: #9ca3af; font-size: 13px; line-height: 1.5;">
+                          © ${new Date().getFullYear()} AnotaJá. Todos os direitos reservados.
+                        </p>
+                        <p style="margin: 0; color: #9ca3af; font-size: 12px;">
+                          Este é um email automático gerado pelo sistema de registro de interesses.
+                        </p>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </body>
+          </html>
+        `,
+      });
+
+      return true;
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        this.logger.error(`Erro ao enviar email de interesse para ${masterEmail}`, error.stack);
+      } else {
+        this.logger.error(
+          `Erro desconhecido ao enviar email de interesse para ${masterEmail}`,
+          JSON.stringify(error),
+        );
+      }
+
+      return false;
+    }
+  }
 }

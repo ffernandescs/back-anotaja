@@ -2,6 +2,7 @@
 import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 import { CompaniesService, VerifyCompanyExistDto } from './companies.service';
 import { CreateCompanyDto } from './dto/create-company.dto';
+import { CompanyInterestDto } from './dto/company-interest.dto';
 import { Public } from '../../common/decorators/public.decorator';
 import { AuthGuard } from '@nestjs/passport';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -24,6 +25,12 @@ export class CompaniesController {
   @Post('register')
   async register(@Body() dto: CreateCompanyDto) {
     return this.companiesService.createCompany(dto);
+  }
+
+  @Public()
+  @Post('register-interest')
+  async registerInterest(@Body() dto: CompanyInterestDto) {
+    return this.companiesService.registerCompanyInterest(dto);
   }
 
   

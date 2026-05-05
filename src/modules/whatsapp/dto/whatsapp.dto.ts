@@ -90,3 +90,52 @@ export class SendCrmMessageDto {
   @IsString()
   text!: string;
 }
+
+// ─── Templates e Campanhas ─────────────────────────────────────
+
+export class CreateMessageTemplateDto {
+  @IsString()
+  name!: string;
+
+  @IsString()
+  content!: string;
+
+  @IsOptional()
+  @IsString()
+  category?: string;
+}
+
+export class UpdateMessageTemplateDto {
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  content?: string;
+
+  @IsOptional()
+  @IsString()
+  category?: string;
+}
+
+export class CreateCampaignRecordDto {
+  @IsString()
+  name!: string;
+
+  @IsString()
+  message!: string;
+
+  @IsInt()
+  recipients!: number;
+
+  @IsInt()
+  sent!: number;
+
+  @IsInt()
+  failed!: number;
+
+  @IsOptional()
+  @IsString()
+  status?: string;
+}

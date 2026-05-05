@@ -15,13 +15,15 @@ import {
   UseInterceptors,
   UploadedFile,
   Query,
-  Logger,        // ← adicionar
+  Logger,
+  Param,        // ← adicionar
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response as ExpressResponse } from 'express'; // ← import correto do Express
 import { Request as ExpressRequest } from 'express';   // ← para tipar o req do proxy
 import { WhatsAppService } from './whatsapp.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { JwtPartnerAuthGuard } from '../../common/guards/jwt-partner.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Public } from '../../common/decorators/public.decorator'; // ← adicionar
 import {
@@ -29,6 +31,9 @@ import {
   SendTestMessageDto,
   FetchMessagesDto,
   SendCrmMessageDto,
+  CreateMessageTemplateDto,
+  UpdateMessageTemplateDto,
+  CreateCampaignRecordDto,
 } from './dto/whatsapp.dto';
 
 @Controller('whatsapp')
@@ -78,31 +83,55 @@ export class WhatsAppController {
     }
   }
 
+  @Public()
+  @UseGuards(JwtPartnerAuthGuard)
   @Post('connect')
   async connect(@Request() req) {
     try {
-      const branchId = req.user.branchId;
-      return this.whatsappService.connect(branchId);
+      const branchId = req.user?.branchId;
+      const partnerId = req.user?.partnerId;
+
+      if (!branchId && !partnerId) {
+        throw new BadRequestException('branchId ou partnerId é necessário');
+      }
+
+      return this.whatsappService.connect(branchId, partnerId);
     } catch (error) {
       throw new BadRequestException((error as Error).message);
     }
   }
 
+  @Public()
+  @UseGuards(JwtPartnerAuthGuard)
   @Delete('disconnect')
   async disconnect(@Request() req) {
     try {
-      const branchId = req.user.branchId;
-      return this.whatsappService.disconnect(branchId);
+      const branchId = req.user?.branchId;
+      const partnerId = req.user?.partnerId;
+
+      if (!branchId && !partnerId) {
+        throw new BadRequestException('branchId ou partnerId é necessário');
+      }
+
+      return this.whatsappService.disconnect(branchId, partnerId);
     } catch (error) {
       throw new BadRequestException((error as Error).message);
     }
   }
 
+  @Public()
+  @UseGuards(JwtPartnerAuthGuard)
   @Get('status')
   async getStatus(@Request() req) {
     try {
-      const branchId = req.user.branchId;
-      return this.whatsappService.getStatus(branchId);
+      const branchId = req.user?.branchId;
+      const partnerId = req.user?.partnerId;
+
+      if (!branchId && !partnerId) {
+        throw new BadRequestException('branchId ou partnerId é necessário');
+      }
+
+      return this.whatsappService.getStatus(branchId, partnerId);
     } catch (error) {
       throw new BadRequestException((error as Error).message);
     }
@@ -150,8 +179,30 @@ export class WhatsAppController {
     }
   }
 
-  @Post('crm/send-media')
-  @UseInterceptors(FileInterceptor('file'))
+  @Public()
+  @UseGuards(JwtPartnerAuthGuard)
+  @Post('send-bulk')
+  async sendBulkMessages(
+    @Request() req,
+    @Body()
+    dto: {
+      phones: Array<{ phone: string; name?: string; segment?: string }>;
+      message: string;
+    },
+  ) {
+    try {
+      const branchId = req.user?.branchId;
+      const partnerId = req.user?.partnerId;
+
+      if (!branchId && !partnerId) {
+        throw new BadRequestException('branchId ou partnerId é necessário');
+      }
+
+      return this.whatsappService.sendBulkMessages(dto.phones, dto.message, branchId, partnerId);
+    } catch (error) {
+      throw new BadRequestException((error as Error).message);
+    }
+  }
   async sendCrmMedia(
     @Request() req,
     @UploadedFile() file: Express.Multer.File,
@@ -264,5 +315,84 @@ export class WhatsAppController {
     }
   }
 
-  
+  // ─── Templates ─────────────────────────────────────────────────
+
+  @Public()
+  @UseGuards(JwtPartnerAuthGuard)
+  @Get('templates')
+  async getTemplates(@Request() req) {
+    try {
+      const branchId = req.user?.branchId;
+      const partnerId = req.user?.partnerId;
+      return this.whatsappService.getTemplates(branchId, partnerId);
+    } catch (error) {
+      throw new BadRequestException((error as Error).message);
+    }
+  }
+
+  @Public()
+  @UseGuards(JwtPartnerAuthGuard)
+  @Post('templates')
+  async createTemplate(@Request() req, @Body() dto: CreateMessageTemplateDto) {
+    try {
+      const branchId = req.user?.branchId;
+      const partnerId = req.user?.partnerId;
+      return this.whatsappService.createTemplate(dto, branchId, partnerId);
+    } catch (error) {
+      throw new BadRequestException((error as Error).message);
+    }
+  }
+
+  @Public()
+  @UseGuards(JwtPartnerAuthGuard)
+  @Put('templates/:id')
+  async updateTemplate(@Param('id') id: string, @Body() dto: UpdateMessageTemplateDto) {
+    try {
+      return this.whatsappService.updateTemplate(id, dto);
+    } catch (error) {
+      throw new BadRequestException((error as Error).message);
+    }
+  }
+
+  @Public()
+  @UseGuards(JwtPartnerAuthGuard)
+  @Delete('templates/:id')
+  async deleteTemplate(@Param('id') id: string) {
+    try {
+      return this.whatsappService.deleteTemplate(id);
+    } catch (error) {
+      throw new BadRequestException((error as Error).message);
+    }
+  }
+
+  // ─── Campaigns ─────────────────────────────────────────────────
+
+  @Public()
+  @UseGuards(JwtPartnerAuthGuard)
+  @Get('campaigns')
+  async getCampaigns(@Request() req) {
+    try {
+      const branchId = req.user?.branchId;
+      const partnerId = req.user?.partnerId;
+      this.logger.log(`[getCampaigns] branchId: ${branchId}, partnerId: ${partnerId}`);
+      return this.whatsappService.getCampaigns(branchId, partnerId);
+    } catch (error) {
+      throw new BadRequestException((error as Error).message);
+    }
+  }
+
+  @Public()
+  @UseGuards(JwtPartnerAuthGuard)
+  @Post('campaigns')
+  async createCampaign(@Request() req, @Body() dto: CreateCampaignRecordDto) {
+    try {
+      const branchId = req.user?.branchId;
+      const partnerId = req.user?.partnerId;
+      return this.whatsappService.createCampaign(dto, branchId, partnerId);
+    } catch (error) {
+      throw new BadRequestException((error as Error).message);
+    }
+  }
+
+
 }
