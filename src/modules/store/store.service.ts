@@ -175,9 +175,18 @@ async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPer
 
   console.log(updatedOrder.status,'updatedOrder.status')
 console.log(action,"action")
+
+  // ─── Get auto-print configuration ─────────────────────────────────────
+  const generalConfig = await prisma.generalConfig.findUnique({
+    where: { branchId: updatedOrder.branchId },
+    select: { autoPrintOnNewOrder: true },
+  });
+
+  const isAutoPrintEnabled = generalConfig?.autoPrintOnNewOrder ?? false;
+
   // ─── Production Copy Printing ───────────────────────────────────
   // Emit event for frontend to print production copy when status changes to IN_PROGRESS
-  if (action === 'START_COOKING' && updatedOrder.status === OrderStatus.IN_PROGRESS) {
+  if (action === 'START_COOKING' && updatedOrder.status === OrderStatus.IN_PROGRESS && isAutoPrintEnabled) {
     this.webSocketGateway.emitOrderUpdate(
       { ...updatedOrder, printProductionCopy: true },
       'order:status_changed',
@@ -186,7 +195,7 @@ console.log(action,"action")
 
   // ─── Standard Copy Printing on CONFIRMED ───────────────────────────
   // Emit event for frontend to print standard copy when status changes to CONFIRMED
-  if (action === 'CONFIRM' && updatedOrder.status === OrderStatus.CONFIRMED) {
+  if (action === 'CONFIRM' && updatedOrder.status === OrderStatus.CONFIRMED && isAutoPrintEnabled) {
     this.webSocketGateway.emitOrderUpdate(
       { ...updatedOrder, printStandardCopy: true },
       'order:status_changed',
@@ -3914,6 +3923,11 @@ Se tiver alguma dúvida, entre em contato conosco.`,
 
     // Only send notifications for ONLINE orders
     if (order.channel !== OrderChannel.ONLINE) {
+      return;
+    }
+
+    // Return if no config found
+    if (!config) {
       return;
     }
 
