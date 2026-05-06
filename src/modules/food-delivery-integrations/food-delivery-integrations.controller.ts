@@ -9,34 +9,95 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  Logger,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { FoodDeliveryIntegrationsService } from './food-delivery-integrations.service';
 import { IfoodService } from './ifood.service';
 import { IfoodPollingService } from './ifood-polling.service';
+import { IfoodOrderProcessorService } from './ifood-order-processor.service';
 import { IfoodProductMappingService, UpsertProductMappingDto } from './ifood-product-mapping.service';
 import { NinetyNineFoodService } from './ninetynine-food.service';
 import { UpdateFoodDeliveryConfigDto } from './dto/food-delivery.dto';
 import { Public } from 'src/common/decorators/public.decorator';
+import { prisma } from '../../../lib/prisma';
 
 @Controller('food-delivery-integrations')
 @UseGuards(JwtAuthGuard)
 export class FoodDeliveryIntegrationsController {
+  private readonly logger = new Logger(FoodDeliveryIntegrationsController.name);
+
   constructor(
     private readonly service: FoodDeliveryIntegrationsService,
     private readonly ifoodService: IfoodService,
     private readonly ifoodPollingService: IfoodPollingService,
+    private readonly ifoodOrderProcessor: IfoodOrderProcessorService,
     private readonly ifoodProductMappingService: IfoodProductMappingService,
     private readonly ninetyNineFoodService: NinetyNineFoodService,
   ) {}
 
+  // ─── iFood Webhook (recebe eventos em tempo real) ──────────────────────────
+
   @Public()
   @Post('webhook')
-    handleIfoodWebhook(@Body() payload: any) {
-      console.log('Evento recebido do iFood:', payload);
+  @HttpCode(HttpStatus.OK)
+  async handleIfoodWebhook(@Body() payload: any) {
+    this.logger.log(`Webhook iFood recebido: code=${payload.code} orderId=${payload.orderId}`);
 
-      return { ok: true };
+    // iFood exige resposta 200 imediata — processa de forma assíncrona
+    setImmediate(() => this.processWebhookAsync(payload));
+
+    return { ok: true };
+  }
+
+  private async processWebhookAsync(payload: any) {
+    try {
+      const { code, orderId, merchantId } = payload;
+
+      if (!code || code === 'KEEPALIVE') return;
+
+      // Precisamos do orderId para eventos de pedido
+      if (!orderId) {
+        this.logger.warn(`Webhook iFood sem orderId: ${JSON.stringify(payload)}`);
+        return;
+      }
+
+      // Descobre qual branch corresponde a este merchantId
+      const config = await prisma.foodDeliveryIntegrationConfig.findFirst({
+        where: {
+          ifoodEnabled: true,
+          ifoodMerchantId: merchantId,
+        },
+      });
+
+      if (!config) {
+        this.logger.warn(
+          `Webhook iFood: nenhuma branch configurada para merchantId ${merchantId}`,
+        );
+        return;
+      }
+
+      const event = {
+        id: payload.id ?? `webhook-${Date.now()}`,
+        code,
+        correlationId: payload.correlationId ?? '',
+        createdAt: payload.createdAt ?? new Date().toISOString(),
+        orderId,
+        merchantId,
+      };
+
+      await this.ifoodOrderProcessor.processEvent(event, config.branchId);
+
+      // ACK do evento para o iFood (evita reenvio)
+      try {
+        await this.ifoodService.acknowledgeEvents([{ id: event.id, code: event.code }]);
+      } catch (ackErr: any) {
+        this.logger.warn(`Falha ao fazer ACK do evento ${event.id}: ${ackErr.message}`);
+      }
+    } catch (err: any) {
+      this.logger.error(`Erro ao processar webhook iFood: ${err.message}`, err.stack);
     }
+  }
 
   // ─── Config ────────────────────────────────────────────────────────────────
 
