@@ -130,17 +130,18 @@ export class IfoodService {
 
     this.logger.log(`Solicitando novo token iFood (clientId: ${clientId.slice(0, 8)}...)`);
 
-    const params = new URLSearchParams();
-    params.append('client_id', clientId);
-    params.append('client_secret', clientSecret);
-    params.append('grant_type', 'client_credentials');
+    // Serializa manualmente — URLSearchParams pode causar grant_type=null em algumas versões do Axios
+    const body =
+      `client_id=${encodeURIComponent(clientId)}` +
+      `&client_secret=${encodeURIComponent(clientSecret)}` +
+      `&grant_type=client_credentials`;
 
     try {
       const response = await this.http.post<{
         access_token: string;
         token_type: string;
         expires_in: number;
-      }>('/authentication/v1.0/oauth/token', params, {
+      }>('/authentication/v1.0/oauth/token', body, {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       });
 
