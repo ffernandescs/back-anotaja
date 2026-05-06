@@ -168,9 +168,10 @@ export class IfoodService {
     return { Authorization: `Bearer ${token}` };
   }
 
-  async pollOrders(merchantId: string): Promise<IfoodOrderEvent[]> {
+  async pollOrders(): Promise<IfoodOrderEvent[]> {
     const headers = await this.authHeaders();
-    const response = await this.http.get<IfoodOrderEvent[]>(
+
+    const response = await this.http.get(
       `/order/v1.0/events:polling`,
       {
         headers,
@@ -179,6 +180,7 @@ export class IfoodService {
         },
       },
     );
+
     return response.data ?? [];
   }
 

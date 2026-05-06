@@ -942,6 +942,8 @@ model CustomerAddress {
 
 enum OrderChannel {
   ONLINE
+  IFOOD
+  NINETY_NINE_FOOD
   PDV
   WAITER
 }

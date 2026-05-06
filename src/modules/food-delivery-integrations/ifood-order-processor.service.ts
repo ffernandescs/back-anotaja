@@ -159,7 +159,7 @@ export class IfoodOrderProcessorService {
           status: OrderStatus.PENDING,
           deliveryType,
           serviceType,
-          channel: OrderChannel.ONLINE,
+          channel: OrderChannel.IFOOD,
           customerType: CustomerType.GUEST,
           paymentStatus,
           paidAmount,
