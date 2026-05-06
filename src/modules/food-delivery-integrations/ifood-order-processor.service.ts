@@ -1,8 +1,24 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
-import { DeliveryType, OrderChannel, OrderStatus, PaymentMethodType, ServiceType, CustomerType } from '@prisma/client';
+import {
+  DeliveryType,
+  OrderChannel,
+  OrderStatus,
+  PaymentMethodType,
+  ServiceType,
+  CustomerType,
+  PreparationStatus,
+  DispatchStatus,
+  PaymentStatus,
+} from '@prisma/client';
 import { prisma } from '../../../lib/prisma';
-import { IfoodService, IfoodOrder, IfoodOrderEvent, IfoodOrderItem, IfoodPaymentMethod } from './ifood.service';
+import {
+  IfoodService,
+  IfoodOrder,
+  IfoodOrderEvent,
+  IfoodOrderItem,
+  IfoodPaymentMethod,
+} from './ifood.service';
 import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
 
 interface MappedItem {
@@ -29,68 +45,312 @@ export class IfoodOrderProcessorService {
     private readonly wsGateway: OrdersWebSocketGateway,
   ) {}
 
-async processEvent(event: IfoodOrderEvent, branchId: string): Promise<boolean> {
-  this.logger.log(`Processando evento iFood ${event.code} para pedido ${event.orderId}`);
+  // ─────────────────────────────────────────────────────────────
+  // ENTRY POINT: processa um evento recebido do polling
+  // ─────────────────────────────────────────────────────────────
+  async processEvent(event: IfoodOrderEvent, branchId: string): Promise<boolean> {
+    this.logger.log(`Processando evento iFood ${event.code} para pedido ${event.orderId}`);
 
-  try {
-    // KEEPALIVE ou eventos inúteis
-    if (event.code === 'KEEPALIVE') {
-      return false;
-    }
+    try {
+      if (event.code === 'KEEPALIVE') {
+        return false;
+      }
 
-    if (event.code === 'PLC') {
-      await this.handleNewOrder(event.orderId, branchId);
-      return true;
-    }
+      if (event.code === 'PLC') {
+        await this.handleNewOrder(event.orderId, branchId);
+        return true;
+      }
 
-    const mapping = await prisma.ifoodOrderMapping.findUnique({
-      where: { ifoodOrderId: event.orderId },
-    });
+      // Para outros eventos, atualiza o status do pedido local
+      const localStatus = this.mapEventToLocalStatus(event.code);
+      if (!localStatus) return false;
 
-    const localStatus = this.mapEventToLocalStatus(event.code);
-    if (!localStatus) return false;
-
-    await prisma.ifoodOrderMapping.update({
-      where: { ifoodOrderId: event.orderId },
-      data: { ifoodStatus: event.code },
-    });
-
-    if (mapping?.localOrderId) {
-      await prisma.order.update({
-        where: { id: mapping.localOrderId },
-        data: { status: localStatus as OrderStatus },
+      const mapping = await prisma.ifoodOrderMapping.findUnique({
+        where: { ifoodOrderId: event.orderId },
       });
 
-      this.logger.log(`Pedido local ${mapping.localOrderId} → ${localStatus}`);
+      // Atualiza o status no mapeamento mesmo sem pedido local
+      await prisma.ifoodOrderMapping.upsert({
+        where: { ifoodOrderId: event.orderId },
+        create: {
+          id: uuidv4(),
+          branchId,
+          ifoodOrderId: event.orderId,
+          ifoodStatus: event.code,
+        },
+        update: { ifoodStatus: event.code },
+      });
+
+      if (mapping?.localOrderId) {
+        const currentOrder = await prisma.order.findUnique({
+          where: { id: mapping.localOrderId },
+        });
+
+        // Proteção contra regressão de status
+        if (currentOrder && this.isStatusRegression(currentOrder.status, localStatus)) {
+          this.logger.warn(
+            `Evento ${event.code} ignorado: tentativa de regredir status ` +
+            `${currentOrder.status} → ${localStatus} no pedido ${mapping.localOrderId}`,
+          );
+          return true;
+        }
+
+        await prisma.order.update({
+          where: { id: mapping.localOrderId },
+          data: { status: localStatus },
+        });
+
+        this.logger.log(`Pedido local ${mapping.localOrderId} → ${localStatus}`);
+
+        // Notifica frontend via WebSocket
+        const updatedOrder = await prisma.order.findUnique({
+          where: { id: mapping.localOrderId },
+          include: {
+            items: { include: { product: true } },
+            customer: true,
+            payments: true,
+            branch: true,
+          },
+        });
+
+        if (updatedOrder) {
+          this.wsGateway.emitOrderUpdate(updatedOrder, 'order:status_changed');
+        }
+      }
+
+      return true;
+    } catch (err: any) {
+      this.logger.error(
+        `Erro ao processar evento iFood ${event.code} (${event.orderId}): ${err.message}`,
+        err.stack,
+      );
+      return false;
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // NOVO PEDIDO (PLC)
+  // ─────────────────────────────────────────────────────────────
+  private async handleNewOrder(ifoodOrderId: string, branchId: string): Promise<void> {
+    // Idempotência: evita criar o mesmo pedido duas vezes
+    const existing = await prisma.ifoodOrderMapping.findUnique({
+      where: { ifoodOrderId },
+    });
+
+    if (existing?.localOrderId) {
+      this.logger.warn(`Pedido iFood ${ifoodOrderId} já processado → local ${existing.localOrderId}`);
+      return;
     }
 
-    return true;
-  } catch (err: any) {
-    this.logger.error(
-      `Erro ao processar evento iFood ${event.code} (${event.orderId}): ${err.message}`,
-      err.stack,
+    // 1. Busca detalhes do pedido na API iFood
+    let ifoodOrder: IfoodOrder;
+    try {
+      ifoodOrder = await this.ifoodService.getOrder(ifoodOrderId);
+    } catch (err: any) {
+      this.logger.error(`Erro ao buscar pedido iFood ${ifoodOrderId}: ${err.message}`);
+      throw err; // Re-throw para evitar ACK indevido
+    }
+
+    this.logger.log(
+      `Pedido iFood recebido: ${ifoodOrder.displayId} | ` +
+      `${ifoodOrder.customer.name} | ` +
+      `R$ ${(ifoodOrder.totalPrice / 100).toFixed(2)}`,
     );
-    return false;
+
+    // 2. Mapeia itens para produtos locais
+    const { mappedItems, unmappedNames } = await this.mapItems(ifoodOrder.items, branchId);
+
+    if (unmappedNames.length > 0) {
+      this.logger.warn(
+        `Pedido ${ifoodOrderId}: ${unmappedNames.length} item(ns) sem mapeamento local: ` +
+        unmappedNames.join(', '),
+      );
+    }
+
+    // 3. Cria ou busca o cliente local
+    const customer = await this.findOrCreateCustomer(ifoodOrder, branchId);
+
+    // 4. Mapeia pagamentos
+    const totalCents = Math.round(ifoodOrder.totalPrice);
+    const { payments, paymentStatus, paidAmount } = await this.mapPayments(
+      ifoodOrder.payments.methods,
+      branchId,
+      totalCents,
+    );
+
+    // 5. Calcula valores do pedido
+    const deliveryType = this.mapDeliveryType(ifoodOrder.type);
+    const subtotalCents = Math.round(ifoodOrder.subTotal);
+    const deliveryFeeCents = Math.round(ifoodOrder.deliveryFee ?? 0);
+    const totalFeeCents = Math.round(ifoodOrder.totalFee ?? 0);
+
+    // 6. Cria o pedido local dentro de uma transação
+    const localOrder = await prisma.$transaction(async (tx) => {
+      // Número sequencial do pedido
+      const lastOrder = await tx.order.findFirst({
+        where: { branchId },
+        orderBy: { orderNumber: 'desc' },
+        select: { orderNumber: true },
+      });
+      const orderNumber = (lastOrder?.orderNumber ?? 0) + 1;
+
+      // Cria o pedido
+      const order = await tx.order.create({
+        data: {
+          orderNumber,
+          branchId,
+          channel: OrderChannel.IFOOD,
+          serviceType: ServiceType.TAKEAWAY,
+          customerType: customer ? CustomerType.REGISTERED : CustomerType.GUEST,
+          customerId: customer?.id ?? null,
+          status: OrderStatus.CONFIRMED, // iFood já confirmou
+          preparationStatus: PreparationStatus.PENDING,
+          dispatchStatus:
+            deliveryType === DeliveryType.DELIVERY
+              ? DispatchStatus.PENDING
+              : undefined,
+          deliveryType,
+          subtotal: subtotalCents,
+          deliveryFee: deliveryFeeCents,
+          serviceFee: 0,
+          discount: 0,
+          total: totalCents,
+          paymentStatus,
+          paidAmount,
+          notes: ifoodOrder.additionalInfo ?? null,
+
+          // Cria os itens mapeados
+          items: mappedItems.length > 0
+            ? {
+                create: mappedItems.map((item) => ({
+                  productId: item.productId,
+                  quantity: item.quantity,
+                  price: item.price,
+                  notes: item.notes,
+                })),
+              }
+            : undefined,
+
+          // Cria os pagamentos
+          payments: payments.length > 0
+            ? {
+                create: payments.map((p) => ({
+                  type: p.type,
+                  amount: p.amount,
+                  status: p.status === 'PAID' ? PaymentStatus.PAID : PaymentStatus.PENDING,
+                  paymentMethodId: p.paymentMethodId,
+                  change: p.change,
+                })),
+              }
+            : undefined,
+        },
+        include: {
+          items: { include: { product: true } },
+          customer: true,
+          payments: true,
+          branch: true,
+        },
+      });
+
+      // Cria o mapeamento iFood → local
+      await tx.ifoodOrderMapping.upsert({
+        where: { ifoodOrderId },
+        create: {
+          id: uuidv4(),
+          branchId,
+          ifoodOrderId,
+          localOrderId: order.id,
+          ifoodStatus: 'PLC',
+          displayId: ifoodOrder.displayId,
+          rawData: ifoodOrder as any,
+        },
+        update: {
+          localOrderId: order.id,
+          ifoodStatus: 'PLC',
+          displayId: ifoodOrder.displayId,
+          rawData: ifoodOrder as any,
+        },
+      });
+
+      return order;
+    });
+
+    this.logger.log(
+      `Pedido iFood ${ifoodOrderId} → local #${localOrder.orderNumber} (id: ${localOrder.id})`,
+    );
+
+    // 7. Confirma o pedido na API iFood (com retry)
+    await this.safeConfirmOrder(ifoodOrderId);
+
+    // 8. Emite evento WebSocket para o frontend
+    this.wsGateway.emitOrderUpdate(localOrder, 'order:created');
   }
-}
 
-private isStatusRegression(
-  current: OrderStatus,
-  next: OrderStatus,
-): boolean {
-  const priority: Record<OrderStatus, number> = {
-    PENDING: 1,
-    CONFIRMED: 2,
-    IN_PROGRESS: 3,
-    READY: 4,
-    DELIVERING: 5,
-    DELIVERED: 6,
-    COMPLETED: 7,
-    CANCELLED: 0,
-  };
+  // ─────────────────────────────────────────────────────────────
+  // HELPERS
+  // ─────────────────────────────────────────────────────────────
 
-  return priority[next] < priority[current];
-}
+  private async findOrCreateCustomer(ifoodOrder: IfoodOrder, branchId: string) {
+    const phone = ifoodOrder.customer.phone?.number;
+    if (!phone) return null;
+
+    // Normaliza o telefone removendo caracteres não numéricos
+    const normalizedPhone = phone.replace(/\D/g, '');
+
+    try {
+      const existing = await prisma.customer.findFirst({
+        where: { phone: normalizedPhone, branchId },
+      });
+
+      if (existing) return existing;
+
+      return await prisma.customer.create({
+        data: {
+          id: uuidv4(),
+          name: ifoodOrder.customer.name,
+          phone: normalizedPhone,
+          branchId,
+        },
+      });
+    } catch (err: any) {
+      this.logger.warn(`Não foi possível criar cliente iFood: ${err.message}`);
+      return null;
+    }
+  }
+
+  private async safeConfirmOrder(orderId: string, retries = 3): Promise<void> {
+    for (let i = 0; i < retries; i++) {
+      try {
+        await this.ifoodService.confirmOrder(orderId);
+        this.logger.log(`iFood pedido ${orderId} confirmado`);
+        return;
+      } catch (err: any) {
+        this.logger.warn(
+          `Tentativa ${i + 1}/${retries} de confirmar pedido ${orderId} falhou: ${err.message}`,
+        );
+        if (i === retries - 1) {
+          this.logger.error(`Falha ao confirmar pedido iFood ${orderId} após ${retries} tentativas`);
+          // Não re-throw: o pedido já foi salvo localmente; confirmar é best-effort
+        }
+        await new Promise((r) => setTimeout(r, 1000 * (i + 1))); // backoff
+      }
+    }
+  }
+
+  private isStatusRegression(current: OrderStatus, next: OrderStatus): boolean {
+    const priority: Record<OrderStatus, number> = {
+      PENDING: 1,
+      CONFIRMED: 2,
+      IN_PROGRESS: 3,
+      READY: 4,
+      DELIVERING: 5,
+      DELIVERED: 6,
+      COMPLETED: 7,
+      CANCELLED: 0,
+    };
+    return priority[next] < priority[current];
+  }
+
   private mapEventToLocalStatus(code: string): OrderStatus | null {
     const map: Record<string, OrderStatus> = {
       CFM: OrderStatus.CONFIRMED,
@@ -99,46 +359,8 @@ private isStatusRegression(
       CON: OrderStatus.COMPLETED,
       CAN: OrderStatus.CANCELLED,
     };
-
     return map[code] ?? null;
   }
-
- private async handleNewOrder(ifoodOrderId: string, branchId: string) {
-  const existing = await prisma.ifoodOrderMapping.findUnique({
-    where: { ifoodOrderId },
-  });
-
-  if (existing?.localOrderId) {
-    this.logger.warn(`Pedido já existe: ${ifoodOrderId}`);
-    return;
-  }
-
-  let ifoodOrder: IfoodOrder;
-
-  try {
-    ifoodOrder = await this.ifoodService.getOrder(ifoodOrderId);
-  } catch (err) {
-    this.logger.error(`Erro ao buscar pedido ${ifoodOrderId}`);
-    throw err; // 🔥 importante pra não dar ACK
-  }
-
-  // resto do seu código...
-
-  // ✅ confirmação com retry
-  await this.safeConfirmOrder(ifoodOrderId);
-}
-
-private async safeConfirmOrder(orderId: string, retries = 3) {
-  for (let i = 0; i < retries; i++) {
-    try {
-      await this.ifoodService.confirmOrder(orderId);
-      return;
-    } catch (err) {
-      if (i === retries - 1) throw err;
-      await new Promise((r) => setTimeout(r, 1000));
-    }
-  }
-}
 
   private async mapItems(
     ifoodItems: IfoodOrderItem[],
@@ -160,9 +382,14 @@ private async safeConfirmOrder(orderId: string, retries = 3) {
       if (!mapping?.localProductId) {
         unmappedNames.push(`${item.name} (x${item.quantity})`);
 
-        // Save unknown items to mapping table for later
+        // Registra o item desconhecido para mapeamento manual posterior
         await prisma.ifoodProductMapping.upsert({
-          where: { branchId_ifoodExternalCode: { branchId, ifoodExternalCode: item.externalCode } },
+          where: {
+            branchId_ifoodExternalCode: {
+              branchId,
+              ifoodExternalCode: item.externalCode,
+            },
+          },
           create: {
             id: uuidv4(),
             branchId,
@@ -175,15 +402,39 @@ private async safeConfirmOrder(orderId: string, retries = 3) {
         continue;
       }
 
-      const priceInCents = Math.round(item.price * 100);
-      const itemNotes = item.notes || undefined;
-
       mappedItems.push({
         productId: mapping.localProductId,
         quantity: item.quantity,
-        price: priceInCents,
-        notes: itemNotes,
+        // A API iFood retorna preços em reais com decimais; converte para centavos
+        price: Math.round(item.price * 100),
+        notes: item.notes || undefined,
       });
+
+      // Processa sub-itens/opções recursivamente (se necessário)
+      if (item.options?.length) {
+        for (const option of item.options) {
+          const optMapping = mappingByCode.get(option.externalCode);
+          if (!optMapping?.localProductId) {
+            // Registra opção sem mapeamento
+            await prisma.ifoodProductMapping.upsert({
+              where: {
+                branchId_ifoodExternalCode: {
+                  branchId,
+                  ifoodExternalCode: option.externalCode,
+                },
+              },
+              create: {
+                id: uuidv4(),
+                branchId,
+                ifoodExternalCode: option.externalCode,
+                ifoodItemName: option.name,
+                isOption: true,
+              },
+              update: { ifoodItemName: option.name },
+            });
+          }
+        }
+      }
     }
 
     return { mappedItems, unmappedNames };
@@ -192,9 +443,8 @@ private async safeConfirmOrder(orderId: string, retries = 3) {
   private async mapPayments(
     methods: IfoodPaymentMethod[],
     branchId: string,
-    totalPrice: number,
+    totalCents: number,
   ): Promise<{ payments: MappedPayment[]; paymentStatus: string; paidAmount: number }> {
-    const totalCents = Math.round(totalPrice * 100);
     const payments: MappedPayment[] = [];
     let paidAmount = 0;
 
@@ -213,22 +463,45 @@ private async safeConfirmOrder(orderId: string, retries = 3) {
 
       if (!branchPaymentMethod) {
         this.logger.warn(
-          `Branch ${branchId} não tem método de pagamento do tipo ${localType} — pulando`,
+          `Branch ${branchId} não tem método de pagamento do tipo ${localType} — usando ONLINE como fallback`,
         );
-        if (isPaid) paidAmount += amountCents;
+
+        // Fallback: tenta usar ONLINE
+        const onlineFallback = await prisma.branchPaymentMethod.findFirst({
+          where: {
+            branchId,
+            paymentMethod: { type: PaymentMethodType.ONLINE },
+          },
+          include: { paymentMethod: true },
+        });
+
+        if (onlineFallback) {
+          payments.push({
+            type: PaymentMethodType.ONLINE,
+            amount: amountCents,
+            status: isPaid ? 'PAID' : 'PENDING',
+            paymentMethodId: onlineFallback.id,
+            change: 0,
+          });
+          if (isPaid) paidAmount += amountCents;
+        } else {
+          if (isPaid) paidAmount += amountCents;
+        }
+
         continue;
       }
 
-      const change = method.cash?.changeFor
-        ? Math.round(method.cash.changeFor * 100) - amountCents
-        : 0;
+      const change =
+        method.cash?.changeFor
+          ? Math.max(0, Math.round(method.cash.changeFor * 100) - amountCents)
+          : 0;
 
       payments.push({
         type: localType,
         amount: amountCents,
         status: isPaid ? 'PAID' : 'PENDING',
         paymentMethodId: branchPaymentMethod.id,
-        change: Math.max(0, change),
+        change,
       });
 
       if (isPaid) paidAmount += amountCents;
