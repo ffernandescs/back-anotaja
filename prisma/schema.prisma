@@ -101,6 +101,7 @@ model Feature {
   description                                                                                                                                                        String?
   icon                                                                       String?             // Ícone Lucide para exibição no menu (ex: "ShoppingCart", "Users")
   active                                                                                                                                                             Boolean             @default(true)
+  isPro          Boolean                                                              @default(false)
   defaultActions String?         // Permissões padrão como JSON
   href           String?         // Rota da feature (ex: "/admin/dashboard")
   displayOrder                                                               Int?                // Ordem de exibição
