@@ -201,11 +201,14 @@ export class IfoodService {
   async getOrder(orderId: string): Promise<IfoodOrder> {
     const headers = await this.authHeaders();
     try {
-      const response = await this.http.get<IfoodOrder>(
+      const response = await this.http.get<any>(
         `/order/v1.0/orders/${orderId}`,
         { headers },
       );
-      return response.data;
+      this.logger.debug(
+        `[iFood raw order] ${orderId}: ${JSON.stringify(response.data)}`,
+      );
+      return response.data as IfoodOrder;
     } catch (err: any) {
       const status = err?.response?.status;
       const data = err?.response?.data;

@@ -200,11 +200,24 @@ export class IfoodOrderProcessorService {
       0,
     );
 
-    // Total em cascata: totalPrice → subTotal+taxas → paidAmount
+    // Total a partir dos itens (mais confiável quando campos financeiros vêm undefined)
+    const itemsTotalCents = ifoodOrder.items.reduce(
+      (sum, item) => sum + Math.round((item.totalPrice ?? item.price ?? 0) * 100),
+      0,
+    );
+
+    // Total em cascata: totalPrice → subTotal+taxas → itens → paidAmount
     const totalCentsCalc =
       totalFromApi ||
       (subtotalCents + deliveryFeeCents + totalFeeCents) ||
+      itemsTotalCents ||
       paidAmount;
+
+    this.logger.debug(
+      `[iFood total calculado] displayId=${ifoodOrder.displayId} ` +
+      `totalFromApi=${totalFromApi} subtotal+fees=${subtotalCents + deliveryFeeCents + totalFeeCents} ` +
+      `itemsTotal=${itemsTotalCents} paidAmount=${paidAmount} → usando=${totalCentsCalc}`,
+    );
 
     const paymentStatus =
       paidAmount >= totalCentsCalc ? 'PAID' : paidAmount > 0 ? 'PARTIAL' : 'PENDING';
