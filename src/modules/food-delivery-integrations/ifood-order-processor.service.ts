@@ -154,7 +154,7 @@ export class IfoodOrderProcessorService {
     this.logger.log(
       `Pedido iFood recebido: ${ifoodOrder.displayId} | ` +
       `${ifoodOrder.customer.name} | ` +
-      `R$ ${(ifoodOrder.totalPrice / 100).toFixed(2)}`,
+      `R$ ${(ifoodOrder.totalPrice ?? 0).toFixed(2)}`,
     );
 
     // 2. Mapeia itens para produtos locais
@@ -248,12 +248,6 @@ export class IfoodOrderProcessorService {
               }
             : undefined,
         },
-        include: {
-          items: { include: { product: true } },
-          customer: true,
-          payments: true,
-          branch: true,
-        },
       });
 
       // Cria o mapeamento iFood → local
@@ -286,8 +280,21 @@ export class IfoodOrderProcessorService {
     // 7. Confirma o pedido na API iFood (com retry)
     await this.safeConfirmOrder(ifoodOrderId);
 
-    // 8. Emite evento WebSocket para o frontend
-    this.wsGateway.emitOrderUpdate(localOrder, 'order:created');
+    // 8. Busca pedido completo para o WebSocket
+    const fullOrder = await prisma.order.findUnique({
+      where: { id: localOrder.id },
+      include: {
+        items: { include: { product: true } },
+        customer: true,
+        payments: true,
+        branch: true,
+      },
+    });
+
+    // 9. Emite evento WebSocket para o frontend
+    if (fullOrder) {
+      this.wsGateway.emitOrderUpdate(fullOrder, 'order:created');
+    }
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -329,14 +336,22 @@ export class IfoodOrderProcessorService {
         this.logger.log(`iFood pedido ${orderId} confirmado`);
         return;
       } catch (err: any) {
+        const status = err?.response?.status;
+
+        // 404 = pedido de teste ou já confirmado — não tentar novamente
+        if (status === 404) {
+          this.logger.warn(`iFood pedido ${orderId} retornou 404 no confirm (pedido de teste ou já confirmado) — ignorando`);
+          return;
+        }
+
         this.logger.warn(
           `Tentativa ${i + 1}/${retries} de confirmar pedido ${orderId} falhou: ${err.message}`,
         );
         if (i === retries - 1) {
-          this.logger.error(`Falha ao confirmar pedido iFood ${orderId} após ${retries} tentativas`);
-          // Não re-throw: o pedido já foi salvo localmente; confirmar é best-effort
+          this.logger.warn(`Não foi possível confirmar pedido iFood ${orderId} — pedido já salvo localmente`);
+          return; // best-effort, não re-throw
         }
-        await new Promise((r) => setTimeout(r, 1000 * (i + 1))); // backoff
+        await new Promise((r) => setTimeout(r, 1000 * (i + 1)));
       }
     }
   }
