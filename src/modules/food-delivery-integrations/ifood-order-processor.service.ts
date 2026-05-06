@@ -320,8 +320,19 @@ export class IfoodOrderProcessorService {
       `Pedido iFood ${ifoodOrderId} → local #${localOrder.orderNumber} (id: ${localOrder.id})`,
     );
 
-    // 7. Confirma o pedido na API iFood (com retry)
-    await this.safeConfirmOrder(ifoodOrderId);
+    // 7. Confirma o pedido na API iFood se a flag autoConfirm estiver ativa
+    const autoConfirmRow = await prisma.systemConfig.findUnique({
+      where: { key: 'ifood_auto_confirm' },
+    });
+    const autoConfirm = autoConfirmRow?.value !== 'false';
+
+    if (autoConfirm) {
+      await this.safeConfirmOrder(ifoodOrderId);
+    } else {
+      this.logger.log(
+        `iFood pedido ${ifoodOrderId}: confirmação automática desativada — aguardando confirmação manual`,
+      );
+    }
 
     // 8. Busca pedido completo para o WebSocket
     const fullOrder = await prisma.order.findUnique({
@@ -400,6 +411,9 @@ export class IfoodOrderProcessorService {
   }
 
   private isStatusRegression(current: OrderStatus, next: OrderStatus): boolean {
+    // Cancelamento pode ocorrer a partir de qualquer status
+    if (next === OrderStatus.CANCELLED) return false;
+
     const priority: Record<OrderStatus, number> = {
       PENDING: 1,
       CONFIRMED: 2,
