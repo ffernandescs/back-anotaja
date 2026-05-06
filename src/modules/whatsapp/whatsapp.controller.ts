@@ -64,7 +64,7 @@ export class WhatsAppController {
   }
 
   @Public()
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtPartnerAuthGuard  || JwtAuthGuard)
   @Post('setup')
   async setupPartner(@Request() req) {
     try {
@@ -81,7 +81,7 @@ export class WhatsAppController {
   }
 
   @Public()
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtPartnerAuthGuard  || JwtAuthGuard)
   @Post('connect')
   async connect(@Request() req) {
     try {
@@ -99,7 +99,7 @@ export class WhatsAppController {
   }
 
   @Public()
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtPartnerAuthGuard  || JwtAuthGuard)
   @Delete('disconnect')
   async disconnect(@Request() req) {
     try {
@@ -117,7 +117,7 @@ export class WhatsAppController {
   }
 
   @Public()
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtPartnerAuthGuard  || JwtAuthGuard)
   @Get('status')
   async getStatus(@Request() req) {
     try {
@@ -177,7 +177,7 @@ export class WhatsAppController {
   }
 
   @Public()
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtPartnerAuthGuard  || JwtAuthGuard)
   @Post('send-bulk')
   async sendBulkMessages(
     @Request() req,
@@ -202,7 +202,7 @@ export class WhatsAppController {
   }
 
   @Public()
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtPartnerAuthGuard  || JwtAuthGuard)
   @Get('messages/history/:phone')
   async getMessageHistory(
     @Request() req,
@@ -223,7 +223,7 @@ export class WhatsAppController {
   }
 
   @Public()
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtPartnerAuthGuard  || JwtAuthGuard)
   @Post('messages/check-duplicate')
   async checkDuplicateMessage(
     @Request() req,
@@ -362,7 +362,7 @@ export class WhatsAppController {
   // ─── Templates ─────────────────────────────────────────────────
 
   @Public()
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtPartnerAuthGuard  || JwtAuthGuard)
   @Get('templates')
   async getTemplates(@Request() req) {
     try {
@@ -375,7 +375,7 @@ export class WhatsAppController {
   }
 
   @Public()
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtPartnerAuthGuard  || JwtAuthGuard)
   @Post('templates')
   async createTemplate(@Request() req, @Body() dto: CreateMessageTemplateDto) {
     try {
@@ -388,7 +388,7 @@ export class WhatsAppController {
   }
 
   @Public()
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtPartnerAuthGuard  || JwtAuthGuard)
   @Put('templates/:id')
   async updateTemplate(@Param('id') id: string, @Body() dto: UpdateMessageTemplateDto) {
     try {
@@ -399,7 +399,7 @@ export class WhatsAppController {
   }
 
   @Public()
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtPartnerAuthGuard  || JwtAuthGuard)
   @Delete('templates/:id')
   async deleteTemplate(@Param('id') id: string) {
     try {
@@ -412,7 +412,7 @@ export class WhatsAppController {
   // ─── Campaigns ─────────────────────────────────────────────────
 
   @Public()
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtPartnerAuthGuard  || JwtAuthGuard)
   @Get('campaigns')
   async getCampaigns(@Request() req) {
     try {
@@ -426,7 +426,7 @@ export class WhatsAppController {
   }
 
   @Public()
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtPartnerAuthGuard  || JwtAuthGuard)
   @Post('campaigns')
   async createCampaign(@Request() req, @Body() dto: CreateCampaignRecordDto) {
     try {
