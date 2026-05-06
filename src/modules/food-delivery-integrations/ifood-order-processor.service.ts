@@ -171,18 +171,18 @@ export class IfoodOrderProcessorService {
     const customer = await this.findOrCreateCustomer(ifoodOrder, branchId);
 
     // 4. Mapeia pagamentos
-    const totalCents = Math.round(ifoodOrder.totalPrice);
     const { payments, paymentStatus, paidAmount } = await this.mapPayments(
       ifoodOrder.payments.methods,
       branchId,
-      totalCents,
+      Math.round((ifoodOrder.totalPrice ?? 0) * 100),
     );
 
     // 5. Calcula valores do pedido
+    // iFood retorna valores já em centavos (inteiros)
     const deliveryType = this.mapDeliveryType(ifoodOrder.type);
-    const subtotalCents = Math.round(ifoodOrder.subTotal);
-    const deliveryFeeCents = Math.round(ifoodOrder.deliveryFee ?? 0);
-    const totalFeeCents = Math.round(ifoodOrder.totalFee ?? 0);
+    const subtotalCents = Math.round((ifoodOrder.subTotal ?? 0) * 100);
+    const deliveryFeeCents = Math.round((ifoodOrder.deliveryFee ?? 0) * 100);
+    const totalCentsCalc = Math.round((ifoodOrder.totalPrice ?? 0) * 100);
 
     // 6. Cria o pedido local dentro de uma transação
     const localOrder = await prisma.$transaction(async (tx) => {
@@ -214,10 +214,14 @@ export class IfoodOrderProcessorService {
           deliveryFee: deliveryFeeCents,
           serviceFee: 0,
           discount: 0,
-          total: totalCents,
+          total: totalCentsCalc,
           paymentStatus,
           paidAmount,
-          notes: ifoodOrder.additionalInfo ?? null,
+          notes: typeof ifoodOrder.additionalInfo === 'string'
+            ? ifoodOrder.additionalInfo
+            : ifoodOrder.additionalInfo
+              ? JSON.stringify(ifoodOrder.additionalInfo)
+              : null,
 
           // Cria os itens mapeados
           items: mappedItems.length > 0
