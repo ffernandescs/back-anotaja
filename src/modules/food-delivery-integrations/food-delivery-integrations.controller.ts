@@ -122,6 +122,12 @@ export class FoodDeliveryIntegrationsController {
     return { ok: true, tokenPreview: `${token.slice(0, 10)}...` };
   }
 
+  // Diagnóstico completo: verifica credenciais e token
+  @Get(':branchId/ifood/diagnose')
+  async diagnoseIfood() {
+    return this.ifoodService.diagnose();
+  }
+
   @Post(':branchId/ifood/poll')
   @HttpCode(HttpStatus.OK)
   async pollIfoodNow(@Param('branchId') branchId: string) {

@@ -4,7 +4,7 @@ import { prisma } from '../../../lib/prisma';
 
 export interface IfoodOrderEvent {
   id: string;
-  code: string; // PLC, CFM, RTO, CAN, DSP, DLV, CON
+  code: string;
   correlationId: string;
   createdAt: string;
   orderId: string;
@@ -17,7 +17,7 @@ export interface IfoodOrder {
   shortReference: string;
   displayId: string;
   createdAt: string;
-  type: string; // DELIVERY, TAKEOUT, INDOOR
+  type: string;
   merchant: { id: string; name: string };
   customer: {
     name: string;
@@ -64,8 +64,8 @@ export interface IfoodOrderItem {
 export interface IfoodPaymentMethod {
   value: number;
   currency: string;
-  method: string; // CASH, CREDIT, DEBIT, MEAL_VOUCHER, FOOD_VOUCHER, DIGITAL_WALLET, PIX
-  type: string;   // PREPAID, OFFLINE
+  method: string;
+  type: string;
   prepaid: boolean;
   cash?: { changeFor: number };
   wallet?: { name: string };
@@ -86,7 +86,7 @@ interface IfoodAddress {
 
 const TOKEN_KEY = 'ifood_access_token';
 const TOKEN_EXPIRES_KEY = 'ifood_token_expires_at';
-const MARGIN_MS = 120_000; // 2 min safety margin
+const MARGIN_MS = 120_000;
 
 @Injectable()
 export class IfoodService {
@@ -106,7 +106,7 @@ export class IfoodService {
 
     if (!clientIdRow?.value || !clientSecretRow?.value) {
       throw new UnprocessableEntityException(
-        'Credenciais iFood não configuradas. Configure client_id e client_secret no master.',
+        'Credenciais iFood não configuradas. Configure ifood_client_id e ifood_client_secret no SystemConfig.',
       );
     }
 
@@ -114,7 +114,7 @@ export class IfoodService {
   }
 
   async getAccessToken(): Promise<string> {
-    // Check persisted token first (survives restarts)
+    // Verifica token persistido
     const [tokenRow, expiresRow] = await Promise.all([
       prisma.systemConfig.findUnique({ where: { key: TOKEN_KEY } }),
       prisma.systemConfig.findUnique({ where: { key: TOKEN_EXPIRES_KEY } }),
@@ -125,59 +125,71 @@ export class IfoodService {
       return tokenRow.value;
     }
 
-    // Request new token
+    // Busca novas credenciais
     const { clientId, clientSecret } = await this.getMasterCredentials();
+
+    this.logger.log(`Solicitando novo token iFood (clientId: ${clientId.slice(0, 8)}...)`);
 
     const params = new URLSearchParams();
     params.append('client_id', clientId);
     params.append('client_secret', clientSecret);
     params.append('grant_type', 'client_credentials');
 
-    const response = await this.http.post<{
-      access_token: string;
-      token_type: string;
-      expires_in: number;
-    }>('/authentication/v1.0/oauth/token', params, {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    });
+    try {
+      const response = await this.http.post<{
+        access_token: string;
+        token_type: string;
+        expires_in: number;
+      }>('/authentication/v1.0/oauth/token', params, {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      });
 
-    const { access_token, token_type, expires_in } = response.data;
-    const newExpiresAt = Date.now() + expires_in * 1000;
+      const { access_token, expires_in } = response.data;
+      const newExpiresAt = Date.now() + expires_in * 1000;
 
-    // Persist token so it survives restarts
-    await Promise.all([
-      prisma.systemConfig.upsert({
-        where: { key: TOKEN_KEY },
-        create: { key: TOKEN_KEY, value: access_token },
-        update: { value: access_token },
-      }),
-      prisma.systemConfig.upsert({
-        where: { key: TOKEN_EXPIRES_KEY },
-        create: { key: TOKEN_EXPIRES_KEY, value: String(newExpiresAt) },
-        update: { value: String(newExpiresAt) },
-      }),
-    ]);
+      await Promise.all([
+        prisma.systemConfig.upsert({
+          where: { key: TOKEN_KEY },
+          create: { key: TOKEN_KEY, value: access_token },
+          update: { value: access_token },
+        }),
+        prisma.systemConfig.upsert({
+          where: { key: TOKEN_EXPIRES_KEY },
+          create: { key: TOKEN_EXPIRES_KEY, value: String(newExpiresAt) },
+          update: { value: String(newExpiresAt) },
+        }),
+      ]);
 
-    this.logger.log(`iFood access token renovado (expira em ${expires_in}s)`);
-    return access_token;
+      this.logger.log(`iFood access token renovado (expira em ${expires_in}s)`);
+      return access_token;
+
+    } catch (err: any) {
+      // ─── LOG DETALHADO DO ERRO DE AUTH ────────────────────────────────────
+      const status = err?.response?.status;
+      const data = err?.response?.data;
+
+      this.logger.error(
+        `Falha ao obter token iFood.\n` +
+        `  Status: ${status}\n` +
+        `  Resposta: ${JSON.stringify(data)}\n` +
+        `  clientId usado: ${clientId.slice(0, 8)}...\n` +
+        `  Verifique se as credenciais no SystemConfig (ifood_client_id / ifood_client_secret) estão corretas.`,
+      );
+
+      throw err;
+    }
   }
-
 
   private async authHeaders(): Promise<Record<string, string>> {
     const token = await this.getAccessToken();
     return { Authorization: `Bearer ${token}` };
   }
 
-async pollOrders(): Promise<IfoodOrderEvent[]> {
-  const headers = await this.authHeaders();
-
-  const response = await this.http.get(
-    `/order/v1.0/events:polling`,
-    { headers },
-  );
-
-  return response.data ?? [];
-}
+  async pollOrders(): Promise<IfoodOrderEvent[]> {
+    const headers = await this.authHeaders();
+    const response = await this.http.get('/order/v1.0/events:polling', { headers });
+    return response.data ?? [];
+  }
 
   async acknowledgeEvents(events: Pick<IfoodOrderEvent, 'id' | 'code'>[]): Promise<void> {
     if (!events.length) return;
@@ -187,29 +199,70 @@ async pollOrders(): Promise<IfoodOrderEvent[]> {
 
   async getOrder(orderId: string): Promise<IfoodOrder> {
     const headers = await this.authHeaders();
-    const response = await this.http.get<IfoodOrder>(`/order/v1.0/orders/${orderId}`, { headers });
-    return response.data;
+    try {
+      const response = await this.http.get<IfoodOrder>(
+        `/order/v1.0/orders/${orderId}`,
+        { headers },
+      );
+      return response.data;
+    } catch (err: any) {
+      const status = err?.response?.status;
+      const data = err?.response?.data;
+      this.logger.error(
+        `Falha ao buscar pedido iFood ${orderId}.\n` +
+        `  Status: ${status}\n` +
+        `  Resposta: ${JSON.stringify(data)}`,
+      );
+      throw err;
+    }
   }
 
   async confirmOrder(orderId: string): Promise<void> {
     const headers = await this.authHeaders();
-    await this.http.post(`/order/v1.0/orders/${orderId}/statuses/confirmation`, {}, { headers });
-    this.logger.log(`iFood pedido ${orderId} confirmado`);
+    try {
+      await this.http.post(
+        `/order/v1.0/orders/${orderId}/statuses/confirmation`,
+        {},
+        { headers },
+      );
+      this.logger.log(`iFood pedido ${orderId} confirmado`);
+    } catch (err: any) {
+      const status = err?.response?.status;
+      const data = err?.response?.data;
+      this.logger.error(
+        `Falha ao confirmar pedido iFood ${orderId}.\n` +
+        `  Status: ${status}\n` +
+        `  Resposta: ${JSON.stringify(data)}`,
+      );
+      throw err;
+    }
   }
 
   async startPreparation(orderId: string): Promise<void> {
     const headers = await this.authHeaders();
-    await this.http.post(`/order/v1.0/orders/${orderId}/statuses/startPreparation`, {}, { headers });
+    await this.http.post(
+      `/order/v1.0/orders/${orderId}/statuses/startPreparation`,
+      {},
+      { headers },
+    );
   }
 
   async readyToPickup(orderId: string): Promise<void> {
     const headers = await this.authHeaders();
-    await this.http.post(`/order/v1.0/orders/${orderId}/statuses/readyToPickup`, {}, { headers });
+    await this.http.post(
+      `/order/v1.0/orders/${orderId}/statuses/readyToPickup`,
+      {},
+      { headers },
+    );
   }
 
   async dispatch(orderId: string): Promise<void> {
     const headers = await this.authHeaders();
-    await this.http.post(`/order/v1.0/orders/${orderId}/statuses/dispatcher`, {}, { headers });
+    await this.http.post(
+      `/order/v1.0/orders/${orderId}/statuses/dispatcher`,
+      {},
+      { headers },
+    );
   }
 
   async requestCancellation(orderId: string, reason: string): Promise<void> {
@@ -222,9 +275,14 @@ async pollOrders(): Promise<IfoodOrderEvent[]> {
     this.logger.log(`iFood pedido ${orderId} cancelamento solicitado`);
   }
 
-  async getCancellationReasons(orderId: string): Promise<{ cancelCodeId: string; description: string }[]> {
+  async getCancellationReasons(
+    orderId: string,
+  ): Promise<{ cancelCodeId: string; description: string }[]> {
     const headers = await this.authHeaders();
-    const response = await this.http.get(`/order/v1.0/orders/${orderId}/cancellationReasons`, { headers });
+    const response = await this.http.get(
+      `/order/v1.0/orders/${orderId}/cancellationReasons`,
+      { headers },
+    );
     return response.data;
   }
 
@@ -232,5 +290,46 @@ async pollOrders(): Promise<IfoodOrderEvent[]> {
     const headers = await this.authHeaders();
     const response = await this.http.get('/merchant/v1.0/merchants', { headers });
     return response.data;
+  }
+
+  // ─── Diagnóstico: verifica credenciais e exibe detalhes ───────────────────
+
+  async diagnose(): Promise<{
+    credentialsFound: boolean;
+    clientIdPreview: string | null;
+    tokenValid: boolean;
+    error: string | null;
+  }> {
+    let clientId: string | null = null;
+    let tokenValid = false;
+    let error: string | null = null;
+
+    try {
+      const creds = await this.getMasterCredentials();
+      clientId = creds.clientId.slice(0, 8) + '...';
+    } catch (e: any) {
+      return {
+        credentialsFound: false,
+        clientIdPreview: null,
+        tokenValid: false,
+        error: e.message,
+      };
+    }
+
+    try {
+      await this.getAccessToken();
+      tokenValid = true;
+    } catch (e: any) {
+      error = e?.response?.data
+        ? JSON.stringify(e.response.data)
+        : e.message;
+    }
+
+    return {
+      credentialsFound: true,
+      clientIdPreview: clientId,
+      tokenValid,
+      error,
+    };
   }
 }
