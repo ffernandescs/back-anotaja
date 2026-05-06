@@ -1,4 +1,4 @@
-import { IsBoolean, IsInt, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsDateString, IsInt, IsOptional, IsString } from 'class-validator';
 
 export class UpdateWhatsAppConfigDto {
   @IsOptional()
@@ -138,4 +138,8 @@ export class CreateCampaignRecordDto {
   @IsOptional()
   @IsString()
   status?: string;
+
+  @IsOptional()
+  @IsDateString()
+  scheduledAt?: string;
 }

@@ -592,7 +592,7 @@ model Branch {
   pageViews                  PageView[]
   marketingIntegrationConfig MarketingIntegrationConfig?
   messageTemplates           MessageTemplate[]
-  campaignRecords            CampaignRecord[]
+  campaignRecords            CampaignRecord[]            @relation("BranchCampaigns")
   paymentGatewayConfigs      PaymentGatewayConfig[]
   whatsappConfig             WhatsAppConfig?
   whatsappMessages           WhatsAppMessage[]
@@ -1987,7 +1987,7 @@ model Partner {
   companies                                             Company[] // Empresas que vieram deste parceiro
   whatsappConfig                                                                                        WhatsAppConfig?
   messageTemplates                                                                                      MessageTemplate[]
-  campaignRecords                                                                                       CampaignRecord[]
+  campaignRecords                                                                                       CampaignRecord[]  @relation("PartnerCampaigns")
   whatsappMessages                                                                                      WhatsAppMessage[]
 
   @@index([email])
@@ -2100,41 +2100,43 @@ model MessageTemplate {
 }
 
 model CampaignRecord {
-  id                                                     String    @id @default(cuid())
-  branchId                                               String?
-  partnerId                                              String?
-  name                                                   String
-  message                                                String
+  id                                                                                                  String             @id @default(cuid())
+  branchId                                                                                            String?
+  partnerId                                                                                           String?
+  name                                                                                                String
+  message                                                                                             String
   recipients  Int      // Total de destinatários
   sent        Int      // Quantidade enviada com sucesso
   failed      Int      // Quantidade que falhou
-  status                                                 String    @default("completed") // completed, failed, sending
-  createdAt                                              DateTime  @default(now())
+  status                                                                                              String             @default("completed") // completed, failed, sending, scheduled
+  scheduledAt                                            DateTime? // Data e hora agendada para envio
+  createdAt                                                                                           DateTime           @default(now())
 
-  branch                                                 Branch?  @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  partner                                                Partner?  @relation(fields: [partnerId], references: [id], onDelete: Cascade)
-  messages                                               WhatsAppMessage[] @relation("CampaignMessages")
+  branch                                                                                              Branch?           @relation("BranchCampaigns", fields: [branchId], references: [id], onDelete: Cascade)
+  partner                                                                                             Partner?          @relation("PartnerCampaigns", fields: [partnerId], references: [id], onDelete: Cascade)
+  whatsappMessages                                                                                    WhatsAppMessage[] @relation("CampaignMessages")
 
   @@map("campaign_records")
   @@index([branchId])
+  @@index([scheduledAt])
 }
 
 model WhatsAppMessage {
-  id              String    @id @default(cuid())
-  partnerId       String?
-  branchId        String?
+  id                                                                     String           @id @default(cuid())
+  partnerId                                                              String?
+  branchId                                                               String?
   customerId      String?  // ID do cliente (PartnerCustomer ou Company)
   customerPhone   String    // Telefone do cliente para rastreamento
   customerName    String?   // Nome do cliente no momento do envio
   message         String    // Conteúdo da mensagem enviada
   campaignId      String?   // Referência opcional à campanha
-  status          String    @default("sent") // sent, failed
-  sentAt          DateTime  @default(now())
-  createdAt       DateTime  @default(now())
+  status                                                                 String           @default("sent") // sent, failed
+  sentAt                                                                 DateTime         @default(now())
+  createdAt                                                              DateTime         @default(now())
 
-  partner         Partner?  @relation(fields: [partnerId], references: [id], onDelete: Cascade)
-  branch          Branch?   @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  campaign        CampaignRecord? @relation("CampaignMessages", fields: [campaignId], references: [id], onDelete: SetNull)
+  partner                                                                Partner?        @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  branch                                                                 Branch?         @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  campaign                                                               CampaignRecord? @relation("CampaignMessages", fields: [campaignId], references: [id], onDelete: SetNull)
 
   @@map("whatsapp_messages")
   @@index([partnerId])

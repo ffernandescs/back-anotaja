@@ -50,7 +50,7 @@ export class PartnerService {
       role: 'PARTNER',
     };
 
-    const token = this.jwtService.sign(payload, { secret: process.env.PARTNER_JWT_SECRET || process.env.JWT_SECRET, expiresIn: '7d' });
+    const token = this.jwtService.sign(payload, { secret: process.env.JWT_SECRET, expiresIn: '7d' });
 
     return {
       access_token: token,

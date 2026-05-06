@@ -23,9 +23,8 @@ import { Response as ExpressResponse } from 'express'; // ← import correto do 
 import { Request as ExpressRequest } from 'express';   // ← para tipar o req do proxy
 import { WhatsAppService } from './whatsapp.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { JwtPartnerAuthGuard } from '../../common/guards/jwt-partner.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
-import { Public } from '../../common/decorators/public.decorator'; // ← adicionar
+import { Public } from '../../common/decorators/public.decorator';
 import {
   UpdateWhatsAppConfigDto,
   SendTestMessageDto,
@@ -37,11 +36,11 @@ import {
 } from './dto/whatsapp.dto';
 
 @Controller('whatsapp')
-@UseGuards(JwtAuthGuard, RolesGuard)
 export class WhatsAppController {
   private readonly logger = new Logger(WhatsAppController.name);
   constructor(private readonly whatsappService: WhatsAppService) {}
 
+  @UseGuards(JwtAuthGuard)
   @Get('config')
   async getConfig(@Request() req) {
     try {
@@ -63,25 +62,28 @@ export class WhatsAppController {
     }
   }
 
-  @Public()
-  @UseGuards(JwtPartnerAuthGuard  || JwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   @Post('setup')
   async setupPartner(@Request() req) {
     try {
+      const branchId = req.user?.branchId;
       const partnerId = req.user?.partnerId;
 
-      if (!partnerId) {
-        throw new BadRequestException('partnerId é necessário');
+      if (!branchId && !partnerId) {
+        throw new BadRequestException('branchId ou partnerId é necessário');
       }
 
-      return this.whatsappService.setupPartner(partnerId);
+      if (branchId) {
+        return this.whatsappService.setup(branchId);
+      } else {
+        return this.whatsappService.setupPartner(partnerId);
+      }
     } catch (error) {
       throw new BadRequestException((error as Error).message);
     }
   }
 
-  @Public()
-  @UseGuards(JwtPartnerAuthGuard  || JwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   @Post('connect')
   async connect(@Request() req) {
     try {
@@ -98,8 +100,7 @@ export class WhatsAppController {
     }
   }
 
-  @Public()
-  @UseGuards(JwtPartnerAuthGuard  || JwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   @Delete('disconnect')
   async disconnect(@Request() req) {
     try {
@@ -116,13 +117,15 @@ export class WhatsAppController {
     }
   }
 
-  @Public()
-  @UseGuards(JwtPartnerAuthGuard  || JwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   @Get('status')
   async getStatus(@Request() req) {
     try {
       const branchId = req.user?.branchId;
       const partnerId = req.user?.partnerId;
+
+      this.logger.log(`[getStatus] User object:`, JSON.stringify(req.user));
+      this.logger.log(`[getStatus] branchId: ${branchId}, partnerId: ${partnerId}`);
 
       if (!branchId && !partnerId) {
         throw new BadRequestException('branchId ou partnerId é necessário');
@@ -176,8 +179,7 @@ export class WhatsAppController {
     }
   }
 
-  @Public()
-  @UseGuards(JwtPartnerAuthGuard  || JwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   @Post('send-bulk')
   async sendBulkMessages(
     @Request() req,
@@ -201,8 +203,7 @@ export class WhatsAppController {
     }
   }
 
-  @Public()
-  @UseGuards(JwtPartnerAuthGuard  || JwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   @Get('messages/history/:phone')
   async getMessageHistory(
     @Request() req,
@@ -222,8 +223,7 @@ export class WhatsAppController {
     }
   }
 
-  @Public()
-  @UseGuards(JwtPartnerAuthGuard  || JwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   @Post('messages/check-duplicate')
   async checkDuplicateMessage(
     @Request() req,
@@ -247,6 +247,8 @@ export class WhatsAppController {
       throw new BadRequestException((error as Error).message);
     }
   }
+  @Post('crm/send-media')
+  @UseInterceptors(FileInterceptor('file'))
   async sendCrmMedia(
     @Request() req,
     @UploadedFile() file: Express.Multer.File,
@@ -343,7 +345,14 @@ export class WhatsAppController {
   async markChatAsRead(@Request() req, @Body() body: { jid: string }) {
     try {
       const branchId = req.user.branchId;
-      return this.whatsappService.markChatAsRead(branchId, body.jid);
+      const partnerId = req.user.partnerId;
+
+      if (!branchId && !partnerId) {
+        throw new BadRequestException('branchId ou partnerId é necessário');
+      }
+
+      // Partners use partnerId, admins use branchId
+      return this.whatsappService.markChatAsRead(branchId, partnerId, body.jid);
     } catch (error) {
       throw new BadRequestException((error as Error).message);
     }
@@ -361,8 +370,7 @@ export class WhatsAppController {
 
   // ─── Templates ─────────────────────────────────────────────────
 
-  @Public()
-  @UseGuards(JwtPartnerAuthGuard  || JwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   @Get('templates')
   async getTemplates(@Request() req) {
     try {
@@ -374,8 +382,7 @@ export class WhatsAppController {
     }
   }
 
-  @Public()
-  @UseGuards(JwtPartnerAuthGuard  || JwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   @Post('templates')
   async createTemplate(@Request() req, @Body() dto: CreateMessageTemplateDto) {
     try {
@@ -387,8 +394,7 @@ export class WhatsAppController {
     }
   }
 
-  @Public()
-  @UseGuards(JwtPartnerAuthGuard  || JwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   @Put('templates/:id')
   async updateTemplate(@Param('id') id: string, @Body() dto: UpdateMessageTemplateDto) {
     try {
@@ -398,8 +404,7 @@ export class WhatsAppController {
     }
   }
 
-  @Public()
-  @UseGuards(JwtPartnerAuthGuard  || JwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   @Delete('templates/:id')
   async deleteTemplate(@Param('id') id: string) {
     try {
@@ -411,8 +416,7 @@ export class WhatsAppController {
 
   // ─── Campaigns ─────────────────────────────────────────────────
 
-  @Public()
-  @UseGuards(JwtPartnerAuthGuard  || JwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   @Get('campaigns')
   async getCampaigns(@Request() req) {
     try {
@@ -425,8 +429,7 @@ export class WhatsAppController {
     }
   }
 
-  @Public()
-  @UseGuards(JwtPartnerAuthGuard  || JwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   @Post('campaigns')
   async createCampaign(@Request() req, @Body() dto: CreateCampaignRecordDto) {
     try {

@@ -14,7 +14,7 @@ import {
 } from '@nestjs/common';
 import { Public } from 'src/common/decorators/public.decorator';
 import { JwtOwnerAuthGuard } from 'src/common/guards/jwt-owner.guard';
-import { JwtPartnerAuthGuard } from 'src/common/guards/jwt-partner.guard';
+import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
 import { RolesGuard } from 'src/common/guards/roles.guard';
 import { CreatePartnerCustomerDto } from './dto/create-partner-customer.dto';
 import { CreatePartnerDto } from './dto/create-partner.dto';
@@ -36,37 +36,32 @@ export class PartnerController {
     return this.partnerService.login(body.email, body.password);
   }
 
-  @Public()
   @Get('me')
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtAuthGuard)
   async getCurrentPartner(@Request() req) {
     return this.partnerService.getPartnerById(req.user.partnerId);
   }
 
-  @Public()
   @Get('me/referral-link')
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtAuthGuard)
   async getMyReferralLink(@Request() req) {
     return this.partnerService.getPartnerReferralLink(req.user.partnerId);
   }
 
-  @Public()
   @Put('me')
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtAuthGuard)
   async updateMyProfile(@Request() req, @Body() dto: UpdatePartnerDto) {
     return this.partnerService.updatePartner(req.user.partnerId, dto);
   }
 
-  @Public()
   @Put('me/password')
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtAuthGuard)
   async updateMyPassword(@Request() req, @Body() body: { currentPassword: string; newPassword: string }) {
     return this.partnerService.updatePartnerPassword(req.user.partnerId, body.currentPassword, body.newPassword);
   }
 
-  @Public()
   @Get('me/customers')
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtAuthGuard)
   async getMyCustomers(
     @Request() req,
     @Query('hasSubscription') hasSubscription?: boolean,
@@ -74,30 +69,26 @@ export class PartnerController {
     return this.partnerService.getCustomersByPartner(req.user.partnerId, hasSubscription);
   }
 
-  @Public()
   @Post('me/customers')
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtAuthGuard)
   async createMyCustomer(@Request() req, @Body() dto: CreatePartnerCustomerDto) {
     return this.partnerService.createCustomer(req.user.partnerId, dto);
   }
 
-  @Public()
   @Post('me/customers/import')
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtAuthGuard)
   async importMyCustomers(@Request() req, @Body() dto: ImportCustomersDto) {
     return this.partnerService.importCustomersFromCsv(req.user.partnerId, dto);
   }
 
-  @Public()
   @Put('customers/:id/toggle-subscription')
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtAuthGuard)
   async toggleCustomerSubscription(@Param('id') id: string) {
     return this.partnerService.toggleCustomerSubscription(id);
   }
 
-  @Public()
   @Delete('customers/:id')
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteCustomer(@Param('id') id: string) {
     return this.partnerService.deleteCustomer(id);
@@ -161,44 +152,42 @@ export class PartnerController {
     return this.partnerService.getPartnerByCode(code);
   }
 
-  @Public()
   @Get('me/companies')
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtAuthGuard)
   async getMyCompanies(@Request() req) {
     return this.partnerService.getPartnerCompanies(req.user.partnerId);
   }
 
-  @Public()
   @Get('me/plans')
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtAuthGuard)
   async getAvailablePlans() {
     return this.partnerService.getAvailablePlans();
   }
 
-  @Public()
   @Post('me/companies/:companyId/activate')
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtAuthGuard)
   async activateMyCompany(@Param('companyId') companyId: string, @Body() body: { planId?: string; withTrial?: boolean }, @Request() req) {
     return this.partnerService.activateClient(companyId, req.user.partnerId, body.planId, body.withTrial);
   }
 
-  @Public()
   @Post('me/companies/:companyId/resend-credentials')
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtAuthGuard)
   async resendCredentials(@Param('companyId') companyId: string, @Request() req) {
     return this.partnerService.resendCredentials(companyId, req.user.partnerId);
   }
 
+  @Public()
   @Get(':id/companies')
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtAuthGuard)
   async getPartnerCompanies(@Param('id') id: string) {
     return this.partnerService.getPartnerCompanies(id);
   }
 
   // ─── Partner Customer Endpoints (Partner Dashboard) ─────────
 
+  @Public()
   @Post(':partnerId/customers')
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtAuthGuard)
   async createCustomer(
     @Param('partnerId') partnerId: string,
     @Body() dto: CreatePartnerCustomerDto,
@@ -206,8 +195,9 @@ export class PartnerController {
     return this.partnerService.createCustomer(partnerId, dto);
   }
 
+  @Public()
   @Get(':partnerId/customers')
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtAuthGuard)
   async getCustomersByPartner(
     @Param('partnerId') partnerId: string,
     @Query('hasSubscription') hasSubscription?: boolean,
@@ -215,14 +205,16 @@ export class PartnerController {
     return this.partnerService.getCustomersByPartner(partnerId, hasSubscription);
   }
 
+  @Public()
   @Get('customers/:id')
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtAuthGuard)
   async getCustomerById(@Param('id') id: string) {
     return this.partnerService.getCustomerById(id);
   }
 
+  @Public()
   @Put('customers/:id')
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtAuthGuard)
   async updateCustomer(
     @Param('id') id: string,
     @Body() dto: UpdatePartnerCustomerDto,
@@ -230,8 +222,9 @@ export class PartnerController {
     return this.partnerService.updateCustomer(id, dto);
   }
 
+  @Public()
   @Post(':partnerId/customers/import')
-  @UseGuards(JwtPartnerAuthGuard)
+  @UseGuards(JwtAuthGuard)
   async importCustomersFromCsv(
     @Param('partnerId') partnerId: string,
     @Body() dto: ImportCustomersDto,

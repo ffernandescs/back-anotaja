@@ -4,11 +4,26 @@ import { WhatsAppWebhookController } from './whatsapp-webhook.controller';
 import { WhatsAppService } from './whatsapp.service';
 import { WebSocketModule } from '../websocket/websocket.module';
 import { UploadModule } from '../upload/upload.module';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { JwtModule } from '@nestjs/jwt';
+import { ConfigModule } from '@nestjs/config';
 
 @Module({
-  imports: [forwardRef(() => WebSocketModule), UploadModule],
+  imports: [
+    forwardRef(() => WebSocketModule),
+    UploadModule,
+    ConfigModule,
+    JwtModule.registerAsync({
+      imports: [ConfigModule],
+      useFactory: () => ({
+        secret: process.env.JWT_SECRET || 'fallback-secret',
+        signOptions: { expiresIn: '7d' },
+      }),
+      inject: [],
+    }),
+  ],
   controllers: [WhatsAppController, WhatsAppWebhookController],
-  providers: [WhatsAppService],
+  providers: [WhatsAppService, JwtAuthGuard],
   exports: [WhatsAppService],
 })
 export class WhatsAppModule {}

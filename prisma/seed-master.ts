@@ -349,6 +349,7 @@ for (const method of paymentMethods) {
     // AUTOMAÇÃO
     ['whatsapp', 'WhatsApp', 'Automação', '/admin/automation/whatsapp', 'MessageCircle'],
     ['whatsapp_crm', 'WhatsApp CRM', 'Automação', '/admin/whatsapp-crm', 'siWhatsapp'],
+    ['disparos', 'Disparos', 'Automação', '/admin/automation/disparos', 'Send'],
 
     // SISTEMA
     ['subscription',      'Assinatura',               'Sistema', '/admin/administration/settings/payments',     'CreditCard'],
@@ -620,7 +621,7 @@ for (const method of paymentMethods) {
         ...['customers', 'loyalty', 'coupons', 'relatorio', 'sales_analysis', 'performance_customers'],
         ...['users', 'delivery_persons'],
         ...['subscription'],
-        ...['whatsapp'],
+        ...['whatsapp', 'disparos'],
       ],
     },
     {

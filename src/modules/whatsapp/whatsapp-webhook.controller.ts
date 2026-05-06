@@ -50,12 +50,19 @@ export class WhatsAppWebhookController {
 
     const phone = remoteJid.replace('@s.whatsapp.net', '');
 
+    // Log the full message payload to debug timestamp fields
+    this.logger.log(`[WhatsAppWebhook] Message payload keys: ${Object.keys(msg).join(', ')}`);
+    this.logger.log(`[WhatsAppWebhook] messageTimestamp: ${msg.messageTimestamp}, epoch: ${msg.epoch}, timestamp: ${msg.timestamp}`);
+
+    // Try multiple timestamp fields from Evolution API
+    const timestamp = msg.messageTimestamp || msg.epoch || msg.timestamp || msg.message?.epoch || data.messageTimestamp || Math.floor(Date.now() / 1000);
+
     const payload = {
       id: key.id || String(Date.now()),
       remoteJid,
       fromMe: key.fromMe ?? false,
       text: this.extractText(msg),
-      timestamp: msg.messageTimestamp || Math.floor(Date.now() / 1000),
+      timestamp: timestamp,
       pushName: msg.pushName || data.pushName || '',
       phone,
       status: key.fromMe ? 'sent' : 'received',
@@ -233,12 +240,15 @@ export class WhatsAppWebhookController {
     const msg = data.message || {};
     const messageType = body.messageType || '';
 
+    // Try multiple timestamp fields from Evolution API
+    const timestamp = data.messageTimestamp || data.epoch || data.timestamp || msg.messageTimestamp || Math.floor(Date.now() / 1000);
+
     const payload = {
       id: key.id || String(Date.now()),
       remoteJid,
       fromMe: key.fromMe ?? false,
       text: this.extractText(msg),
-      timestamp: data.messageTimestamp || Math.floor(Date.now() / 1000),
+      timestamp: timestamp,
       pushName: data.pushName || '',
       phone,
       status: this.mapStatus(data.status),
@@ -321,12 +331,15 @@ export class WhatsAppWebhookController {
 
         const phone = remoteJid.replace('@s.whatsapp.net', '');
 
+        // Try multiple timestamp fields from Evolution API
+        const timestamp = msg.messageTimestamp || msg.epoch || msg.timestamp || msg.message?.epoch || data.messageTimestamp || Math.floor(Date.now() / 1000);
+
         const payload = {
           id: key.id || String(Date.now()),
           remoteJid,
           fromMe: key.fromMe ?? false,
           text: this.extractText(msg),
-          timestamp: msg.messageTimestamp || Math.floor(Date.now() / 1000),
+          timestamp: timestamp,
           pushName: msg.pushName || data.pushName || '',
           phone,
           status: key.fromMe ? 'sent' : 'received',

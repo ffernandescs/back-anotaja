@@ -1437,7 +1437,7 @@ async sendCrmMedia(
       };
       
       const r2Url = await this.uploadService.uploadFile(file, 'whatsapp-audio');
-      
+
       this.logger.log(`[WhatsApp] processWhatsAppAudio - Audio processed and uploaded to: ${r2Url}`);
       return r2Url;
     } catch (error) {
@@ -1446,42 +1446,56 @@ async sendCrmMedia(
     }
   }
 
-  async markChatAsRead(branchId: string, jid: string) {
-    try {
-      // Try to ensure WhatsAppConfig exists for this branch
-      await prisma.whatsAppConfig.upsert({
-        where: { branchId },
-        create: { branchId },
-        update: {},
-      });
-    } catch (error) {
-      // If config creation fails, continue anyway
-      console.warn('Failed to ensure WhatsAppConfig:', error);
-    }
+async markChatAsRead(branchId?: string, partnerId?: string, jid?: string) {
+  // If partnerId is provided, we need to get the branchId from the partner's associated branch
+  let actualBranchId = branchId;
+  if (partnerId && !branchId) {
+    // For partners, we skip this operation since WhatsAppChatRead only supports branchId
+    // Partners use a different WhatsApp config structure
+    console.warn('[markChatAsRead] Partner detected but WhatsAppChatRead only supports branchId. Skipping.');
+    return { success: true };
+  }
 
-    try {
-      await prisma.whatsAppChatRead.upsert({
-        where: {
-          branchId_jid: {
-            branchId,
-            jid,
-          },
+  if (!actualBranchId) {
+    console.warn('[markChatAsRead] No branchId provided. Skipping.');
+    return { success: true };
+  }
+
+  try {
+    // Try to ensure WhatsAppConfig exists for this branch
+    await prisma.whatsAppConfig.upsert({
+      where: { branchId: actualBranchId },
+      create: { branchId: actualBranchId },
+      update: {},
+    });
+  } catch (error) {
+    // If config creation fails, continue anyway
+    console.warn('Failed to ensure WhatsAppConfig:', error);
+  }
+
+  try {
+    await prisma.whatsAppChatRead.upsert({
+      where: {
+        branchId_jid: {
+          branchId: actualBranchId,
+          jid: jid || '',
         },
-        create: {
-          branchId,
-          jid,
-          unreadCount: 0,
-          lastReadAt: new Date(),
-        },
-        update: {
-          unreadCount: 0,
-          lastReadAt: new Date(),
-        },
-      });
-    } catch (error) {
-      // If still fails due to FK, try without the relation
-      console.warn('Failed to upsert WhatsAppChatRead with FK, trying direct insert:', error);
-      // Skip the operation if FK constraint fails
+      },
+      create: {
+        branchId: actualBranchId,
+        jid: jid || '',
+        unreadCount: 0,
+        lastReadAt: new Date(),
+      },
+      update: {
+        unreadCount: 0,
+        lastReadAt: new Date(),
+      },
+    });
+  } catch (error) {
+    // If still fails due to FK, try without the relation
+    console.warn('Failed to upsert WhatsAppChatRead with FK, trying direct insert:', error);
+    // Skip the operation if FK constraint fails
     }
 
     return { success: true };
@@ -1786,7 +1800,7 @@ async sendCrmMedia(
     });
   }
 
-  async createCampaign(dto: { name: string; message: string; recipients: number; sent: number; failed: number; status?: string }, branchId?: string, partnerId?: string) {
+  async createCampaign(dto: { name: string; message: string; recipients: number; sent: number; failed: number; status?: string; scheduledAt?: string }, branchId?: string, partnerId?: string) {
     const where = this.getConfigWhere(branchId, partnerId);
     return prisma.campaignRecord.create({
       data: {

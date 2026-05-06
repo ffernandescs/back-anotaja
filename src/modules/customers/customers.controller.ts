@@ -177,6 +177,11 @@ export class CustomersController {
     return this.customersService.login(dto, subdomain);
   }
 
+  @Get('for-campaign')
+  async getForCampaign(@Req() req: RequestWithUser) {
+    return this.customersService.getForCampaign(req.user.userId);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string, @Req() req: RequestWithUser) {
     return this.customersService.findOne(id, req.user.userId);

@@ -11,7 +11,7 @@ export class JwtPartnerStrategy extends PassportStrategy(
   constructor() {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-      secretOrKey: process.env.PARTNER_JWT_SECRET || process.env.JWT_SECRET || 'seu-secret-super-seguro-aquis2',
+      secretOrKey: process.env.JWT_SECRET || 'seu-secret-super-seguro-aquis2',
       passReqToCallback: false,
     });
   }

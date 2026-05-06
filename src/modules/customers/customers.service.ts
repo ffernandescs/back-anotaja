@@ -679,4 +679,89 @@ export class CustomersService {
       }),
     ]);
   }
+
+  async getForCampaign(userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { branchId: true },
+    });
+
+    if (!user || !user.branchId) {
+      return { data: [] };
+    }
+
+    const branch = await prisma.branch.findUnique({
+      where: { id: user.branchId },
+      select: { subdomain: true },
+    });
+
+    const customers = await prisma.customer.findMany({
+      where: { branchId: user.branchId },
+      include: {
+        addresses: { where: { isDefault: true } },
+        _count: { select: { orders: true } },
+      },
+    });
+
+    // Fetch message counts from WhatsApp messages for each customer
+    const customerPhones = customers.map((c) => c.phone);
+    const messageCounts = await prisma.whatsAppMessage.groupBy({
+      by: ['customerPhone'],
+      where: {
+        customerPhone: { in: customerPhones },
+        branchId: user.branchId,
+        status: 'sent',
+      },
+      _count: {
+        id: true,
+      },
+    });
+
+    const messageCountMap = new Map(
+      messageCounts.map((mc) => [mc.customerPhone, mc._count.id]),
+    );
+
+    // Generate menu link based on branch subdomain
+    const menuLink = branch?.subdomain
+      ? `https://${branch.subdomain}.anotaja.shop/menu`
+      : '';
+
+    // Transform to CampaignCustomer format
+    const data = customers.map((c) => {
+      const messageCount = messageCountMap.get(c.phone) || 0;
+      const hasMessages = messageCount > 0;
+
+      // Get default address
+      const defaultAddress = c.addresses[0];
+      const address = defaultAddress
+        ? `${defaultAddress.street}, ${defaultAddress.number}${defaultAddress.complement ? `, ${defaultAddress.complement}` : ''} - ${defaultAddress.neighborhood}`
+        : '';
+
+      // Determine segment based on order count
+      let segment = 'Cliente';
+      const orderCount = c._count?.orders || 0;
+      if (orderCount === 0) {
+        segment = 'Novo';
+      } else if (orderCount >= 10) {
+        segment = 'VIP';
+      } else if (orderCount >= 5) {
+        segment = 'Frequente';
+      }
+
+      return {
+        id: c.id,
+        name: c.name,
+        segment,
+        phone: c.phone,
+        email: c.email || '',
+        address,
+        menuLink,
+        hasSubscription: false,
+        messageCount,
+        hasMessages,
+      };
+    });
+
+    return { data };
+  }
 }
