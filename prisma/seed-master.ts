@@ -350,6 +350,8 @@ for (const method of paymentMethods) {
     ['whatsapp', 'WhatsApp', 'Automação', '/admin/automation/whatsapp', 'MessageCircle'],
     ['whatsapp_crm', 'WhatsApp CRM', 'Automação', '/admin/whatsapp-crm', 'siWhatsapp'],
     ['disparos', 'Disparos', 'Automação', '/admin/automation/disparos', 'Send'],
+    ['ifood', 'iFood', 'Automação', '/admin/automation/ifood', 'ShoppingBag'],
+    ['ninetynine_food', '99Food', 'Automação', '/admin/automation/99food', 'Bike'],
 
     // SISTEMA
     ['subscription',      'Assinatura',               'Sistema', '/admin/administration/settings/payments',     'CreditCard'],
@@ -621,7 +623,7 @@ for (const method of paymentMethods) {
         ...['customers', 'loyalty', 'coupons', 'relatorio', 'sales_analysis', 'performance_customers'],
         ...['users', 'delivery_persons'],
         ...['subscription'],
-        ...['whatsapp', 'disparos'],
+        ...['whatsapp', 'disparos', 'ifood', 'ninetynine_food'],
       ],
     },
     {
@@ -757,9 +759,9 @@ for (const method of paymentMethods) {
     {
       key: 'integration_platforms',
       name: 'Integração com Plataformas',
-      description: 'Conecte com iFood, Uber Eats e outras plataformas de delivery',
+      description: 'Conecte com iFood, 99Food e outras plataformas de delivery',
       price: 3900, // R$ 39/mês
-      features: ['integration_platforms'],
+      features: ['ifood', 'ninetynine_food'],
     },
     {
       key: 'delivery_advanced',

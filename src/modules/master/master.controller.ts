@@ -12,6 +12,12 @@ import { MasterService } from './master.service';
 import { Public } from '../../common/decorators/public.decorator';
 import { JwtOwnerAuthGuard } from 'src/common/guards/jwt-owner.guard';
 import { Roles } from 'src/common/decorators/roles.decorator';
+import { IsObject } from 'class-validator';
+
+class SetConfigDto {
+  @IsObject()
+  configs!: Record<string, string | null>;
+}
 
 @Controller('master')
 export class MasterController {
@@ -60,5 +66,21 @@ export class MasterController {
   @HttpCode(HttpStatus.CREATED)
   async createSubscription(@Body() data: any) {
     return this.masterService.createSubscription(data);
+  }
+
+  @Public()
+  @Get('config')
+  @UseGuards(JwtOwnerAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async getConfig() {
+    return this.masterService.getSystemConfigs();
+  }
+
+  @Public()
+  @Post('config')
+  @UseGuards(JwtOwnerAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async setConfig(@Body() dto: SetConfigDto) {
+    return this.masterService.setSystemConfigs(dto.configs);
   }
 }
