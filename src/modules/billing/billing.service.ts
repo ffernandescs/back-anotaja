@@ -489,7 +489,6 @@ export class BillingService {
         error?.message?.includes('payment');
 
       if (isNoPaymentMethod) {
-        console.log('⚠️ Cliente sem método de pagamento, redirecionando para checkout');
         return this.createCheckoutForPlanChange(stripeSubscriptionId, newPlan, companyId);
       }
 

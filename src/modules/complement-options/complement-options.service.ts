@@ -154,7 +154,6 @@ export class ComplementOptionsService {
       },
     });
 
-    console.log(option,'option')
 
     if (!option) throw new NotFoundException('Opção não encontrada');
     

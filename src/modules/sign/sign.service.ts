@@ -15,7 +15,6 @@ export class SignService {
       // Chave privada em formato hexadecimal (como Menu Integrado)
       try {
         this.privateKey = this.convertHexToPem(envKey);
-        console.log('✅ Chave privada carregada do ambiente (formato hex)');
       } catch (error) {
         console.error('❌ Erro ao converter chave hex para PEM:', error);
         throw new Error(`Failed to convert hex key: ${(error as Error).message}`);
@@ -27,7 +26,6 @@ export class SignService {
       try {
         this.privateKey = fs.readFileSync(keyPath, 'utf8');
         this.privateKey = this.privateKey.trim();
-        console.log('✅ Chave privada carregada do arquivo PEM');
       } catch (error) {
         throw new Error(`Failed to load private key from ${keyPath}: ${(error as Error).message}`);
       }

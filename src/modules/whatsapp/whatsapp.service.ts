@@ -43,7 +43,6 @@ export class WhatsAppService {
 
     const checkConnection = async () => {
       if (attempts >= maxAttempts) {
-        console.log('[WhatsApp] Stopped monitoring instance connection (max attempts reached)');
         return;
       }
 
@@ -53,9 +52,7 @@ export class WhatsAppService {
         const status = await this.getStatus(branchId);
         
         if (status.status === 'connected') {
-          console.log('[WhatsApp] Instance connected via QR, fetching conversations...');
           await this.fetchChats(branchId);
-          console.log('[WhatsApp] Conversations fetched successfully');
           return;
         }
 
@@ -112,8 +109,6 @@ export class WhatsAppService {
   async setup(branchId: string) {
     const instanceName = `anotaja_${branchId}`;
 
-    console.log('[WhatsApp] Setting up instance:', instanceName);
-    console.log('[WhatsApp] Evolution API URL:', this.serverUrl);
 
     await prisma.whatsAppConfig.upsert({
       where: { branchId },
@@ -133,11 +128,6 @@ export class WhatsAppService {
     });
 
     try {
-      console.log('[WhatsApp] Creating instance with:', {
-        instanceName,
-        integration: 'WHATSAPP-BAILEYS',
-        qrcode: true,
-      });
 
       const createRes = await this.evolutionRequest(
         'POST',
@@ -162,7 +152,6 @@ export class WhatsAppService {
           read_status: true,
         },
       ).catch((e) => {
-        console.log('[WhatsApp] Failed to set sync settings:', e);
       });
 
       // Configure webhook automatically
@@ -186,12 +175,9 @@ export class WhatsAppService {
             ],
           },
         ).catch((e) => {
-          console.log('[WhatsApp] Failed to configure webhook:', e);
         });
-        console.log('[WhatsApp] Webhook configured automatically:', webhookUrl);
       }
 
-      console.log('[WhatsApp] Create response:', JSON.stringify(createRes, null, 2));
 
       const instanceId = createRes?.instance?.instanceId || createRes?.instance?.id;
 
@@ -209,13 +195,11 @@ export class WhatsAppService {
       });
 
       // Fetch QR code from connect endpoint
-      console.log('[WhatsApp] Fetching QR code from connect endpoint');
       const connectRes = await this.evolutionRequest(
         'GET',
         `/instance/connect/${instanceName}`,
       );
 
-      console.log('[WhatsApp] Connect response:', JSON.stringify(connectRes, null, 2));
 
       const qrCode = connectRes?.base64 || connectRes?.qrcode?.base64 || connectRes?.pairingCode || null;
 
@@ -242,7 +226,6 @@ export class WhatsAppService {
       console.error('[WhatsApp] Setup error:', error);
 
       if (error?.status === 403 || error?.message?.includes('already')) {
-        console.log('[WhatsApp] Instance already exists, calling connect');
         return this.connect(branchId);
       }
 
@@ -260,8 +243,6 @@ export class WhatsAppService {
   async setupPartner(partnerId: string) {
     const instanceName = `anotaja_partner_${partnerId}`;
 
-    console.log('[WhatsApp] Setting up partner instance:', instanceName);
-    console.log('[WhatsApp] Evolution API URL:', this.serverUrl);
 
     await prisma.whatsAppConfig.upsert({
       where: { partnerId },
@@ -281,11 +262,7 @@ export class WhatsAppService {
     });
 
     try {
-      console.log('[WhatsApp] Creating partner instance with:', {
-        instanceName,
-        integration: 'WHATSAPP-BAILEYS',
-        qrcode: true,
-      });
+     
 
       const createRes = await this.evolutionRequest(
         'POST',
@@ -320,12 +297,9 @@ export class WhatsAppService {
             ],
           },
         ).catch((e) => {
-          console.log('[WhatsApp] Failed to configure webhook:', e);
         });
-        console.log('[WhatsApp] Webhook configured automatically:', webhookUrl);
       }
 
-      console.log('[WhatsApp] Create response:', JSON.stringify(createRes, null, 2));
 
       const instanceId = createRes?.instance?.instanceId || createRes?.instance?.id;
 
@@ -343,13 +317,11 @@ export class WhatsAppService {
       });
 
       // Fetch QR code from connect endpoint
-      console.log('[WhatsApp] Fetching QR code from connect endpoint');
       const connectRes = await this.evolutionRequest(
         'GET',
         `/instance/connect/${instanceName}`,
       );
 
-      console.log('[WhatsApp] Connect response:', JSON.stringify(connectRes, null, 2));
 
       const qrCode = connectRes?.base64 || connectRes?.qrcode?.base64 || connectRes?.pairingCode || null;
 
@@ -373,7 +345,6 @@ export class WhatsAppService {
       console.error('[WhatsApp] Partner setup error:', error);
 
       if (error?.status === 403 || error?.message?.includes('already') || error?.message?.includes('already in use')) {
-        console.log('[WhatsApp] Instance already exists, fetching QR code directly');
         
         // Se a instância já existe, apenas busca o QR code diretamente
         try {
@@ -382,7 +353,6 @@ export class WhatsAppService {
             `/instance/connect/${instanceName}`,
           );
 
-          console.log('[WhatsApp] Connect response for existing instance:', JSON.stringify(connectRes, null, 2));
 
           const qrCode = connectRes?.base64 || connectRes?.qrcode?.base64 || connectRes?.pairingCode || null;
           const status = qrCode ? 'qr_code' : 'connecting';
@@ -463,9 +433,7 @@ export class WhatsAppService {
           ],
         },
       ).catch((e) => {
-        console.log('[WhatsApp] Failed to configure webhook on connect:', e);
       });
-      console.log('[WhatsApp] Webhook configured on connect:', webhookUrl);
     }
 
     // Se já estiver conectado (sem QR code), baixa conversas automaticamente
@@ -475,10 +443,8 @@ export class WhatsAppService {
         try {
           const currentStatus = await this.getStatus(branchId, partnerId);
           if (currentStatus.status === 'connected') {
-            console.log('[WhatsApp] Instance connected, fetching conversations...');
             if (branchId) {
               await this.fetchChats(branchId);
-              console.log('[WhatsApp] Conversations fetched successfully');
             }
           }
         } catch (error) {
@@ -498,16 +464,13 @@ export class WhatsAppService {
       throw new BadRequestException('WhatsApp não configurado. Conecte o WhatsApp primeiro.');
     }
 
-    console.log('[WhatsApp] Disconnecting instance:', config.instanceName);
 
     try {
       await this.evolutionRequest(
         'DELETE',
         `/instance/logout/${config.instanceName}`,
       );
-      console.log('[WhatsApp] Logout successful');
     } catch (error) {
-      console.log('[WhatsApp] Logout failed:', error);
     }
 
     try {
@@ -515,16 +478,13 @@ export class WhatsAppService {
         'DELETE',
         `/instance/delete/${config.instanceName}`,
       );
-      console.log('[WhatsApp] Instance deleted successfully');
     } catch (error) {
-      console.log('[WhatsApp] Delete instance failed:', error);
     }
 
     // Limpa todos os contadores de mensagens não lidas do banco
     await prisma.whatsAppChatRead.deleteMany({
       where,
     });
-    console.log('[WhatsApp] Cleared all message read status for branch:', branchId);
 
     await prisma.whatsAppConfig.update({
       where: { id: config.id },
@@ -1181,12 +1141,6 @@ export class WhatsAppService {
         ? this.orderStateMachine.getAvailableTransitions(completeOrder)
         : [];
 
-      // Debug log
-      if (completeOrder) {
-        console.log('[WhatsApp CRM] Order ID:', completeOrder.id, 'Status:', completeOrder.status);
-        console.log('[WhatsApp CRM] Available transitions:', availableTransitions);
-        console.log('[WhatsApp CRM] Complete order object:', JSON.stringify(completeOrder, null, 2));
-      }
 
       return {
         jid: c._jid,
@@ -1374,14 +1328,12 @@ async sendCrmMedia(
   }
 
   async downloadMedia(url: string): Promise<Buffer> {
-    console.log('[WhatsApp] downloadMedia - url:', url);
     try {
       const response = await fetch(url);
       if (!response.ok) {
         throw new Error(`Failed to download media: ${response.statusText}`);
       }
       const buffer = Buffer.from(await response.arrayBuffer());
-      console.log('[WhatsApp] downloadMedia - buffer size:', buffer.length);
       return buffer;
     } catch (error) {
       console.error('[WhatsApp] downloadMedia - error:', error);
@@ -1461,6 +1413,21 @@ async markChatAsRead(branchId?: string, partnerId?: string, jid?: string) {
     return { success: true };
   }
 
+  // Check if the branch exists before attempting upsert
+  try {
+    const branch = await prisma.branch.findUnique({
+      where: { id: actualBranchId },
+    });
+
+    if (!branch) {
+      console.warn(`[markChatAsRead] Branch ${actualBranchId} does not exist. Skipping.`);
+      return { success: true };
+    }
+  } catch (error) {
+    console.warn('[markChatAsRead] Failed to check branch existence:', error);
+    return { success: true };
+  }
+
   try {
     // Try to ensure WhatsAppConfig exists for this branch
     await prisma.whatsAppConfig.upsert({
@@ -1469,20 +1436,31 @@ async markChatAsRead(branchId?: string, partnerId?: string, jid?: string) {
       update: {},
     });
   } catch (error) {
-    // If config creation fails, continue anyway
+    // If config creation fails, skip the WhatsAppChatRead operation
     console.warn('Failed to ensure WhatsAppConfig:', error);
+    return { success: true };
+  }
+
+  // Verify WhatsAppConfig exists before creating WhatsAppChatRead
+  const config = await prisma.whatsAppConfig.findUnique({
+    where: { branchId: actualBranchId },
+  });
+
+  if (!config) {
+    console.warn(`[markChatAsRead] WhatsAppConfig for branch ${actualBranchId} does not exist. Skipping.`);
+    return { success: true };
   }
 
   try {
     await prisma.whatsAppChatRead.upsert({
       where: {
         branchId_jid: {
-          branchId: actualBranchId,
+          branchId: config.id, // Use WhatsAppConfig.id, not branchId
           jid: jid || '',
         },
       },
       create: {
-        branchId: actualBranchId,
+        branchId: config.id, // Use WhatsAppConfig.id, not branchId
         jid: jid || '',
         unreadCount: 0,
         lastReadAt: new Date(),
@@ -1493,10 +1471,9 @@ async markChatAsRead(branchId?: string, partnerId?: string, jid?: string) {
       },
     });
   } catch (error) {
-    // If still fails due to FK, try without the relation
-    console.warn('Failed to upsert WhatsAppChatRead with FK, trying direct insert:', error);
-    // Skip the operation if FK constraint fails
-    }
+    // If still fails due to FK, skip the operation
+    console.warn('Failed to upsert WhatsAppChatRead:', error);
+  }
 
     return { success: true };
   }
@@ -1712,7 +1689,6 @@ async markChatAsRead(branchId?: string, partnerId?: string, jid?: string) {
   async registerWebhook(branchId: string, webhookUrl: string) {
     const config = await this.getFullConfig(branchId);
 
-    console.log('[WhatsApp] Registering webhook for', config.instanceName, '→', webhookUrl);
 
     try {
       await this.evolutionRequest('POST', `/webhook/set/${config.instanceName}`, {
@@ -1723,9 +1699,7 @@ async markChatAsRead(branchId?: string, partnerId?: string, jid?: string) {
           webhookBase64: false,
         },
       });
-      console.log('[WhatsApp] Old webhook disabled');
     } catch {
-      console.log('[WhatsApp] Could not disable old webhook (may not exist)');
     }
 
     const result = await this.evolutionRequest(
@@ -1747,7 +1721,6 @@ async markChatAsRead(branchId?: string, partnerId?: string, jid?: string) {
       },
     );
 
-    console.log('[WhatsApp] Webhook registered:', JSON.stringify(result));
     return result;
   }
 

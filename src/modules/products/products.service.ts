@@ -301,7 +301,6 @@ export class ProductsService {
     data: UpdateProductAdvancedOptionsDto,
     userId: string,
   ) {
-    console.log('updateAdvancedOptions - productId:', productId, 'data:', data);
 
     // Garantir que o produto existe e pertence à branch
     await this.findOne(productId, userId);
@@ -336,7 +335,6 @@ export class ProductsService {
       installmentOnPromotionalPrice: data.installmentOnPromotionalPrice,
     };
 
-    console.log('updateAdvancedOptions - updateData:', updateData);
 
     const result = await prisma.product.update({
       where: { id: productId },
@@ -347,7 +345,6 @@ export class ProductsService {
       },
     });
 
-    console.log('updateAdvancedOptions - result:', result);
     return result;
   }
 

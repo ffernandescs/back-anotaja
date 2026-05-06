@@ -76,7 +76,6 @@ export class MenuGroupsController {
     @Headers('authorization') authorization?: string,
     @Req() req?: Request,
   ) {
-    console.log('DTO recebido:', reorderMenuGroupsDto);
     return this.menuGroupsService.reorder(reorderMenuGroupsDto);
   }
   

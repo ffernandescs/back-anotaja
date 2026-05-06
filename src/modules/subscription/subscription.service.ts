@@ -524,7 +524,6 @@ export class SubscriptionService {
 
     // ❌ NÃO atualizar permissões aqui - o webhook já processa a mudança de plano
     // O webhook é a fonte da verdade para atualização de permissões
-    console.log(`🔍 verifyPayment - Apenas buscando dados, permissões NÃO atualizadas (webhook cuida disso)`);
 
     await prisma.company.update({
       where: { id: companyId },

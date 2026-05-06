@@ -1282,7 +1282,6 @@ const paymentsForMovement =
   ) {
     try {
       await this.whatsappService.sendMessage(phone, message, branchId);
-      console.log(`[WhatsApp] Message sent to ${phone}`);
     } catch (error) {
       console.error(`[WhatsApp] Failed to send message to ${phone}:`, error);
       // Don't throw error - notification failure shouldn't break order flow

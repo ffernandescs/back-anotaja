@@ -182,10 +182,6 @@ export class CashSessionService {
       (p) => p.subject === 'cash_register' && p.action === 'manage',
     );
 
-    console.log(canViewAllSessions,'canViewAllSessions')
-        console.log(id,'id')
-        console.log(user.branchId,'user.branchId')
-
     const whereClause = canViewAllSessions
       ? { id, branchId: user.branchId }
       : { id, branchId: user.branchId, openedBy: user.id };

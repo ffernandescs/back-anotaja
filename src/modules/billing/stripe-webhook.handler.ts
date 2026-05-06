@@ -7,7 +7,6 @@ export class StripeWebhookHandler {
     });
 
     if (existingEvent) {
-      console.log(`⚠️ Evento duplicado ignorado: ${event.id}`);
       return;
     }
 
@@ -21,7 +20,6 @@ export class StripeWebhookHandler {
         break;
 
       default:
-        console.log(`Evento não tratado: ${event.type}`);
     }
 
     await prisma.stripeEvent.create({
@@ -33,10 +31,8 @@ export class StripeWebhookHandler {
   }
 
   private async handleInvoice(invoice: any) {
-    console.log('💰 Invoice processada', invoice.id);
   }
 
   private async handleSubscription(subscription: any) {
-    console.log('🔄 Subscription atualizada', subscription.id);
   }
 }

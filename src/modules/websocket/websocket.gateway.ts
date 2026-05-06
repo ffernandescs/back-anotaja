@@ -45,7 +45,6 @@ export class OrdersWebSocketGateway
     private redisService: RedisService,
     private uploadService: UploadService,
   ) {
-    console.log('🖨️ WebSocketGateway constructor initialized');
   }
 
   async handleConnection(client: AuthenticatedSocket) {
@@ -452,8 +451,6 @@ export class OrdersWebSocketGateway
 
     // 🖨️ Imprimir pedido automaticamente quando criado
     if (eventType === 'order:created') {
-      console.log('🖨️ WebSocketGateway - Attempting to print order:', order.orderNumber);
-      console.log('🖨️ WebSocketGateway - Full order object received:', JSON.stringify(order, null, 2));
       
       try {
         // Formatar dados para impressão
@@ -494,18 +491,12 @@ export class OrdersWebSocketGateway
         let customerData: any = null;
         let addressData: any = null;
         
-        console.log('🖨️ WebSocketGateway - Order data:', {
-          deliveryType: order.deliveryType,
-          customerId: order.customerId,
-          customerAddressId: order.customerAddressId,
-          customerPhone: order.customerPhone
-        });
+       
         
         if (order.deliveryType === 'DELIVERY' && order.customerId) {
           customerData = await prisma.customer.findUnique({
             where: { id: order.customerId },
           });
-          console.log('🖨️ WebSocketGateway - Customer data:', customerData);
         }
 
         // Buscar endereço se for delivery
@@ -513,7 +504,6 @@ export class OrdersWebSocketGateway
           addressData = await prisma.customerAddress.findUnique({
             where: { id: order.customerAddressId },
           });
-          console.log('🖨️ WebSocketGateway - Address data:', addressData);
         }
 
         if (branch) {
@@ -549,14 +539,11 @@ export class OrdersWebSocketGateway
             if (!orderData.deliveryFee) {
               orderData.deliveryFee = 5.00; // taxa padrão
             }
-            console.log('🖨️ WebSocketGateway - Address added to orderData:', orderData.deliveryAddress);
           } else {
-            console.log('🖨️ WebSocketGateway - No address data found, using fallback');
             // Adicionar endereço genérico se não encontrar
             orderData.deliveryAddress = 'Endereço não informado';
           }
           
-          console.log('🖨️ WebSocketGateway - Complete data assembled, sending to printer');
           
           // Enviar diretamente para API da impressora
           const payload = {
@@ -574,13 +561,11 @@ export class OrdersWebSocketGateway
 
           if (response.ok) {
             const result = await response.json();
-            console.log('🖨️ WebSocketGateway - Print sent successfully:', result);
           } else {
             const error = await response.json().catch(() => ({ error: 'Unknown error' }));
             console.error('🖨️ WebSocketGateway - Printer API error:', error);
           }
         } else {
-          console.log('🖨️ WebSocketGateway - Branch not found');
         }
       } catch (error) {
         console.error('🖨️ WebSocketGateway - Print error:', error instanceof Error ? error.message : String(error));

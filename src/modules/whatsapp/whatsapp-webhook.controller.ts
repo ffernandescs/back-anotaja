@@ -70,7 +70,6 @@ export class WhatsAppWebhookController {
       mediaUrl: this.extractMediaUrl(msg),
     };
 
-    console.log('[WhatsAppWebhook] Emitting crm:message event:', JSON.stringify(payload, null, 2));
     this.wsGateway.emitCRMEvent(branchRoom, 'crm:message', payload);
 
     // Increment unread count in database for incoming messages
@@ -256,7 +255,6 @@ export class WhatsAppWebhookController {
       mediaUrl: this.extractMediaUrl(msg),
     };
 
-    console.log('[WhatsAppWebhook] (send-message) Emitting crm:message event:', JSON.stringify(payload, null, 2));
     this.wsGateway.emitCRMEvent(branchRoom, 'crm:message', payload);
 
     this.wsGateway.emitCRMEvent(branchRoom, 'crm:chat:update', {
@@ -347,7 +345,6 @@ export class WhatsAppWebhookController {
           mediaUrl: this.extractMediaUrl(msg),
         };
 
-        console.log('[WhatsAppWebhook] (handleWebhook) Emitting crm:message event:', JSON.stringify(payload, null, 2));
         this.wsGateway.emitCRMEvent(branchRoom, 'crm:message', payload);
 
         // Increment unread count in database for incoming messages

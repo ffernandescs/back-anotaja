@@ -173,8 +173,6 @@ async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPer
     );
   }
 
-  console.log(updatedOrder.status,'updatedOrder.status')
-console.log(action,"action")
 
   // ─── Get auto-print configuration ─────────────────────────────────────
   const generalConfig = await prisma.generalConfig.findUnique({
