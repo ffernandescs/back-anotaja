@@ -92,6 +92,10 @@ export class CreateProductDto {
   @IsInt()
   displayOrder?: number;
 
+  @IsOptional()
+  @IsString()
+  codigoPDV?: string;
+
   @IsString()
   categoryId!: string;
 

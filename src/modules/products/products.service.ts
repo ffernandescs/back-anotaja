@@ -44,10 +44,14 @@ export class ProductsService {
       throw new ForbiddenException('A categoria não pertence à sua filial');
     }
 
+    // Gerar codigoPDV automaticamente se não informado
+    const codigoPDV = createProductDto.codigoPDV?.trim() || String(Date.now()).slice(-8);
+
     // Criar o produto
     const product = await prisma.product.create({
       data: {
         ...createProductDto,
+        codigoPDV,
         branchId: user.branchId, // Sempre usar branchId do usuário logado
         companyId: user.companyId, // Sempre usar companyId do usuário logado
         active: createProductDto.active ?? true,

@@ -834,6 +834,7 @@ model Product {
   tags                String? // Tags separadas por vírgula
   filterMetadata      String? // JSON com metadados
   displayOrder        Int? // Ordem de exibição
+  codigoPDV           String? // Código PDV para integração com iFood (externalCode)
 
   //                                                                      Parcelamento
   installmentEnabled                                                      Boolean              @default(false)
@@ -1146,6 +1147,7 @@ model ComplementOption {
   stockControlEnabled        Boolean                      @default(false) // Controle de estoque ativo/desativado
   minStock                   Int?
   displayOrder               Int?
+  codigoPDV                  String? // Código PDV para integração com iFood (gerado automaticamente)
   branchId                   String
   createdAt                  DateTime                     @default(now())
   updatedAt                  DateTime                     @updatedAt
