@@ -52,12 +52,14 @@ export class MenuBuilderService {
                 label: feature.name,
                 icon: feature.icon,
                 isPlugin: feature.isPlugin || false,
+                isPro: feature.isPro || false,
                 children: children.map((c) => ({
                   id: c.id,
                   label: c.name,
                   icon: c.icon,
                   href: c.href,
                   isPlugin: c.isPlugin || false,
+                  isPro: c.isPro || false,
                 })),
               };
             }
@@ -71,6 +73,7 @@ export class MenuBuilderService {
               icon: feature.icon,
               href: feature.href,
               isPlugin: feature.isPlugin || false,
+              isPro: feature.isPro || false,
             };
           })
           .filter(Boolean);
