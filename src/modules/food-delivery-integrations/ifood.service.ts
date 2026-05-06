@@ -168,21 +168,16 @@ export class IfoodService {
     return { Authorization: `Bearer ${token}` };
   }
 
-  async pollOrders(): Promise<IfoodOrderEvent[]> {
-    const headers = await this.authHeaders();
+async pollOrders(): Promise<IfoodOrderEvent[]> {
+  const headers = await this.authHeaders();
 
-    const response = await this.http.get(
-      `/order/v1.0/events:polling`,
-      {
-        headers,
-        params: {
-          types: 'PLC,CFM,RTO,CAN,DSP,DLV,CON',
-        },
-      },
-    );
+  const response = await this.http.get(
+    `/order/v1.0/events:polling`,
+    { headers },
+  );
 
-    return response.data ?? [];
-  }
+  return response.data ?? [];
+}
 
   async acknowledgeEvents(events: Pick<IfoodOrderEvent, 'id' | 'code'>[]): Promise<void> {
     if (!events.length) return;

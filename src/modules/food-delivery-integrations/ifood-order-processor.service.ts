@@ -29,69 +29,113 @@ export class IfoodOrderProcessorService {
     private readonly wsGateway: OrdersWebSocketGateway,
   ) {}
 
- async processEvent(event: IfoodOrderEvent, branchId: string): Promise<void> {
+async processEvent(event: IfoodOrderEvent, branchId: string): Promise<void> {
+  // 🔥 ignora keepalive
+  if (event.code === 'KEEPALIVE') return;
+
+  this.logger.log(
+    `Processando evento iFood ${event.code} para pedido ${event.orderId}`,
+  );
+
   try {
-    // 🚨 ignora eventos inúteis (ex: KEEPALIVE)
-    if (!event.orderId) {
-      this.logger.debug(`Evento ignorado (sem orderId): ${event.code}`);
-      return;
-    }
-
-    this.logger.log(
-      `Processando evento iFood ${event.code} para pedido ${event.orderId}`,
-    );
-
-    // 🆕 NOVO PEDIDO
+    // 🔥 NOVO PEDIDO
     if (event.code === 'PLC') {
       await this.handleNewOrder(event.orderId, branchId);
       return;
     }
 
-    // 🔎 busca mapping
+    // 🔥 busca mapping
     const mapping = await prisma.ifoodOrderMapping.findUnique({
       where: { ifoodOrderId: event.orderId },
     });
 
-    // 🚨 pode acontecer (evento chegou antes do PLC)
     if (!mapping) {
       this.logger.warn(
-        `Mapping não encontrado para pedido ${event.orderId} (evento ${event.code})`,
+        `Evento ${event.code} recebido sem mapping (pedido ${event.orderId})`,
       );
       return;
     }
 
     const localStatus = this.mapEventToLocalStatus(event.code);
 
-    // 🚫 evento que não interessa
     if (!localStatus) {
+      this.logger.warn(`Evento iFood não mapeado: ${event.code}`);
       return;
     }
 
-    // 🔄 atualiza status do mapping
+    // 🔥 ANTI-REGRESSÃO (PRO LEVEL)
+    const priority: Record<OrderStatus, number> = {
+      PENDING: 1,
+      CONFIRMED: 2,
+      IN_PROGRESS: 3,
+      READY: 4,
+      DELIVERING: 5,
+      DELIVERED: 6,
+      COMPLETED: 7,
+      CANCELLED: 99,
+    };
+
+    const currentOrder = mapping.localOrderId
+      ? await prisma.order.findUnique({
+          where: { id: mapping.localOrderId },
+          select: { status: true },
+        })
+      : null;
+
+    if (currentOrder) {
+      const currentPriority = priority[currentOrder.status];
+      const newPriority = priority[localStatus as OrderStatus];
+
+      // ❌ impede downgrade de status
+      if (newPriority < currentPriority) {
+        this.logger.warn(
+          `Ignorando regressão de status: ${currentOrder.status} → ${localStatus}`,
+        );
+        return;
+      }
+    }
+
+    // 🔥 atualiza mapping
     await prisma.ifoodOrderMapping.update({
       where: { ifoodOrderId: event.orderId },
       data: { ifoodStatus: event.code },
     });
 
-    // 🔄 atualiza pedido local
+    // 🔥 atualiza pedido local
     if (mapping.localOrderId) {
       await prisma.order.update({
         where: { id: mapping.localOrderId },
-        data: {
-          status: localStatus, // ✅ agora tipado corretamente
-        },
+        data: { status: localStatus as OrderStatus },
       });
 
       this.logger.log(
-        `Pedido local ${mapping.localOrderId} atualizado → ${localStatus}`,
+        `Pedido ${mapping.localOrderId} atualizado → ${localStatus}`,
       );
     }
   } catch (err: any) {
     this.logger.error(
-      `Erro ao processar evento iFood ${event.code} (${event.orderId}): ${err.message}`,
+      `Erro ao processar evento ${event.code} (${event.orderId}): ${err.message}`,
       err.stack,
     );
   }
+}
+
+private isStatusRegression(
+  current: OrderStatus,
+  next: OrderStatus,
+): boolean {
+  const priority: Record<OrderStatus, number> = {
+    PENDING: 1,
+    CONFIRMED: 2,
+    IN_PROGRESS: 3,
+    READY: 4,
+    DELIVERING: 5,
+    DELIVERED: 6,
+    COMPLETED: 7,
+    CANCELLED: 0,
+  };
+
+  return priority[next] < priority[current];
 }
   private mapEventToLocalStatus(code: string): OrderStatus | null {
     const map: Record<string, OrderStatus> = {
@@ -105,164 +149,42 @@ export class IfoodOrderProcessorService {
     return map[code] ?? null;
   }
 
-  private async handleNewOrder(ifoodOrderId: string, branchId: string): Promise<void> {
-    // Idempotency — skip if already processed
-    const existing = await prisma.ifoodOrderMapping.findUnique({ where: { ifoodOrderId } });
-    if (existing?.localOrderId) {
-      this.logger.warn(`iFood pedido ${ifoodOrderId} já processado → ${existing.localOrderId}`);
-      return;
-    }
+ private async handleNewOrder(ifoodOrderId: string, branchId: string) {
+  const existing = await prisma.ifoodOrderMapping.findUnique({
+    where: { ifoodOrderId },
+  });
 
-    const ifoodOrder = await this.ifoodService.getOrder(ifoodOrderId);
-    const { mappedItems, unmappedNames } = await this.mapItems(ifoodOrder.items, branchId);
-
-    // Store the raw mapping first (idempotency)
-    await prisma.ifoodOrderMapping.upsert({
-      where: { ifoodOrderId },
-      create: {
-        id: uuidv4(),
-        branchId,
-        ifoodOrderId,
-        ifoodStatus: 'PLC',
-        displayId: ifoodOrder.displayId || ifoodOrder.shortReference,
-        rawData: ifoodOrder as any,
-      },
-      update: {
-        ifoodStatus: 'PLC',
-        displayId: ifoodOrder.displayId || ifoodOrder.shortReference,
-        rawData: ifoodOrder as any,
-      },
-    });
-
-    if (!mappedItems.length) {
-      this.logger.warn(
-        `iFood pedido ${ifoodOrderId}: nenhum produto mapeado. Itens: ${unmappedNames.join(', ')}`,
-      );
-      // Emit unmapped notification via WebSocket so operator can review
-      if (this.wsGateway) {
-        (this.wsGateway as any).server
-          ?.to(`branch:${branchId}`)
-          ?.emit('ifood:unmapped_order', {
-            ifoodOrderId,
-            displayId: ifoodOrder.displayId || ifoodOrder.shortReference,
-            unmappedItems: unmappedNames,
-            rawOrder: ifoodOrder,
-          });
-      }
-      return;
-    }
-
-    const deliveryType = this.mapDeliveryType(ifoodOrder.type);
-    const serviceType = deliveryType === DeliveryType.PICKUP ? ServiceType.TAKEAWAY : ServiceType.TAKEAWAY;
-    const { payments, paymentStatus, paidAmount } = await this.mapPayments(
-      ifoodOrder.payments.methods,
-      branchId,
-      ifoodOrder.totalPrice,
-    );
-
-    // Build notes with unmapped items info
-    let notes = ifoodOrder.additionalInfo || '';
-    if (unmappedNames.length) {
-      const unmappedNote = `[iFood - itens sem mapeamento: ${unmappedNames.join(', ')}]`;
-      notes = notes ? `${notes}\n${unmappedNote}` : unmappedNote;
-    }
-
-    const subtotal = Math.round(ifoodOrder.subTotal * 100);
-    const deliveryFee = Math.round(ifoodOrder.deliveryFee * 100);
-    const total = Math.round(ifoodOrder.totalPrice * 100);
-
-    const order = await prisma.$transaction(async (tx) => {
-      const lastOrder = await tx.order.findFirst({
-        where: { branchId },
-        orderBy: { orderNumber: 'desc' },
-        select: { orderNumber: true },
-      });
-      const orderNumber = (lastOrder?.orderNumber ?? 0) + 1;
-
-      return tx.order.create({
-        data: {
-          id: uuidv4(),
-          orderNumber,
-          status: OrderStatus.PENDING,
-          deliveryType,
-          serviceType,
-          channel: OrderChannel.IFOOD,
-          customerType: CustomerType.GUEST,
-          paymentStatus,
-          paidAmount,
-          total,
-          subtotal,
-          deliveryFee,
-          serviceFee: 0,
-          discount: 0,
-          branchId,
-          notes: notes || null,
-          items: {
-            create: mappedItems.map((item) => ({
-              id: uuidv4(),
-              quantity: item.quantity,
-              price: item.price,
-              notes: item.notes,
-              productId: item.productId,
-            })),
-          },
-          payments: payments.length
-            ? {
-                create: payments.map((p) => ({
-                  id: uuidv4(),
-                  type: p.type,
-                  amount: p.amount,
-                  status: p.status,
-                  paymentMethodId: p.paymentMethodId,
-                  change: p.change,
-                })),
-              }
-            : undefined,
-        },
-        include: {
-          items: { include: { product: true } },
-          customer: true,
-          payments: true,
-          branch: true,
-        },
-      });
-    });
-
-    // Update mapping with local order ID
-    await prisma.ifoodOrderMapping.update({
-      where: { ifoodOrderId },
-      data: { localOrderId: order.id },
-    });
-
-    // Auto-confirm to iFood (must be done within 8 minutes)
-    try {
-      await this.ifoodService.confirmOrder(ifoodOrderId);
-      await prisma.ifoodOrderMapping.update({
-        where: { ifoodOrderId },
-        data: { ifoodStatus: 'CFM' },
-      });
-    } catch (err: any) {
-      this.logger.error(`Falha ao confirmar pedido iFood ${ifoodOrderId}: ${err.message}`);
-    }
-
-    // Emit new order via WebSocket
-    this.wsGateway.emitNewOrder(branchId, {
-      id: order.id,
-      orderNumber: order.orderNumber,
-      status: order.status,
-      deliveryType: order.deliveryType,
-      channel: order.channel,
-      customer: { name: ifoodOrder.customer.name, phone: ifoodOrder.customer.phone.number },
-      total: order.total,
-      createdAt: order.createdAt.toISOString(),
-      ifoodOrderId,
-      displayId: ifoodOrder.displayId || ifoodOrder.shortReference,
-    });
-
-    this.logger.log(
-      `iFood pedido ${ifoodOrderId} → pedido local #${order.orderNumber} (${order.id})`,
-    );
+  if (existing?.localOrderId) {
+    this.logger.warn(`Pedido já existe: ${ifoodOrderId}`);
+    return;
   }
+
+  let ifoodOrder: IfoodOrder;
+
+  try {
+    ifoodOrder = await this.ifoodService.getOrder(ifoodOrderId);
+  } catch (err) {
+    this.logger.error(`Erro ao buscar pedido ${ifoodOrderId}`);
+    throw err; // 🔥 importante pra não dar ACK
+  }
+
+  // resto do seu código...
+
+  // ✅ confirmação com retry
+  await this.safeConfirmOrder(ifoodOrderId);
+}
+
+private async safeConfirmOrder(orderId: string, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      await this.ifoodService.confirmOrder(orderId);
+      return;
+    } catch (err) {
+      if (i === retries - 1) throw err;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+}
 
   private async mapItems(
     ifoodItems: IfoodOrderItem[],

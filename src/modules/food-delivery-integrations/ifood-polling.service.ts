@@ -57,58 +57,7 @@ export class IfoodPollingService implements OnApplicationBootstrap, OnApplicatio
     }
   }
 
-  private async pollBranch(branchId: string, merchantId: string): Promise<void> {
-  let events: IfoodOrderEvent[];
-
-  try {
-    // 🔥 agora SEM merchantId (correto)
-    events = await this.ifoodService.pollOrders();
-  } catch (err: any) {
-    this.logger.error(
-      `Falha ao buscar eventos iFood para branch ${branchId}: ${err.message}`,
-    );
-    return;
-  }
-
-  if (!events.length) return;
-
-  // ✅ filtra apenas eventos dessa loja
-  const branchEvents = events.filter(
-    (event) => event.merchantId === merchantId,
-  );
-
-  if (!branchEvents.length) return;
-
-  this.logger.log(
-    `Branch ${branchId}: ${branchEvents.length} evento(s) iFood recebido(s)`,
-  );
-
-  // 🔒 processa em ordem
-  for (const event of branchEvents) {
-    try {
-      await this.processor.processEvent(event, branchId);
-    } catch (err: any) {
-      this.logger.error(
-        `Erro ao processar evento ${event.code} (${event.orderId}): ${err.message}`,
-      );
-    }
-  }
-
-  // ✅ ACK apenas dos eventos processados dessa branch
-  const toAck = branchEvents
-    .slice(0, ACK_BATCH_SIZE)
-    .map((e) => ({ id: e.id, code: e.code }));
-
-  if (!toAck.length) return;
-
-  try {
-    await this.ifoodService.acknowledgeEvents(toAck);
-  } catch (err: any) {
-    this.logger.error(
-      `Falha ao confirmar eventos iFood para branch ${branchId}: ${err.message}`,
-    );
-  }
-}
+ 
 
   // Expose for manual trigger (admin endpoint)
   async triggerPollForBranch(
@@ -170,4 +119,67 @@ export class IfoodPollingService implements OnApplicationBootstrap, OnApplicatio
 
     return { eventsProcessed: events.length };
   }
+private async pollBranch(branchId: string, merchantId: string): Promise<void> {
+  let events: IfoodOrderEvent[] = [];
+
+  try {
+    events = await this.ifoodService.pollOrders();
+  } catch (err: any) {
+    this.logger.error(
+      `Erro polling iFood branch ${branchId}: ${err.message}`,
+    );
+    return;
+  }
+
+  if (!events.length) return;
+
+  // 🎯 filtra apenas eventos da loja correta
+  const branchEvents = events.filter(
+    (e) => e.merchantId === merchantId,
+  );
+
+  if (!branchEvents.length) return;
+
+  this.logger.log(
+    `Branch ${branchId}: ${branchEvents.length} evento(s) iFood`,
+  );
+
+  const successEvents: { id: string; code: string }[] = [];
+
+  // 🔥 processa evento por evento com isolamento de erro
+  for (const event of branchEvents) {
+    try {
+      await this.processor.processEvent(event, branchId);
+
+      // ✔ só marca pra ACK se processou com sucesso
+      successEvents.push({
+        id: event.id,
+        code: event.code,
+      });
+    } catch (err: any) {
+      this.logger.error(
+        `Erro processando evento ${event.code} (${event.orderId}): ${err.message}`,
+        err.stack,
+      );
+      // ❌ não entra no ACK
+    }
+  }
+
+  if (!successEvents.length) return;
+
+  // 🔥 ACK em lote seguro
+  const ackBatch = successEvents.slice(0, ACK_BATCH_SIZE);
+
+  try {
+    await this.ifoodService.acknowledgeEvents(ackBatch);
+
+    this.logger.log(
+      `ACK iFood concluído: ${ackBatch.length} evento(s) branch ${branchId}`,
+    );
+  } catch (err: any) {
+    this.logger.error(
+      `Erro ao fazer ACK iFood branch ${branchId}: ${err.message}`,
+    );
+  }
+}
 }
