@@ -160,9 +160,17 @@ export class IfoodOrderProcessorService {
     }
 
     this.logger.log(
-      `Pedido iFood recebido: ${ifoodOrder.displayId} | ` +
-      `${ifoodOrder.customer.name} | ` +
-      `R$ ${(ifoodOrder.totalPrice ?? 0).toFixed(2)}`,
+      `Pedido iFood recebido: ${ifoodOrder.displayId} | ${ifoodOrder.customer.name}`,
+    );
+    this.logger.debug(
+      `[iFood valores brutos] displayId=${ifoodOrder.displayId} ` +
+      `totalPrice=${ifoodOrder.totalPrice} ` +
+      `subTotal=${ifoodOrder.subTotal} ` +
+      `deliveryFee=${ifoodOrder.deliveryFee} ` +
+      `totalFee=${ifoodOrder.totalFee} ` +
+      `payments=${JSON.stringify(
+        ifoodOrder.payments.methods.map((m) => ({ method: m.method, value: m.value, prepaid: m.prepaid }))
+      )}`,
     );
 
     // 2. Mapeia itens para produtos locais
