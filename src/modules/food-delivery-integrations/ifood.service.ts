@@ -130,22 +130,22 @@ export class IfoodService {
 
     this.logger.log(`Solicitando novo token iFood (clientId: ${clientId.slice(0, 8)}...)`);
 
-    // Serializa manualmente — URLSearchParams pode causar grant_type=null em algumas versões do Axios
+    // iFood usa camelCase nos campos do form (clientId, clientSecret, grantType)
     const body =
-      `client_id=${encodeURIComponent(clientId)}` +
-      `&client_secret=${encodeURIComponent(clientSecret)}` +
-      `&grant_type=client_credentials`;
+      `clientId=${encodeURIComponent(clientId)}` +
+      `&clientSecret=${encodeURIComponent(clientSecret)}` +
+      `&grantType=client_credentials`;
 
     try {
       const response = await this.http.post<{
-        access_token: string;
-        token_type: string;
-        expires_in: number;
+        accessToken: string;
+        type: string;
+        expiresIn: number;
       }>('/authentication/v1.0/oauth/token', body, {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       });
 
-      const { access_token, expires_in } = response.data;
+      const { accessToken: access_token, expiresIn: expires_in } = response.data;
       const newExpiresAt = Date.now() + expires_in * 1000;
 
       await Promise.all([
