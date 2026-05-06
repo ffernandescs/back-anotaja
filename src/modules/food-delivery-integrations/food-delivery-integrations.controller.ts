@@ -17,6 +17,7 @@ import { IfoodPollingService } from './ifood-polling.service';
 import { IfoodProductMappingService, UpsertProductMappingDto } from './ifood-product-mapping.service';
 import { NinetyNineFoodService } from './ninetynine-food.service';
 import { UpdateFoodDeliveryConfigDto } from './dto/food-delivery.dto';
+import { Public } from 'src/common/decorators/public.decorator';
 
 @Controller('food-delivery-integrations')
 @UseGuards(JwtAuthGuard)
@@ -29,6 +30,7 @@ export class FoodDeliveryIntegrationsController {
     private readonly ninetyNineFoodService: NinetyNineFoodService,
   ) {}
 
+  @Public()
   @Post('webhook')
     handleIfoodWebhook(@Body() payload: any) {
       console.log('Evento recebido do iFood:', payload);
