@@ -17,7 +17,7 @@ export interface IfoodOrder {
   shortReference: string;
   displayId: string;
   createdAt: string;
-  type: string;
+  orderType: string;
   merchant: { id: string; name: string };
   customer: {
     name: string;
@@ -26,21 +26,44 @@ export interface IfoodOrder {
     ordersCountOnMerchant?: number;
   };
   items: IfoodOrderItem[];
-  subTotal: number;
-  totalFee: number;
-  totalPrice: number;
-  deliveryFee: number;
-  payments: { methods: IfoodPaymentMethod[] };
+  total: {
+    subTotal: number;
+    deliveryFee: number;
+    additionalFees: number;
+    benefits: number;
+    orderAmount: number;
+  };
+  payments: {
+    prepaid: number;
+    pending: number;
+    methods: IfoodPaymentMethod[];
+  };
   delivery?: {
     deliveryAddress: IfoodAddress;
-    deliveryBy: string;
-    estimatedDeliveryTime: string;
+    deliveredBy?: string;
+    estimatedDeliveryTime?: string;
+    mode?: string;
+    pickupCode?: string;
+    deliveryDateTime?: string;
   };
   schedule?: {
     scheduledDateTimeStart: string;
     scheduledDateTimeEnd: string;
   };
-  additionalInfo?: string;
+  additionalInfo?: string | { metadata?: Record<string, any> };
+}
+
+export interface IfoodOrderItemOption {
+  id?: string;
+  name: string;
+  quantity: number;
+  price: number;
+  unitPrice?: number;
+  addition?: number;
+  externalCode?: string;
+  type?: string;
+  groupName?: string;
+  customizations?: IfoodOrderItemOption[];
 }
 
 export interface IfoodOrderItem {
@@ -48,17 +71,14 @@ export interface IfoodOrderItem {
   name: string;
   quantity: number;
   price: number;
+  unitPrice?: number;
+  optionsPrice?: number;
+  customizationPrice?: number;
   totalPrice: number;
   externalCode: string;
   notes?: string;
   subItems?: IfoodOrderItem[];
-  options?: {
-    id: string;
-    name: string;
-    quantity: number;
-    price: number;
-    externalCode: string;
-  }[];
+  options?: IfoodOrderItemOption[];
 }
 
 export interface IfoodPaymentMethod {

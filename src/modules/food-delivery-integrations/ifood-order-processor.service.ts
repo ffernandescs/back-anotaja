@@ -163,14 +163,12 @@ export class IfoodOrderProcessorService {
       `Pedido iFood recebido: ${ifoodOrder.displayId} | ${ifoodOrder.customer.name}`,
     );
     this.logger.debug(
-      `[iFood valores brutos] displayId=${ifoodOrder.displayId} ` +
-      `totalPrice=${ifoodOrder.totalPrice} ` +
-      `subTotal=${ifoodOrder.subTotal} ` +
-      `deliveryFee=${ifoodOrder.deliveryFee} ` +
-      `totalFee=${ifoodOrder.totalFee} ` +
-      `payments=${JSON.stringify(
-        ifoodOrder.payments.methods.map((m) => ({ method: m.method, value: m.value, prepaid: m.prepaid }))
-      )}`,
+      `[iFood valores] displayId=${ifoodOrder.displayId} ` +
+      `orderType=${ifoodOrder.orderType} ` +
+      `total.subTotal=${ifoodOrder.total?.subTotal} ` +
+      `total.deliveryFee=${ifoodOrder.total?.deliveryFee} ` +
+      `total.orderAmount=${ifoodOrder.total?.orderAmount} ` +
+      `payments.prepaid=${ifoodOrder.payments?.prepaid}`,
     );
 
     // 2. Mapeia itens para produtos locais
@@ -186,37 +184,17 @@ export class IfoodOrderProcessorService {
     // 3. Cria ou busca o cliente local
     const customer = await this.findOrCreateCustomer(ifoodOrder, branchId);
 
-    // 5. Calcula valores do pedido
-    const deliveryType = this.mapDeliveryType(ifoodOrder.type);
-    const subtotalCents = Math.round((ifoodOrder.subTotal ?? 0) * 100);
-    const deliveryFeeCents = Math.round((ifoodOrder.deliveryFee ?? 0) * 100);
-    const totalFeeCents = Math.round((ifoodOrder.totalFee ?? 0) * 100);
-    const totalFromApi = Math.round((ifoodOrder.totalPrice ?? 0) * 100);
+    // 4. Calcula valores do pedido
+    const deliveryType = this.mapDeliveryType(ifoodOrder.orderType);
+    const subtotalCents = Math.round((ifoodOrder.total.subTotal ?? 0) * 100);
+    const deliveryFeeCents = Math.round((ifoodOrder.total.deliveryFee ?? 0) * 100);
+    const totalCentsCalc = Math.round((ifoodOrder.total.orderAmount ?? 0) * 100);
 
-    // 4. Mapeia pagamentos (passa 0 como placeholder; total será recalculado abaixo)
+    // 5. Mapeia pagamentos
     const { payments, paidAmount } = await this.mapPayments(
       ifoodOrder.payments.methods,
       branchId,
-      0,
-    );
-
-    // Total a partir dos itens (mais confiável quando campos financeiros vêm undefined)
-    const itemsTotalCents = ifoodOrder.items.reduce(
-      (sum, item) => sum + Math.round((item.totalPrice ?? item.price ?? 0) * 100),
-      0,
-    );
-
-    // Total em cascata: totalPrice → subTotal+taxas → itens → paidAmount
-    const totalCentsCalc =
-      totalFromApi ||
-      (subtotalCents + deliveryFeeCents + totalFeeCents) ||
-      itemsTotalCents ||
-      paidAmount;
-
-    this.logger.debug(
-      `[iFood total calculado] displayId=${ifoodOrder.displayId} ` +
-      `totalFromApi=${totalFromApi} subtotal+fees=${subtotalCents + deliveryFeeCents + totalFeeCents} ` +
-      `itemsTotal=${itemsTotalCents} paidAmount=${paidAmount} → usando=${totalCentsCalc}`,
+      totalCentsCalc,
     );
 
     const paymentStatus =
@@ -450,9 +428,9 @@ export class IfoodOrderProcessorService {
     ifoodItems: IfoodOrderItem[],
     branchId: string,
   ): Promise<{ mappedItems: MappedItem[]; unmappedNames: string[] }> {
-    const externalCodes = ifoodItems.map((i) => i.externalCode).filter(Boolean);
+    const externalCodes = ifoodItems.map((i) => i.externalCode).filter((c): c is string => !!c);
 
-    // 1. Busca produtos por codigoPDV (mapeamento automático)
+    // 1. Busca produtos por codigoPDV
     const productsByPdv = await prisma.product.findMany({
       where: { branchId, codigoPDV: { in: externalCodes } },
       select: { id: true, codigoPDV: true },
@@ -465,18 +443,22 @@ export class IfoodOrderProcessorService {
     });
     const mappingByCode = new Map(mappings.map((m) => [m.ifoodExternalCode, m]));
 
-    // 3. Busca opções de complemento por codigoPDV (batch, todos os itens)
+    // 3. Coleta todos os códigos de opção: nível direto (OPTIONS) + customizations (SPECIFICATION)
     const allOptionCodes = ifoodItems
       .flatMap((i) => i.options ?? [])
-      .map((o) => o.externalCode)
-      .filter(Boolean);
+      .flatMap((o) => {
+        const codes: string[] = [];
+        if (o.externalCode) codes.push(o.externalCode);
+        for (const c of o.customizations ?? []) {
+          if (c.externalCode) codes.push(c.externalCode);
+        }
+        return codes;
+      });
 
     const complementOptionsByPdv = allOptionCodes.length
       ? await prisma.complementOption.findMany({
           where: { branchId, codigoPDV: { in: allOptionCodes } },
-          select: {
-            id: true,
-            codigoPDV: true,
+          include: {
             complement: { select: { id: true, productId: true } },
           },
         })
@@ -487,7 +469,6 @@ export class IfoodOrderProcessorService {
     const unmappedNames: string[] = [];
 
     for (const item of ifoodItems) {
-      // Resolve productId — prioridade 1: codigoPDV, prioridade 2: mapeamento manual
       const productId =
         productByPdvCode.get(item.externalCode) ??
         mappingByCode.get(item.externalCode)?.localProductId ??
@@ -503,33 +484,37 @@ export class IfoodOrderProcessorService {
         continue;
       }
 
-      // Mapeia as opções de complemento do item
       const mappedOptions: MappedOption[] = [];
+
       for (const ifoodOption of item.options ?? []) {
-        const matched = optionByPdvCode.get(ifoodOption.externalCode);
-        if (!matched) {
-          // Registra opção sem mapeamento para mapeamento manual posterior
-          await prisma.ifoodProductMapping.upsert({
-            where: { branchId_ifoodExternalCode: { branchId, ifoodExternalCode: ifoodOption.externalCode } },
-            create: { id: uuidv4(), branchId, ifoodExternalCode: ifoodOption.externalCode, ifoodItemName: ifoodOption.name, isOption: true },
-            update: { ifoodItemName: ifoodOption.name },
-          });
-          continue;
+        // Caso 1: opção com externalCode direto (tipo OPTIONS)
+        if (ifoodOption.externalCode) {
+          await this.resolveOption(
+            ifoodOption.externalCode,
+            ifoodOption.name,
+            ifoodOption.quantity,
+            ifoodOption.price ?? 0,
+            productId,
+            branchId,
+            optionByPdvCode,
+            mappedOptions,
+          );
         }
 
-        // Prefere o complemento associado ao produto pedido; fallback para o primeiro
-        const complement =
-          matched.complement.find((c) => c.productId === productId) ??
-          matched.complement[0];
-
-        if (!complement) continue;
-
-        mappedOptions.push({
-          optionId: matched.id,
-          complementId: complement.id,
-          quantity: ifoodOption.quantity,
-          price: Math.round(ifoodOption.price * 100),
-        });
+        // Caso 2: customizations (tipo SPECIFICATION — 3º nível)
+        for (const customization of ifoodOption.customizations ?? []) {
+          if (!customization.externalCode) continue;
+          await this.resolveOption(
+            customization.externalCode,
+            customization.name,
+            customization.quantity ?? 1,
+            customization.price ?? 0,
+            productId,
+            branchId,
+            optionByPdvCode,
+            mappedOptions,
+          );
+        }
       }
 
       mappedItems.push({
@@ -542,6 +527,40 @@ export class IfoodOrderProcessorService {
     }
 
     return { mappedItems, unmappedNames };
+  }
+
+  private async resolveOption(
+    externalCode: string,
+    name: string,
+    quantity: number,
+    price: number,
+    productId: string,
+    branchId: string,
+    optionByPdvCode: Map<string, { id: string; complement: { id: string; productId: string | null }[] }>,
+    mappedOptions: MappedOption[],
+  ): Promise<void> {
+    const matched = optionByPdvCode.get(externalCode);
+    if (!matched) {
+      await prisma.ifoodProductMapping.upsert({
+        where: { branchId_ifoodExternalCode: { branchId, ifoodExternalCode: externalCode } },
+        create: { id: uuidv4(), branchId, ifoodExternalCode: externalCode, ifoodItemName: name, isOption: true },
+        update: { ifoodItemName: name },
+      });
+      return;
+    }
+
+    const complement =
+      matched.complement.find((c) => c.productId === productId) ??
+      matched.complement[0];
+
+    if (!complement) return;
+
+    mappedOptions.push({
+      optionId: matched.id,
+      complementId: complement.id,
+      quantity,
+      price: Math.round(price * 100),
+    });
   }
 
   private async mapPayments(
