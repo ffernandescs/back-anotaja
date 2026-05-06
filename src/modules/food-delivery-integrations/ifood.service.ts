@@ -93,15 +93,19 @@ export interface IfoodPaymentMethod {
 
 interface IfoodAddress {
   streetName: string;
-  streetNumber: string;
+  streetNumber?: string;
   formattedAddress: string;
-  neighborhood: string;
+  neighborhood?: string;
   city: string;
   state: string;
   postalCode: string;
-  latitude?: number;
-  longitude?: number;
+  country?: string;
+  reference?: string;
   complement?: string;
+  coordinates?: {
+    latitude: number;
+    longitude: number;
+  };
 }
 
 const TOKEN_KEY = 'ifood_access_token';

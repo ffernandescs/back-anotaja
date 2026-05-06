@@ -407,8 +407,9 @@ export class IfoodOrderProcessorService {
                 city: addr.city,
                 state: addr.state,
                 zipCode: addr.postalCode,
-                lat: addr.latitude ?? null,
-                lng: addr.longitude ?? null,
+                reference: addr.reference || null,
+                lat: addr.coordinates?.latitude ?? null,
+                lng: addr.coordinates?.longitude ?? null,
                 isDefault: false,
               },
             });
@@ -522,16 +523,16 @@ export class IfoodOrderProcessorService {
       : [];
     const optionByPdvCode = new Map(complementOptionsByPdv.map((o) => [o.codigoPDV!, o]));
 
-    this.logger.debug(
+    this.logger.log(
       `[mapItems] externalCodes iFood: ${JSON.stringify(externalCodes)}`,
     );
-    this.logger.debug(
+    this.logger.log(
       `[mapItems] produtos mapeados por codigoPDV: ${productsByPdv.map((p) => `${p.codigoPDV}→${p.id}`).join(', ') || 'nenhum'}`,
     );
-    this.logger.debug(
+    this.logger.log(
       `[mapItems] optionCodes iFood: ${JSON.stringify(allOptionCodes)}`,
     );
-    this.logger.debug(
+    this.logger.log(
       `[mapItems] opções mapeadas por codigoPDV: ${complementOptionsByPdv.map((o) => o.codigoPDV).join(', ') || 'nenhuma'}`,
     );
 
@@ -560,28 +561,29 @@ export class IfoodOrderProcessorService {
       const mappedOptions: MappedOption[] = [];
 
       for (const ifoodOption of item.options ?? []) {
-        // Caso 1: opção com externalCode direto (tipo OPTIONS)
-        if (ifoodOption.externalCode) {
+        if (ifoodOption.customizations && ifoodOption.customizations.length > 0) {
+          // Opção é um grupo container (ex: tipo MAIN com filhos) — mapeia só as customizations
+          for (const customization of ifoodOption.customizations) {
+            if (!customization.externalCode) continue;
+            await this.resolveOption(
+              customization.externalCode,
+              customization.name,
+              customization.quantity ?? 1,
+              customization.price ?? 0,
+              productId,
+              branchId,
+              optionByPdvCode,
+              mappedOptions,
+            );
+          }
+        } else {
+          // Opção sem filhos — mapeia pelo próprio externalCode
+          if (!ifoodOption.externalCode) continue;
           await this.resolveOption(
             ifoodOption.externalCode,
             ifoodOption.name,
             ifoodOption.quantity,
             ifoodOption.price ?? 0,
-            productId,
-            branchId,
-            optionByPdvCode,
-            mappedOptions,
-          );
-        }
-
-        // Caso 2: customizations (tipo SPECIFICATION — 3º nível)
-        for (const customization of ifoodOption.customizations ?? []) {
-          if (!customization.externalCode) continue;
-          await this.resolveOption(
-            customization.externalCode,
-            customization.name,
-            customization.quantity ?? 1,
-            customization.price ?? 0,
             productId,
             branchId,
             optionByPdvCode,
