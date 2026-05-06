@@ -29,94 +29,48 @@ export class IfoodOrderProcessorService {
     private readonly wsGateway: OrdersWebSocketGateway,
   ) {}
 
-async processEvent(event: IfoodOrderEvent, branchId: string): Promise<void> {
-  // 🔥 ignora keepalive
-  if (event.code === 'KEEPALIVE') return;
-
-  this.logger.log(
-    `Processando evento iFood ${event.code} para pedido ${event.orderId}`,
-  );
+async processEvent(event: IfoodOrderEvent, branchId: string): Promise<boolean> {
+  this.logger.log(`Processando evento iFood ${event.code} para pedido ${event.orderId}`);
 
   try {
-    // 🔥 NOVO PEDIDO
-    if (event.code === 'PLC') {
-      await this.handleNewOrder(event.orderId, branchId);
-      return;
+    // KEEPALIVE ou eventos inúteis
+    if (event.code === 'KEEPALIVE') {
+      return false;
     }
 
-    // 🔥 busca mapping
+    if (event.code === 'PLC') {
+      await this.handleNewOrder(event.orderId, branchId);
+      return true;
+    }
+
     const mapping = await prisma.ifoodOrderMapping.findUnique({
       where: { ifoodOrderId: event.orderId },
     });
 
-    if (!mapping) {
-      this.logger.warn(
-        `Evento ${event.code} recebido sem mapping (pedido ${event.orderId})`,
-      );
-      return;
-    }
-
     const localStatus = this.mapEventToLocalStatus(event.code);
+    if (!localStatus) return false;
 
-    if (!localStatus) {
-      this.logger.warn(`Evento iFood não mapeado: ${event.code}`);
-      return;
-    }
-
-    // 🔥 ANTI-REGRESSÃO (PRO LEVEL)
-    const priority: Record<OrderStatus, number> = {
-      PENDING: 1,
-      CONFIRMED: 2,
-      IN_PROGRESS: 3,
-      READY: 4,
-      DELIVERING: 5,
-      DELIVERED: 6,
-      COMPLETED: 7,
-      CANCELLED: 99,
-    };
-
-    const currentOrder = mapping.localOrderId
-      ? await prisma.order.findUnique({
-          where: { id: mapping.localOrderId },
-          select: { status: true },
-        })
-      : null;
-
-    if (currentOrder) {
-      const currentPriority = priority[currentOrder.status];
-      const newPriority = priority[localStatus as OrderStatus];
-
-      // ❌ impede downgrade de status
-      if (newPriority < currentPriority) {
-        this.logger.warn(
-          `Ignorando regressão de status: ${currentOrder.status} → ${localStatus}`,
-        );
-        return;
-      }
-    }
-
-    // 🔥 atualiza mapping
     await prisma.ifoodOrderMapping.update({
       where: { ifoodOrderId: event.orderId },
       data: { ifoodStatus: event.code },
     });
 
-    // 🔥 atualiza pedido local
-    if (mapping.localOrderId) {
+    if (mapping?.localOrderId) {
       await prisma.order.update({
         where: { id: mapping.localOrderId },
         data: { status: localStatus as OrderStatus },
       });
 
-      this.logger.log(
-        `Pedido ${mapping.localOrderId} atualizado → ${localStatus}`,
-      );
+      this.logger.log(`Pedido local ${mapping.localOrderId} → ${localStatus}`);
     }
+
+    return true;
   } catch (err: any) {
     this.logger.error(
-      `Erro ao processar evento ${event.code} (${event.orderId}): ${err.message}`,
+      `Erro ao processar evento iFood ${event.code} (${event.orderId}): ${err.message}`,
       err.stack,
     );
+    return false;
   }
 }
 
