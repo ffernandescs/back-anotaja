@@ -181,8 +181,8 @@ export class IfoodOrderProcessorService {
       );
     }
 
-    // 3. Cria ou busca o cliente local
-    const customer = await this.findOrCreateCustomer(ifoodOrder, branchId);
+    // 3. Cria ou busca o cliente local e salva o endereço de entrega
+    const { customer, customerAddressId } = await this.findOrCreateCustomer(ifoodOrder, branchId);
 
     // 4. Calcula valores do pedido
     const deliveryType = this.mapDeliveryType(ifoodOrder.orderType);
@@ -219,6 +219,7 @@ export class IfoodOrderProcessorService {
           serviceType: ServiceType.TAKEAWAY,
           customerType: customer ? CustomerType.REGISTERED : CustomerType.GUEST,
           customerId: customer?.id ?? null,
+          customerAddressId: customerAddressId ?? null,
           status: OrderStatus.CONFIRMED, // iFood já confirmou
           preparationStatus: PreparationStatus.PENDING,
           dispatchStatus:
@@ -355,31 +356,73 @@ export class IfoodOrderProcessorService {
   // HELPERS
   // ─────────────────────────────────────────────────────────────
 
-  private async findOrCreateCustomer(ifoodOrder: IfoodOrder, branchId: string) {
+  private async findOrCreateCustomer(
+    ifoodOrder: IfoodOrder,
+    branchId: string,
+  ): Promise<{ customer: { id: string } | null; customerAddressId: string | null }> {
     const phone = ifoodOrder.customer.phone?.number;
-    if (!phone) return null;
+    if (!phone) return { customer: null, customerAddressId: null };
 
-    // Normaliza o telefone removendo caracteres não numéricos
     const normalizedPhone = phone.replace(/\D/g, '');
 
     try {
-      const existing = await prisma.customer.findFirst({
+      let customer = await prisma.customer.findFirst({
         where: { phone: normalizedPhone, branchId },
       });
 
-      if (existing) return existing;
+      if (!customer) {
+        customer = await prisma.customer.create({
+          data: {
+            id: uuidv4(),
+            name: ifoodOrder.customer.name,
+            phone: normalizedPhone,
+            branchId,
+          },
+        });
+      }
 
-      return await prisma.customer.create({
-        data: {
-          id: uuidv4(),
-          name: ifoodOrder.customer.name,
-          phone: normalizedPhone,
-          branchId,
-        },
-      });
+      // Salva endereço de entrega se o pedido for delivery
+      let customerAddressId: string | null = null;
+      const addr = ifoodOrder.delivery?.deliveryAddress;
+
+      if (addr?.streetName && addr.city && addr.postalCode) {
+        try {
+          const existingAddr = await prisma.customerAddress.findFirst({
+            where: { customerId: customer.id, zipCode: addr.postalCode, number: addr.streetNumber || null },
+          });
+
+          if (existingAddr) {
+            customerAddressId = existingAddr.id;
+          } else {
+            const newAddr = await prisma.customerAddress.create({
+              data: {
+                id: uuidv4(),
+                customerId: customer.id,
+                branchId,
+                label: addr.formattedAddress || addr.streetName,
+                street: addr.streetName,
+                number: addr.streetNumber || null,
+                complement: addr.complement || null,
+                neighborhood: addr.neighborhood || null,
+                city: addr.city,
+                state: addr.state,
+                zipCode: addr.postalCode,
+                lat: addr.latitude ?? null,
+                lng: addr.longitude ?? null,
+                isDefault: false,
+              },
+            });
+            customerAddressId = newAddr.id;
+          }
+        } catch (addrErr: any) {
+          this.logger.warn(`Não foi possível salvar endereço iFood: ${addrErr.message}`);
+        }
+      }
+
+      return { customer, customerAddressId };
     } catch (err: any) {
       this.logger.warn(`Não foi possível criar cliente iFood: ${err.message}`);
-      return null;
+      return { customer: null, customerAddressId: null };
     }
   }
 
@@ -479,6 +522,19 @@ export class IfoodOrderProcessorService {
       : [];
     const optionByPdvCode = new Map(complementOptionsByPdv.map((o) => [o.codigoPDV!, o]));
 
+    this.logger.debug(
+      `[mapItems] externalCodes iFood: ${JSON.stringify(externalCodes)}`,
+    );
+    this.logger.debug(
+      `[mapItems] produtos mapeados por codigoPDV: ${productsByPdv.map((p) => `${p.codigoPDV}→${p.id}`).join(', ') || 'nenhum'}`,
+    );
+    this.logger.debug(
+      `[mapItems] optionCodes iFood: ${JSON.stringify(allOptionCodes)}`,
+    );
+    this.logger.debug(
+      `[mapItems] opções mapeadas por codigoPDV: ${complementOptionsByPdv.map((o) => o.codigoPDV).join(', ') || 'nenhuma'}`,
+    );
+
     const mappedItems: MappedItem[] = [];
     const unmappedNames: string[] = [];
 
@@ -489,6 +545,9 @@ export class IfoodOrderProcessorService {
         null;
 
       if (!productId) {
+        this.logger.warn(
+          `[mapItems] produto SEM mapeamento: "${item.name}" externalCode="${item.externalCode}"`,
+        );
         unmappedNames.push(`${item.name} (x${item.quantity})`);
         await prisma.ifoodProductMapping.upsert({
           where: { branchId_ifoodExternalCode: { branchId, ifoodExternalCode: item.externalCode } },
@@ -567,7 +626,12 @@ export class IfoodOrderProcessorService {
       matched.complement.find((c) => c.productId === productId) ??
       matched.complement[0];
 
-    if (!complement) return;
+    if (!complement) {
+      this.logger.warn(
+        `[mapItems] opção "${name}" (codigoPDV=${externalCode}) encontrada mas sem complemento associado`,
+      );
+      return;
+    }
 
     mappedOptions.push({
       optionId: matched.id,
