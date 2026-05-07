@@ -29,6 +29,7 @@ import { UpdateOrderDto } from '../orders/dto/update-order.dto';
 import { NormalizedOrder } from '../orders/dto/order-normalized.type';
 import { DeliveryTypeDto } from '../orders/dto/create-order-item.dto';
 import { OrderAction, OrderStateMachineService } from './store-state-machine.service';
+import { IfoodOrder } from '../food-delivery-integrations/ifood.service';
 interface PlanLimits {
   branches: number;
   users: number;
@@ -2007,7 +2008,6 @@ Verifique no sistema!`;
     order: finalOrder,
   };
 }
-
 
   async calculateDeliveryFee(
     calculateFeeDto: CalculateDeliveryFeeDto,

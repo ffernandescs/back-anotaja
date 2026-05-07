@@ -121,6 +121,7 @@ model Feature {
   description                                                                                                                                                        String?
   icon                                                                       String?             // Ícone Lucide para exibição no menu (ex: "ShoppingCart", "Users")
   active                                                                                                                                                             Boolean             @default(true)
+  isPro          Boolean                                                              @default(false)
   defaultActions String?         // Permissões padrão como JSON
   href           String?         // Rota da feature (ex: "/admin/dashboard")
   displayOrder                                                               Int?                // Ordem de exibição
@@ -616,6 +617,7 @@ model Branch {
   paymentGatewayConfigs      PaymentGatewayConfig[]
   whatsappConfig             WhatsAppConfig?
   whatsappMessages           WhatsAppMessage[]
+  foodDeliveryConfig         FoodDeliveryIntegrationConfig?
 }
 
 model BranchSchedule {
@@ -852,6 +854,7 @@ model Product {
   tags                String? // Tags separadas por vírgula
   filterMetadata      String? // JSON com metadados
   displayOrder        Int? // Ordem de exibição
+  codigoPDV           String? // Código PDV para integração com iFood (externalCode)
 
   //                                                                      Parcelamento
   installmentEnabled                                                      Boolean              @default(false)
@@ -961,6 +964,8 @@ model CustomerAddress {
 
 enum OrderChannel {
   ONLINE
+  IFOOD
+  NINETY_NINE_FOOD
   PDV
   WAITER
   IFOOD
@@ -1163,6 +1168,7 @@ model ComplementOption {
   stockControlEnabled        Boolean                      @default(false) // Controle de estoque ativo/desativado
   minStock                   Int?
   displayOrder               Int?
+  codigoPDV                  String? // Código PDV para integração com iFood (gerado automaticamente)
   branchId                   String
   createdAt                  DateTime                     @default(now())
   updatedAt                  DateTime                     @updatedAt
@@ -1929,6 +1935,59 @@ model MarketingIntegrationConfig {
   branch                    Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
   @@map("marketing_integration_configs")
+}
+
+model FoodDeliveryIntegrationConfig {
+  id                       String   @id @default(cuid())
+  branchId                 String   @unique
+
+  // iFood
+  ifoodEnabled             Boolean  @default(false)
+  ifoodMerchantId          String?
+
+  // 99Food
+  ninetyNineFoodEnabled    Boolean  @default(false)
+  ninetyNineFoodMerchantId String?
+
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  branch                   Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@map("food_delivery_integration_configs")
+}
+
+// Mapeamento de pedidos iFood → pedidos locais
+model IfoodOrderMapping {
+  id            String   @id @default(cuid())
+  branchId      String
+  ifoodOrderId  String   @unique
+  localOrderId  String?
+  ifoodStatus   String   @default("PLC") // último status recebido do iFood
+  displayId     String?  // número do pedido exibido no iFood
+  rawData       Json?    // payload completo do pedido iFood (para debug/reprocessamento)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([branchId])
+  @@map("ifood_order_mappings")
+}
+
+// Mapeamento de itens iFood (externalCode) → produtos locais
+model IfoodProductMapping {
+  id                String   @id @default(cuid())
+  branchId          String
+  ifoodExternalCode String   // externalCode do item/opção no iFood
+  ifoodItemName     String   // nome exibido no iFood (para ajudar mapeamento manual)
+  localProductId    String?  // produto local correspondente
+  localOptionId     String?  // opção de complemento local correspondente
+  isOption          Boolean  @default(false) // true = é uma opção de complemento
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([branchId, ifoodExternalCode])
+  @@index([branchId])
+  @@map("ifood_product_mappings")
 }
 
 // Configurações de gateways de pagamento

@@ -61,6 +61,7 @@ export class ComplementOptionsService {
       stockControlEnabled: dto.stockControlEnabled ?? false,
       minStock: dto.minStock ?? null,
       displayOrder: dto.displayOrder ?? null,
+      codigoPDV: String(Date.now()).slice(-8),
       branch: {
         connect: { id: branchId },
       },

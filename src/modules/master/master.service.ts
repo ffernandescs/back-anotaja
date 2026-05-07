@@ -347,4 +347,26 @@ export class MasterService {
 
     return subscription;
   }
+
+  async getSystemConfigs(): Promise<{ configs: Record<string, string | null> }> {
+    const rows = await prisma.systemConfig.findMany();
+    const configs: Record<string, string | null> = {};
+    for (const row of rows) {
+      configs[row.key] = row.value ?? null;
+    }
+    return { configs };
+  }
+
+  async setSystemConfigs(
+    configs: Record<string, string | null>,
+  ): Promise<{ configs: Record<string, string | null> }> {
+    for (const [key, value] of Object.entries(configs)) {
+      await prisma.systemConfig.upsert({
+        where: { key },
+        update: { value: value ?? undefined },
+        create: { key, value: value ?? undefined },
+      });
+    }
+    return this.getSystemConfigs();
+  }
 }

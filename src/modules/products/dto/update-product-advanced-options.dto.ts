@@ -131,4 +131,8 @@ export class UpdateProductAdvancedOptionsDto {
   @IsBoolean()
   @IsOptional()
   installmentOnPromotionalPrice?: boolean = false;
+
+  @IsString()
+  @IsOptional()
+  codigoPDV?: string | null;
 }
