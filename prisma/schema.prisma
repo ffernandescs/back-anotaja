@@ -24,30 +24,30 @@ enum AddonType {
 }
 
 model MasterUser {
-  id        String    @id @default(cuid())
+  id        String           @id @default(cuid())
   name      String
-  email     String    @unique
+  email     String           @unique
   password  String
-  active    Boolean   @default(true)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  active    Boolean          @default(true)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
   branding  MasterBranding?
 }
 
 // Branding personalizado do Master (logos, favicon, cores)
 model MasterBranding {
-  id          String   @id @default(cuid())
-  masterUserId String   @unique
+  id                                                        String      @id @default(cuid())
+  masterUserId                                              String      @unique
   logoUrl     String?  // URL da logo principal (R2)
   faviconUrl  String?  // URL do favicon (R2)
   primaryColor String? // Cor primária em hex (#RRGGBB)
   secondaryColor String? // Cor secundária em hex (#RRGGBB)
   accentColor  String? // Cor de destaque em hex (#RRGGBB)
   appName     String?  // Nome da aplicação personalizado
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt                                                 DateTime    @default(now())
+  updatedAt                                                 DateTime    @updatedAt
 
-  masterUser  MasterUser @relation(fields: [masterUserId], references: [id], onDelete: Cascade)
+  masterUser                                                MasterUser @relation(fields: [masterUserId], references: [id], onDelete: Cascade)
 
   @@index([masterUserId])
   @@map("master_brandings")
@@ -121,7 +121,7 @@ model Feature {
   description                                                                                                                                                        String?
   icon                                                                       String?             // Ícone Lucide para exibição no menu (ex: "ShoppingCart", "Users")
   active                                                                                                                                                             Boolean             @default(true)
-  isPro          Boolean                                                              @default(false)
+  isPro                                                                                                                                                              Boolean             @default(false)
   defaultActions String?         // Permissões padrão como JSON
   href           String?         // Rota da feature (ex: "/admin/dashboard")
   displayOrder                                                               Int?                // Ordem de exibição
@@ -536,18 +536,18 @@ model AutoRouteConfig {
 }
 
 model Branch {
-  id                         String                       @id @default(cuid())
+  id                         String                          @id @default(cuid())
   branchName                 String
-  phone                      String                       @unique
-  document                   String                       @unique
-  email                      String?                      @unique
-  subdomain                  String?                      @unique
+  phone                      String                          @unique
+  document                   String                          @unique
+  email                      String?                         @unique
+  subdomain                  String?                         @unique
   logoUrl                    String?
   bannerUrl                  String?
-  active                     Boolean                      @default(true)
-  isOpen                     Boolean                      @default(true)
+  active                     Boolean                         @default(true)
+  isOpen                     Boolean                         @default(true)
   // Cor primária da loja (hex: #000000)
-  primaryColor               String?                      @default("#3B82F6")
+  primaryColor               String?                         @default("#3B82F6")
   // Horários de funcionamento (JSON: { monday: { open: "08:00", close: "22:00" }, ... })
   // Redes sociais (JSON: { instagram: "...", facebook: "...", whatsapp: "..." })
   socialMedia                String?
@@ -565,19 +565,19 @@ model Branch {
   latitude                   Float?
   longitude                  Float?
   // Avaliação média (calculada)
-  rating                     Int?                         @default(0)
+  rating                     Int?                            @default(0)
   // Total de avaliações
-  ratingsCount               Int                          @default(0)
+  ratingsCount               Int                             @default(0)
   companyId                  String
-  onboardingStep             OnboardingStep               @default(SCHEDULE)
-  onboardingCompleted        Boolean                      @default(false)
-  createdAt                  DateTime                     @default(now())
-  updatedAt                  DateTime                     @updatedAt
+  onboardingStep             OnboardingStep                  @default(SCHEDULE)
+  onboardingCompleted        Boolean                         @default(false)
+  createdAt                  DateTime                        @default(now())
+  updatedAt                  DateTime                        @updatedAt
 
   groups                     Group[]
   openingHours               BranchSchedule[]
   customers                  Customer[]
-  company                    Company                     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company                    Company                        @relation(fields: [companyId], references: [id], onDelete: Cascade)
   users                      User[]
   orders                     Order[]
   categories                 Category[]
@@ -602,8 +602,8 @@ model Branch {
   paymentMethods             BranchPaymentMethod[]
   billSplits                 BillSplit[]
   complementOptions          ComplementOption[]
-  couponBranches             CouponBranch[]              @relation("CouponBranches")
-  address                    BranchAddress?              @relation(fields: [addressId], references: [id], onDelete: Restrict)
+  couponBranches             CouponBranch[]                 @relation("CouponBranches")
+  address                    BranchAddress?                 @relation(fields: [addressId], references: [id], onDelete: Restrict)
   addressId                  String?
   autoRouteConfig            AutoRouteConfig?
   printers                   Printer[]
@@ -613,7 +613,7 @@ model Branch {
   pageViews                  PageView[]
   marketingIntegrationConfig MarketingIntegrationConfig?
   messageTemplates           MessageTemplate[]
-  campaignRecords            CampaignRecord[]            @relation("BranchCampaigns")
+  campaignRecords            CampaignRecord[]               @relation("BranchCampaigns")
   paymentGatewayConfigs      PaymentGatewayConfig[]
   whatsappConfig             WhatsAppConfig?
   whatsappMessages           WhatsAppMessage[]
@@ -829,58 +829,58 @@ model Category {
 }
 
 model Product {
-  id                                                                      String               @id @default(cuid())
-  name                                                                    String
-  description                                                             String?
-  price                                                                   Int
-  image                                                                   String?
-  active                                                                  Boolean              @default(true)
-  featured                                                                Boolean              @default(false)
+  id                                                                                 String               @id @default(cuid())
+  name                                                                               String
+  description                                                                        String?
+  price                                                                              Int
+  image                                                                              String?
+  active                                                                             Boolean              @default(true)
+  featured                                                                           Boolean              @default(false)
 
-  //                                                                      Promoção
-  hasPromotion                                                            Boolean              @default(false)
-  promotionalPrice                                                        Int?
+  //                                                                                 Promoção
+  hasPromotion                                                                       Boolean              @default(false)
+  promotionalPrice                                                                   Int?
   promotionalType       String? // FIXED, PERCENTAGE
   promotionalPeriodType String? // DATE_RANGE, DAYS_OF_WEEK
-  promotionalStartDate                                                    DateTime?
-  promotionalEndDate                                                      DateTime?
+  promotionalStartDate                                                               DateTime?
+  promotionalEndDate                                                                 DateTime?
   promotionalDays       String? // JSON array: ["monday", "tuesday", ...]
 
-  //                                                                      Produto
+  //                                                                                 Produto
   weight              Int? // Peso em gramas
   preparationTime     Int? // Tempo de preparo em minutos
-  stockControlEnabled                                                     Boolean              @default(false)
+  stockControlEnabled                                                                Boolean              @default(false)
   minStock            Int? // Estoque mínimo
   tags                String? // Tags separadas por vírgula
   filterMetadata      String? // JSON com metadados
   displayOrder        Int? // Ordem de exibição
   codigoPDV           String? // Código PDV para integração com iFood (externalCode)
 
-  //                                                                      Parcelamento
-  installmentEnabled                                                      Boolean              @default(false)
-  maxInstallments                                                         Int?
-  minInstallmentValue                                                     Int?
-  installmentInterestRate                                                 Int?
-  installmentOnPromotionalPrice                                           Boolean              @default(false)
+  //                                                                                 Parcelamento
+  installmentEnabled                                                                 Boolean              @default(false)
+  maxInstallments                                                                    Int?
+  minInstallmentValue                                                                Int?
+  installmentInterestRate                                                            Int?
+  installmentOnPromotionalPrice                                                      Boolean              @default(false)
 
-  categoryId                                                              String
-  branchId                                                                String
-  companyId                                                               String
-  createdAt                                                               DateTime             @default(now())
-  updatedAt                                                               DateTime             @updatedAt
+  categoryId                                                                         String
+  branchId                                                                           String
+  companyId                                                                          String
+  createdAt                                                                          DateTime             @default(now())
+  updatedAt                                                                          DateTime             @updatedAt
 
-  category                                                                Category            @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  branch                                                                  Branch              @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  company                                                                 Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category                                                                           Category            @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  branch                                                                             Branch              @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  company                                                                            Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  orderItems                                                              OrderItem[]
-  additions                                                               ProductAddition[]
-  complements                                                             ProductComplement[]
-  ingredients                                                             ProductIngredient[]
-  stockMovements                                                          StockMovement[]
-  coupons                                                                 CouponProduct[]
-  relatedProducts                                                         ProductRelated[]    @relation("ProductToRelated")
-  relatedBy                                                               ProductRelated[]    @relation("RelatedToProduct")
+  orderItems                                                                         OrderItem[]
+  additions                                                                          ProductAddition[]
+  complements                                                                        ProductComplement[]
+  ingredients                                                                        ProductIngredient[]
+  stockMovements                                                                     StockMovement[]
+  coupons                                                                            CouponProduct[]
+  relatedProducts                                                                    ProductRelated[]    @relation("ProductToRelated")
+  relatedBy                                                                          ProductRelated[]    @relation("RelatedToProduct")
 }
 
 model ProductAddition {
@@ -968,7 +968,6 @@ enum OrderChannel {
   NINETY_NINE_FOOD
   PDV
   WAITER
-  IFOOD
 }
 
 enum ServiceType {
@@ -1161,22 +1160,22 @@ model ProductComplement {
 }
 
 model ComplementOption {
-  id                         String                       @id @default(cuid())
-  name                       String
-  price                      Int                          @default(0) // Preço adicional (pode ser 0)
-  active                     Boolean                      @default(true)
-  stockControlEnabled        Boolean                      @default(false) // Controle de estoque ativo/desativado
-  minStock                   Int?
-  displayOrder               Int?
+  id                                                                                                  String                       @id @default(cuid())
+  name                                                                                                String
+  price                                                                                               Int                          @default(0) // Preço adicional (pode ser 0)
+  active                                                                                              Boolean                      @default(true)
+  stockControlEnabled                                                                                 Boolean                      @default(false) // Controle de estoque ativo/desativado
+  minStock                                                                                            Int?
+  displayOrder                                                                                        Int?
   codigoPDV                  String? // Código PDV para integração com iFood (gerado automaticamente)
-  branchId                   String
-  createdAt                  DateTime                     @default(now())
-  updatedAt                  DateTime                     @updatedAt
+  branchId                                                                                            String
+  createdAt                                                                                           DateTime                     @default(now())
+  updatedAt                                                                                           DateTime                     @updatedAt
 
-  complement                 ProductComplement[]
-  branch                     Branch                      @relation(fields: [branchId], references: [id])
-  orderItemComplementOptions OrderItemComplementOption[]
-  stockMovements             StockMovement[]
+  complement                                                                                          ProductComplement[]
+  branch                                                                                              Branch                      @relation(fields: [branchId], references: [id])
+  orderItemComplementOptions                                                                          OrderItemComplementOption[]
+  stockMovements                                                                                      StockMovement[]
 }
 
 model Coupon {
@@ -1938,19 +1937,19 @@ model MarketingIntegrationConfig {
 }
 
 model FoodDeliveryIntegrationConfig {
-  id                       String   @id @default(cuid())
-  branchId                 String   @unique
+  id                       String    @id @default(cuid())
+  branchId                 String    @unique
 
-  // iFood
-  ifoodEnabled             Boolean  @default(false)
+  //                       iFood
+  ifoodEnabled             Boolean   @default(false)
   ifoodMerchantId          String?
 
-  // 99Food
-  ninetyNineFoodEnabled    Boolean  @default(false)
+  //                       99Food
+  ninetyNineFoodEnabled    Boolean   @default(false)
   ninetyNineFoodMerchantId String?
 
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
 
   branch                   Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
@@ -1959,15 +1958,15 @@ model FoodDeliveryIntegrationConfig {
 
 // Mapeamento de pedidos iFood → pedidos locais
 model IfoodOrderMapping {
-  id            String   @id @default(cuid())
-  branchId      String
-  ifoodOrderId  String   @unique
-  localOrderId  String?
-  ifoodStatus   String   @default("PLC") // último status recebido do iFood
+  id                                                                                      String    @id @default(cuid())
+  branchId                                                                                String
+  ifoodOrderId                                                                            String    @unique
+  localOrderId                                                                            String?
+  ifoodStatus                                                                             String    @default("PLC") // último status recebido do iFood
   displayId     String?  // número do pedido exibido no iFood
   rawData       Json?    // payload completo do pedido iFood (para debug/reprocessamento)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt                                                                               DateTime  @default(now())
+  updatedAt                                                                               DateTime  @updatedAt
 
   @@index([branchId])
   @@map("ifood_order_mappings")
@@ -1975,17 +1974,17 @@ model IfoodOrderMapping {
 
 // Mapeamento de itens iFood (externalCode) → produtos locais
 model IfoodProductMapping {
-  id                String   @id @default(cuid())
-  branchId          String
+  id                                                                                  String    @id @default(cuid())
+  branchId                                                                            String
   ifoodExternalCode String   // externalCode do item/opção no iFood
   ifoodItemName     String   // nome exibido no iFood (para ajudar mapeamento manual)
   localProductId    String?  // produto local correspondente
   localOptionId     String?  // opção de complemento local correspondente
-  isOption          Boolean  @default(false) // true = é uma opção de complemento
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  isOption                                                                            Boolean   @default(false) // true = é uma opção de complemento
+  createdAt                                                                           DateTime  @default(now())
+  updatedAt                                                                           DateTime  @updatedAt
 
-  @@unique([branchId, ifoodExternalCode])
+  @@unique([branchId,                                                                 ifoodExternalCode])
   @@index([branchId])
   @@map("ifood_product_mappings")
 }
