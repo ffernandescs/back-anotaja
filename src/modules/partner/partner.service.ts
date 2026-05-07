@@ -504,7 +504,7 @@ export class PartnerService {
     // Enviar WhatsApp com credenciais
     try {
       const whatsappMessage = `
-🚀 *Acesso ao AnotaJá*
+🚀 *Acesso ao VaiDelli*
 
 Olá ${user.name}!
 
@@ -593,7 +593,7 @@ Se precisar de ajuda, entre em contato!
     // Enviar WhatsApp com credenciais
     try {
       const whatsappMessage = `
-🔐 *Credenciais de Acesso - AnotaJá*
+🔐 *Credenciais de Acesso - VaiDelli*
 
 Olá ${user.name}!
 

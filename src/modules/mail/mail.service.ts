@@ -20,7 +20,7 @@ export class MailService {
   async sendResetPasswordEmail(email: string, otp: string): Promise<boolean> {
     try {
       await this.transporter.sendMail({
-        from: `"Suporte AnotaJá" <${process.env.SMTP_USER}>`,
+        from: `"Suporte VaiDelli" <${process.env.SMTP_USER}>`,
         to: email,
         subject: '🔐 Código de Recuperação de Senha',
         html: `
@@ -117,7 +117,7 @@ export class MailService {
                           ${EMAIL_FROM}
                         </a>
                         <p style="margin: 0; color: #9ca3af; font-size: 13px; line-height: 1.5;">
-                          © ${new Date().getFullYear()} AnotaJá. Todos os direitos reservados.
+                          © ${new Date().getFullYear()} VaiDelli. Todos os direitos reservados.
                         </p>
                         <p style="margin: 8px 0 0; color: #9ca3af; font-size: 12px;">
                           Este é um email automático, por favor não responda.
@@ -131,7 +131,7 @@ export class MailService {
                     <tr>
                       <td align="center" style="padding: 0 20px;">
                         <p style="margin: 0; color: #9ca3af; font-size: 12px; line-height: 1.5;">
-                          Você está recebendo este email porque uma solicitação de redefinição de senha foi feita para sua conta no AnotaJá.
+                          Você está recebendo este email porque uma solicitação de redefinição de senha foi feita para sua conta no VaiDelli.
                         </p>
                       </td>
                     </tr>
@@ -166,16 +166,16 @@ export class MailService {
       const formattedEndDate = trialEndDate.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
 
       await this.transporter.sendMail({
-        from: `"AnotaJá - Gestão Inteligente" <${process.env.SMTP_USER}>`,
+        from: `"VaiDelli - Gestão Inteligente" <${process.env.SMTP_USER}>`,
         to: email,
-        subject: '🎉 Bem-vindo ao AnotaJá - Seu Trial de 7 Dias Começou!',
+        subject: '🎉 Bem-vindo ao VaiDelli - Seu Trial de 7 Dias Começou!',
         html: `
           <!DOCTYPE html>
           <html lang="pt-BR">
           <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Bem-vindo ao AnotaJá</title>
+            <title>Bem-vindo ao VaiDelli</title>
           </head>
           <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f5f5f5;">
             <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 40px 20px;">
@@ -190,7 +190,7 @@ export class MailService {
                           <span style="font-size: 50px;">🚀</span>
                         </div>
                         <h1 style="margin: 0; color: #ffffff; font-size: 32px; font-weight: 800; letter-spacing: -0.5px; text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
-                          Bem-vindo ao AnotaJá!
+                          Bem-vindo ao VaiDelli!
                         </h1>
                         <p style="margin: 12px 0 0; color: rgba(255, 255, 255, 0.95); font-size: 18px; font-weight: 500;">
                           Transforme seu negócio com tecnologia
@@ -226,7 +226,7 @@ export class MailService {
                         <!-- Benefícios -->
                         <div style="background-color: #f0fdf4; border-left: 4px solid #10b981; border-radius: 8px; padding: 20px; margin: 0 0 32px;">
                           <p style="margin: 0 0 12px; color: #065f46; font-size: 16px; font-weight: 700;">
-                            ✨ O que você ganha com o AnotaJá:
+                            ✨ O que você ganha com o VaiDelli:
                           </p>
                           <ul style="margin: 0; padding-left: 20px; color: #047857; font-size: 14px; line-height: 2;">
                             <li><strong>Gestão Completa</strong> - Pedidos, estoque, delivery e PDV</li>
@@ -310,7 +310,7 @@ export class MailService {
                           📧 ${EMAIL_FROM}
                         </a>
                         <p style="margin: 0 0 8px; color: #9ca3af; font-size: 13px; line-height: 1.5;">
-                          © ${new Date().getFullYear()} AnotaJá - Gestão Inteligente para Restaurantes
+                          © ${new Date().getFullYear()} VaiDelli - Gestão Inteligente para Restaurantes
                         </p>
                         <p style="margin: 0; color: #9ca3af; font-size: 12px;">
                           Todos os direitos reservados.
@@ -324,7 +324,7 @@ export class MailService {
                     <tr>
                       <td align="center" style="padding: 0 20px;">
                         <p style="margin: 0; color: #9ca3af; font-size: 12px; line-height: 1.5;">
-                          Você está recebendo este email porque criou uma conta no AnotaJá.
+                          Você está recebendo este email porque criou uma conta no VaiDelli.
                         </p>
                       </td>
                     </tr>
@@ -364,7 +364,7 @@ export class MailService {
   ): Promise<boolean> {
     try {
       await this.transporter.sendMail({
-        from: `"AnotaJá - Ativação de Conta" <${process.env.SMTP_USER}>`,
+        from: `"VaiDelli - Ativação de Conta" <${process.env.SMTP_USER}>`,
         to: data.email,
         subject: '🚀 Sua conta foi ativada - Acesse o Painel Admin',
         html: `
@@ -403,7 +403,7 @@ export class MailService {
                           Olá, <strong style="color: #667eea;">${data.userName}</strong>! 👋
                         </p>
                         <p style="margin: 0 0 32px; color: #374151; font-size: 16px; line-height: 1.7;">
-                          Sua conta foi ativada com sucesso! Abaixo estão suas credenciais de acesso ao painel administrativo da AnotaJá.
+                          Sua conta foi ativada com sucesso! Abaixo estão suas credenciais de acesso ao painel administrativo da VaiDelli.
                         </p>
 
                         <!-- Credenciais Card -->
@@ -471,7 +471,7 @@ export class MailService {
                           📧 ${EMAIL_FROM}
                         </a>
                         <p style="margin: 0 0 8px; color: #9ca3af; font-size: 13px; line-height: 1.5;">
-                          © ${new Date().getFullYear()} AnotaJá - Gestão Inteligente para Restaurantes
+                          © ${new Date().getFullYear()} VaiDelli - Gestão Inteligente para Restaurantes
                         </p>
                         <p style="margin: 0; color: #9ca3af; font-size: 12px;">
                           Todos os direitos reservados.
@@ -485,7 +485,7 @@ export class MailService {
                     <tr>
                       <td align="center" style="padding: 0 20px;">
                         <p style="margin: 0; color: #9ca3af; font-size: 12px; line-height: 1.5;">
-                          Você está recebendo este email porque sua conta foi ativada no AnotaJá.
+                          Você está recebendo este email porque sua conta foi ativada no VaiDelli.
                         </p>
                       </td>
                     </tr>
@@ -535,7 +535,7 @@ export class MailService {
 
     try {
       await this.transporter.sendMail({
-        from: `"AnotaJá - Novo Interesse" <${process.env.SMTP_USER}>`,
+        from: `"VaiDelli - Novo Interesse" <${process.env.SMTP_USER}>`,
         to: masterEmail,
         subject: `🎯 Novo Interesse em Testar o Sistema - ${customerData.companyName}`,
         html: `
@@ -571,7 +571,7 @@ export class MailService {
                     <tr>
                       <td style="padding: 40px 30px;">
                         <p style="margin: 0 0 32px; color: #374151; font-size: 16px; line-height: 1.6;">
-                          Um novo cliente demonstrou interesse em testar o sistema AnotaJá. Abaixo estão os dados fornecidos:
+                          Um novo cliente demonstrou interesse em testar o sistema VaiDelli. Abaixo estão os dados fornecidos:
                         </p>
   
                         <!-- Dados do Cliente -->
@@ -681,7 +681,7 @@ export class MailService {
                     <tr>
                       <td style="background-color: #f9fafb; padding: 30px; text-align: center; border-top: 1px solid #e5e7eb;">
                         <p style="margin: 0 0 8px; color: #9ca3af; font-size: 13px; line-height: 1.5;">
-                          © ${new Date().getFullYear()} AnotaJá. Todos os direitos reservados.
+                          © ${new Date().getFullYear()} VaiDelli. Todos os direitos reservados.
                         </p>
                         <p style="margin: 0; color: #9ca3af; font-size: 12px;">
                           Este é um email automático gerado pelo sistema de registro de interesses.
