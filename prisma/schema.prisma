@@ -31,6 +31,26 @@ model MasterUser {
   active    Boolean   @default(true)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+  branding  MasterBranding?
+}
+
+// Branding personalizado do Master (logos, favicon, cores)
+model MasterBranding {
+  id          String   @id @default(cuid())
+  masterUserId String   @unique
+  logoUrl     String?  // URL da logo principal (R2)
+  faviconUrl  String?  // URL do favicon (R2)
+  primaryColor String? // Cor primária em hex (#RRGGBB)
+  secondaryColor String? // Cor secundária em hex (#RRGGBB)
+  accentColor  String? // Cor de destaque em hex (#RRGGBB)
+  appName     String?  // Nome da aplicação personalizado
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  masterUser  MasterUser @relation(fields: [masterUserId], references: [id], onDelete: Cascade)
+
+  @@index([masterUserId])
+  @@map("master_brandings")
 }
 
 enum OnboardingStep {
@@ -943,6 +963,7 @@ enum OrderChannel {
   ONLINE
   PDV
   WAITER
+  IFOOD
 }
 
 enum ServiceType {

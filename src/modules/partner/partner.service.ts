@@ -232,6 +232,27 @@ export class PartnerService {
     }));
   }
 
+  async assignCompanyToPartner(companyId: string, partnerId: string) {
+    const company = await prisma.company.findUnique({
+      where: { id: companyId },
+    });
+
+    if (!company) {
+      throw new NotFoundException('Empresa não encontrada');
+    }
+
+    if (company.partnerId && company.partnerId !== partnerId) {
+      throw new ForbiddenException('Esta empresa já pertence a outro parceiro');
+    }
+
+    const updatedCompany = await prisma.company.update({
+      where: { id: companyId },
+      data: { partnerId },
+    });
+
+    return updatedCompany;
+  }
+
   async activateClient(companyId: string, partnerId: string, planId?: string, withTrial?: boolean) {
     // Buscar a empresa
     const company = await prisma.company.findUnique({
@@ -246,6 +267,7 @@ export class PartnerService {
         groups: {
           take: 1,
         },
+        partner: true,
         subscription: true,
       },
     });

@@ -4,6 +4,62 @@ import { prisma } from '../../../lib/prisma';
 @Injectable()
 export class MasterService {
   /**
+   * Busca configurações do master
+   */
+  async getConfig() {
+    // Busca configurações de branding e outras configs globais
+    const masterUser = await this.getFirstMasterUser();
+    if (!masterUser) {
+      return {
+        configs: {
+          ifood_client_id: null,
+          ifood_client_secret: null,
+          ninetynine_food_api_key: null,
+          strapi_url: null,
+          strapi_api_token: null,
+          strapi_webhook_secret: null,
+          strapi_enabled: false,
+        },
+      };
+    }
+
+    const branding = await this.getBranding(masterUser.id);
+
+    return {
+      configs: {
+        ifood_client_id: null,
+        ifood_client_secret: null,
+        ninetynine_food_api_key: null,
+        strapi_url: null,
+        strapi_api_token: null,
+        strapi_webhook_secret: null,
+        strapi_enabled: false,
+      },
+      branding,
+    };
+  }
+
+  /**
+   * Atualiza configurações do master
+   */
+  async updateConfig(configs: any) {
+    const masterUser = await this.getFirstMasterUser();
+    if (!masterUser) {
+      throw new NotFoundException('Master user não encontrado');
+    }
+
+    // Por enquanto, apenas atualizamos o branding
+    // As configs globais podem ser expandidas no futuro
+    if (configs.strapi_url || configs.strapi_api_token || configs.strapi_webhook_secret !== undefined) {
+      // Aqui poderíamos salvar configs em uma tabela separada
+      // Por enquanto, apenas logamos
+      console.log('Configurações do Strapi recebidas:', configs);
+    }
+
+    return { success: true };
+  }
+
+  /**
    * Busca todas as assinaturas do sistema
    */
   async findAllSubscriptions() {
@@ -25,6 +81,62 @@ export class MasterService {
     });
 
     return { subscriptions };
+  }
+
+  /**
+   * Busca o primeiro master user (para endpoint público)
+   */
+  async getFirstMasterUser() {
+    const masterUser = await prisma.masterUser.findFirst({
+      where: { active: true },
+    });
+    return masterUser;
+  }
+
+  /**
+   * Busca o branding do master (logos, favicon, cores)
+   */
+  async getBranding(masterUserId: string) {
+    const branding = await prisma.masterBranding.findUnique({
+      where: { masterUserId },
+    });
+
+    if (!branding) {
+      // Retorna branding padrão se não existir
+      return {
+        logoUrl: null,
+        faviconUrl: null,
+        primaryColor: null,
+        secondaryColor: null,
+        accentColor: null,
+        appName: null,
+      };
+    }
+
+    return branding;
+  }
+
+  /**
+   * Atualiza o branding do master
+   */
+  async updateBranding(masterUserId: string, data: {
+    logoUrl?: string;
+    faviconUrl?: string;
+    primaryColor?: string;
+    secondaryColor?: string;
+    accentColor?: string;
+    appName?: string;
+  }) {
+    const branding = await prisma.masterBranding.upsert({
+      where: { masterUserId },
+      update: data,
+      create: {
+        masterUserId,
+        ...data,
+      },
+    });
+
+    return branding;
   }
 
   /**
