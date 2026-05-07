@@ -59,6 +59,7 @@ enum OnboardingStep {
   DOMAIN
   PAYMENT
   BRANDING
+  ADDRESS
   COMPLETED
 }
 
