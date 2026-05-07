@@ -29,7 +29,7 @@ async function bootstrap() {
       }
 
       const allowedOrigins = [
-        /^https?:\/\/([a-z0-9-]+\.)*anotaja\.shop$/i,
+        /^https?:\/\/([a-z0-9-]+\.)*vaidelli\.com.br$/i,
         /^https?:\/\/([a-z0-9-]+\.)*vercel\.app$/i,
 
         // 🔥 localhost + subdomínios (thyaynna.localhost, admin.localhost etc)
