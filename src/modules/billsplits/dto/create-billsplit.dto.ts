@@ -1,6 +1,7 @@
 import {
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsEnum,
   IsNumber,
   IsOptional,
@@ -40,6 +41,10 @@ export class CreateBillSplitDto {
   @ValidateNested({ each: true })
   @Type(() => CreatePaymentBillSplitDto)
   payments?: CreatePaymentBillSplitDto[];
+
+  @IsOptional()
+  @IsBoolean()
+  registerPayment?: boolean;
 }
 
 export class CreatePaymentBillSplitDto {

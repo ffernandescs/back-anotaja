@@ -1766,15 +1766,19 @@ async createOrder(
   // =========================================================
   // VALIDAÇÃO DE MESA - IMPEDIR NOVOS PEDIDOS EM CLOSING
   // =========================================================
+  let tableActiveSessionId: string | null = null;
+
   if (createOrderDto.tableId && isDineIn) {
     const table = await prisma.table.findUnique({
       where: { id: createOrderDto.tableId },
-      select: { status: true },
+      select: { status: true, activeSessionId: true },
     });
 
     if (table && table.status === 'CLOSING') {
       throw new BadRequestException('Não é possível adicionar novos pedidos. A mesa está em fechamento de conta.');
     }
+
+    tableActiveSessionId = table?.activeSessionId ?? null;
   }
 
   const preparationStatus = PreparationStatus.PENDING;
@@ -1828,6 +1832,7 @@ async createOrder(
         total,
         estimatedTime,
         tableId: createOrderDto.tableId,
+        tableSessionId: tableActiveSessionId,
 
         couponId: appliedCouponId,
         customerAddressId: addressId,

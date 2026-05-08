@@ -82,6 +82,8 @@ export class BillSplitsService {
       if (!paymentMethod)
         throw new NotFoundException('Método de pagamento não encontrado');
 
+      const paymentStatus = dto.registerPayment !== false ? 'PAID' : 'PENDING';
+
       await prisma.orderPayment.create({
         data: {
           orderId: dto.orderId,
@@ -89,7 +91,7 @@ export class BillSplitsService {
           amount: payment.amount || 0,
           paymentMethodId: payment.paymentMethodId || '',
           change: payment.change || 0,
-          status: 'PAID',
+          status: paymentStatus,
           type: paymentMethod.name,
         },
       });
@@ -104,6 +106,30 @@ export class BillSplitsService {
       persons.push(personUpdated);
 
       // Cria pagamentos, se houver
+    }
+
+    // Atualizar Order.paymentStatus com base nos pagamentos registrados
+    if (dto.registerPayment !== false) {
+      const allPayments = await prisma.orderPayment.findMany({
+        where: { orderId: dto.orderId },
+        select: { amount: true },
+      });
+      const totalPaid = allPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+      const orderTotal = (order.total || 0);
+
+      let newPaymentStatus: string;
+      if (totalPaid >= orderTotal) {
+        newPaymentStatus = 'PAID';
+      } else if (totalPaid > 0) {
+        newPaymentStatus = 'PARTIAL';
+      } else {
+        newPaymentStatus = 'PENDING';
+      }
+
+      await prisma.order.update({
+        where: { id: dto.orderId },
+        data: { paymentStatus: newPaymentStatus },
+      });
     }
 
     const orderData = await prisma.order.findUnique({

@@ -52,26 +52,32 @@ export class TablesService {
       }
     }
 
-    return prisma.table.findMany({
+    const tables = await prisma.table.findMany({
       where: whereCondition,
       include: {
         user: { select: { id: true, name: true } },
         customer: { select: { id: true, name: true, phone: true } },
-        orders: {
-          where: {
-            status: { in: ['IN_PROGRESS', 'PENDING', 'CONFIRMED', 'READY'] },
-          },
+        activeSession: {
           include: {
-            customer: { select: { id: true, name: true, phone: true } },
-            items: { include: { product: true } },
-            payments: true,
-            billSplit: true,
-            billSplitPersons: true,
+            orders: {
+              where: {
+                status: { in: ['IN_PROGRESS', 'PENDING', 'CONFIRMED', 'READY'] },
+              },
+              include: {
+                customer: { select: { id: true, name: true, phone: true } },
+                items: { include: { product: true } },
+                payments: true,
+                billSplit: true,
+                billSplitPersons: true,
+              },
+            },
           },
         },
       },
       orderBy: { number: 'asc' },
     });
+
+    return tables.map((t) => ({ ...t, orders: t.activeSession?.orders ?? [] }));
   }
 
   /**
@@ -87,21 +93,25 @@ export class TablesService {
       include: {
         user: { select: { id: true, name: true } },
         customer: { select: { id: true, name: true, phone: true } },
-        orders: {
-          where: {
-            status: { in: ['IN_PROGRESS', 'PENDING', 'CONFIRMED', 'READY'] },
-          },
+        activeSession: {
           include: {
-            items: { include: { product: true } },
-            customer: true,
-            payments: true,
+            orders: {
+              where: {
+                status: { in: ['IN_PROGRESS', 'PENDING', 'CONFIRMED', 'READY'] },
+              },
+              include: {
+                items: { include: { product: true } },
+                customer: true,
+                payments: true,
+              },
+            },
           },
         },
       },
     });
 
     if (!table) throw new NotFoundException('Mesa não encontrada');
-    return table;
+    return { ...table, orders: table.activeSession?.orders ?? [] };
   }
 
   /**
@@ -764,28 +774,43 @@ export class TablesService {
     return { created, skipped, total: quantity };
   }
 
-  async updateTableStatus(tableId: string, status: TableStatus, _userId: string) {
+  async updateTableStatus(tableId: string, status: TableStatus, userId: string) {
     const table = await prisma.table.findUnique({ where: { id: tableId } });
     if (!table) throw new NotFoundException('Mesa não encontrada');
     if (status === TableStatus.ALL) throw new BadRequestException('Status inválido');
+
+    const isFinalClose = status === 'CLEANING' || status === 'AVAILABLE' || status === 'CLOSED';
+
+    if (isFinalClose && table.activeSessionId) {
+      await prisma.$transaction(async (tx) => {
+        await tx.tableSession.update({
+          where: { id: table.activeSessionId! },
+          data: {
+            status: TableSessionStatus.CLOSED,
+            closedBy: userId,
+            closedAt: new Date(),
+          },
+        });
+
+        await tx.table.update({
+          where: { id: tableId },
+          data: {
+            status,
+            activeSessionId: null,
+            numberofpeople: null,
+            customerId: null,
+          },
+        });
+      });
+
+      return { table: { ...table, status, activeSessionId: null }, activeOrder: null };
+    }
 
     const updatedTable = await prisma.table.update({
       where: { id: tableId },
       data: { status },
     });
 
-    let activeOrder: Order | null = null;
-    if (updatedTable.activeSessionId) {
-      // Busca o pedido mais recente da sessão ativa
-      activeOrder = await prisma.order.findFirst({
-        where: {
-          tableSessionId: updatedTable.activeSessionId,
-          status: { in: ['PENDING', 'CONFIRMED', 'IN_PROGRESS', 'READY'] },
-        },
-        orderBy: { createdAt: 'desc' },
-      });
-    }
-
-    return { table: updatedTable, activeOrder };
+    return { table: updatedTable, activeOrder: null };
   }
 }
