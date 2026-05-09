@@ -679,25 +679,27 @@ export class WhatsAppService {
       );
     };
 
-    let usedPhone = primaryPhone;
-    let sendError: any = null;
+  let usedPhone = primaryPhone;
+  let sendError: any = null;
 
-    // Tentativa 1: número primário (sem 9 extra)
-    try {
+  try {
+    if (!config?.instanceName) {
+      throw new BadRequestException('WhatsApp não está conectado');
+    }
 
-      if (!config?.instanceName) {
-        throw new BadRequestException('WhatsApp não está conectado');
-      }
-      const validPhone = await this.resolveWhatsAppNumber(
-        config.instanceName,
-        phone,
+    // Descobre automaticamente qual formato existe no WhatsApp
+    const validPhone = await this.resolveWhatsAppNumber(
+      config.instanceName,
+      phone,
+    );
+
+    if (!validPhone) {
+      throw new BadRequestException(
+        `Número ${phone} não possui WhatsApp`,
       );
+    }
 
-      if (!validPhone) {
-        throw new BadRequestException(
-          `Número ${phone} não possui WhatsApp`,
-        );
-      }
+    usedPhone = validPhone;
 
       await attemptSend(primaryPhone);
       this.logger.log(`[WhatsApp] Mensagem enviada para ${primaryPhone}`);
@@ -705,26 +707,7 @@ export class WhatsAppService {
       sendError = error;
 
       // Tentativa 2: número alternativo (com/sem 9), apenas se o erro for "not found"
-      if (this.isNumberNotFoundError(error) && alternativePhone) {
-        this.logger.warn(
-          `[WhatsApp] Número ${primaryPhone} não encontrado no WhatsApp. Tentando alternativa: ${alternativePhone}`,
-        );
-        try {
-          await attemptSend(alternativePhone);
-          usedPhone = alternativePhone;
-          sendError = null;
-          this.logger.log(`[WhatsApp] Mensagem enviada para alternativa ${alternativePhone}`);
-        } catch (altError: any) {
-          sendError = altError;
-          this.logger.error(
-            `[WhatsApp] Falha também na alternativa ${alternativePhone}: ${altError?.message}`,
-          );
-        }
-      } else {
-        this.logger.error(
-          `[WhatsApp] Falha ao enviar para ${primaryPhone} (erro não relacionado ao número): ${error?.message}`,
-        );
-      }
+      
     }
 
     // Rastreia resultado no banco independente do sucesso/falha
