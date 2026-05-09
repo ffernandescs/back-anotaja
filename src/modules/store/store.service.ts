@@ -3775,7 +3775,7 @@ if (!fullOrder) {
     }
   }
 
-  private formatOrderMessage(order: any, type: 'confirmation' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled'): string {
+  private formatOrderMessage(order: any, type: 'confirmation' |  'preparing' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled'): string {
     const orderNumber = order.orderNumber || order.id.slice(0, 8);
     const customerName = order.customer?.name || 'Cliente';
     const total = order.total ? new Intl.NumberFormat('pt-BR', {
@@ -3841,7 +3841,7 @@ Se tiver alguma dúvida, entre em contato conosco.`,
     return defaultMessages[type] || '';
   }
 
-  private async getCustomTemplate(branchId: string, type: 'confirmation' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled'): Promise<string | null> {
+  private async getCustomTemplate(branchId: string, type: 'confirmation' |  'preparing' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled'): Promise<string | null> {
     const config = await (prisma as any).whatsAppConfig.findUnique({
       where: { branchId },
       select: {
@@ -3866,7 +3866,7 @@ Se tiver alguma dúvida, entre em contato conosco.`,
     return templateMap[type] || null;
   }
 
-  private async formatOrderMessageWithTemplate(order: any, type: 'confirmation' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled', branchId: string): Promise<string> {
+  private async formatOrderMessageWithTemplate(order: any, type: 'confirmation' | 'preparing' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled', branchId: string): Promise<string> {
     const customTemplate = await this.getCustomTemplate(branchId, type);
 
     if (customTemplate) {
@@ -3935,7 +3935,7 @@ Se tiver alguma dúvida, entre em contato conosco.`,
     }
 
     let shouldSend = false;
-    let messageType: 'confirmation' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled' = 'confirmation';
+    let messageType: 'confirmation' | 'preparing' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled' = 'confirmation';
 
     const isDelivery = order.deliveryType === DeliveryType.DELIVERY;
 
@@ -3944,7 +3944,21 @@ Se tiver alguma dúvida, entre em contato conosco.`,
         shouldSend = config.orderConfirmationEnabled;
         messageType = 'confirmation';
         break;
+
+      case OrderStatus.IN_PROGRESS:
+        shouldSend = config.orderConfirmationEnabled;
+        messageType = 'preparing';
+        break;
       case OrderStatus.READY:
+        // Don't send notification for DELIVERY orders when ready (only when delivering)
+        if (!isDelivery) {
+          shouldSend = config.orderReadyEnabled;
+          messageType = 'ready';
+        } else {
+          shouldSend = false;
+        }
+        break;
+         case OrderStatus.READY:
         // Don't send notification for DELIVERY orders when ready (only when delivering)
         if (!isDelivery) {
           shouldSend = config.orderReadyEnabled;
