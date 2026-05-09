@@ -67,8 +67,8 @@ import { BullModule } from '@nestjs/bullmq';
     }),
     BullModule.forRoot({
       connection: {
-        host: '127.0.0.1',
-        port: 6379,
+        url: process.env.REDIS_URL,
+        maxRetriesPerRequest: null,
       },
     }),
     AuthModule,
