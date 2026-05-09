@@ -3991,6 +3991,8 @@ Se tiver alguma dúvida, entre em contato conosco.`,
 
     if (shouldSend) {
       const message = await this.formatOrderMessageWithTemplate(order, messageType, branchId);
+      console.log('MESSAGE_TYPE:', messageType);
+console.log('MESSAGE:', message);
       await this.sendWhatsAppNotification(branchId, order.customer.phone, message);
     } 
   }
