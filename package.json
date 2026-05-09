@@ -55,6 +55,7 @@
     "prisma:push": "node scripts/prisma-push.js",
     "prisma:migrate": "dotenv -e .env -- prisma migrate dev",
     "prisma:studio:dev": "dotenv -e environments/.env.dev -- prisma studio",
+    "prisma:studio:hml": "dotenv -e environments/.env.hml -- prisma studio",
     "prisma:studio:prod": "dotenv -e environments/.env.prod -- prisma studio",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",

@@ -298,7 +298,6 @@ export class OwnerService {
    */
   async findAllCompanies() {
     const companies = await prisma.company.findMany({
-      where: { active: true },
       include: {
         _count: {
           select: {

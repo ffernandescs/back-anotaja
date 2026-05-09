@@ -276,12 +276,26 @@ export class PartnerService {
       throw new NotFoundException('Empresa não encontrada');
     }
 
+   
+
     if (company.partnerId !== partnerId) {
       throw new ForbiddenException('Esta empresa não pertence ao seu parceiro');
     }
 
+    // Garantir que a empresa esteja ativa
+    await prisma.company.update({
+      where: { id: company.id },
+      data: {
+        active: true,
+        onboardingCompleted: true,
+        onboardingStep: 'COMPLETED',
+      },
+    });
+
+
     // Buscar o plano (usar o plano informado ou buscar trial)
     let plan;
+    
     if (planId) {
       plan = await prisma.plan.findUnique({
         where: { id: planId },
