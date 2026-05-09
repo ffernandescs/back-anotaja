@@ -3769,7 +3769,7 @@ if (!fullOrder) {
     message: string,
   ) {
     try {
-      await this.whatsappService.sendMessage(branchId, phone, message);
+      await this.whatsappService.sendMessage(phone,  message,branchId);
     } catch (error) {
       console.error(`[WhatsApp] Failed to send message to ${phone}:`, error);
     }
