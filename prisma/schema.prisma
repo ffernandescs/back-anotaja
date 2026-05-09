@@ -2129,6 +2129,7 @@ model WhatsAppConfig {
 
   // Templates de mensagens customizáveis
   templateConfirmation      String?  // Template para confirmação de pedido
+  templatePreparing         String?  // Template para pedido em preparo
   templateReady             String?  // Template para pedido pronto
   templateOutForDelivery    String?  // Template para saiu para entrega
   templateDelivered         String?  // Template para entregue
