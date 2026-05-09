@@ -3846,6 +3846,7 @@ Se tiver alguma dúvida, entre em contato conosco.`,
       where: { branchId },
       select: {
         templateConfirmation: true,
+        templatePreparing: true,
         templateReady: true,
         templateOutForDelivery: true,
         templateDelivered: true,
@@ -3857,6 +3858,7 @@ Se tiver alguma dúvida, entre em contato conosco.`,
 
     const templateMap: Record<string, string | null> = {
       confirmation: config.templateConfirmation,
+      preparing: config.templatePreparing,
       ready: config.templateReady,
       out_for_delivery: config.templateOutForDelivery,
       delivered: config.templateDelivered,
