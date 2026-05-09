@@ -44,6 +44,10 @@ export class UpdateWhatsAppConfigDto {
 
   @IsOptional()
   @IsString()
+  templatePreparing?: string;
+
+  @IsOptional()
+  @IsString()
   templateReady?: string;
 
   @IsOptional()
