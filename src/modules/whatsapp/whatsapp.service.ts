@@ -38,7 +38,7 @@ export class WhatsAppService {
   // ─── Monitor Instance Connection ──────────────────────────────────
 
   private monitorInstanceConnection(branchId: string, instanceName: string) {
-    const maxAttempts = 60; // 10 minutos (60 * 10 segundos)
+    const maxAttempts = 60;
     let attempts = 0;
 
     const checkConnection = async () => {
@@ -56,15 +56,13 @@ export class WhatsAppService {
           return;
         }
 
-        // Continua monitorando
-        setTimeout(checkConnection, 10000); // Verifica a cada 10 segundos
+        setTimeout(checkConnection, 10000);
       } catch (error) {
         console.error('[WhatsApp] Error checking instance connection:', error);
         setTimeout(checkConnection, 10000);
       }
     };
 
-    // Inicia o monitoramento após 5 segundos
     setTimeout(checkConnection, 5000);
   }
 
@@ -109,7 +107,6 @@ export class WhatsAppService {
   async setup(branchId: string) {
     const instanceName = `anotaja_${branchId}`;
 
-
     await prisma.whatsAppConfig.upsert({
       where: { branchId },
       update: {
@@ -128,7 +125,6 @@ export class WhatsAppService {
     });
 
     try {
-
       const createRes = await this.evolutionRequest(
         'POST',
         '/instance/create',
@@ -141,20 +137,16 @@ export class WhatsAppService {
         },
       );
 
-      // Enable sync_full_history to import historical messages (one-time sync)
-      // Note: This will sync on connection, then automatically stop after completion
       await this.evolutionRequest(
         'POST',
         `/settings/set/${instanceName}`,
         {
-          sync_full_history: false, // Disabled to prevent continuous sync loop
+          sync_full_history: false,
           read_messages: true,
           read_status: true,
         },
-      ).catch((e) => {
-      });
+      ).catch((e) => {});
 
-      // Configure webhook automatically
       const webhookUrl = process.env.EVOLUTION_WEBHOOK_URL;
       if (webhookUrl) {
         await this.evolutionRequest(
@@ -174,10 +166,8 @@ export class WhatsAppService {
               'CHATS_SET',
             ],
           },
-        ).catch((e) => {
-        });
+        ).catch((e) => {});
       }
-
 
       const instanceId = createRes?.instance?.instanceId || createRes?.instance?.id;
 
@@ -194,27 +184,18 @@ export class WhatsAppService {
         },
       });
 
-      // Fetch QR code from connect endpoint
       const connectRes = await this.evolutionRequest(
         'GET',
         `/instance/connect/${instanceName}`,
       );
 
-
       const qrCode = connectRes?.base64 || connectRes?.qrcode?.base64 || connectRes?.pairingCode || null;
-
-      if (!qrCode) {
-        console.error('[WhatsApp] No QR code in connect response');
-      }
 
       await prisma.whatsAppConfig.update({
         where: { branchId },
-        data: {
-          qrCode,
-        },
+        data: { qrCode },
       });
 
-      // Inicia monitoramento para baixar conversas quando a instância for conectada via QR
       this.monitorInstanceConnection(branchId, instanceName);
 
       return {
@@ -243,7 +224,6 @@ export class WhatsAppService {
   async setupPartner(partnerId: string) {
     const instanceName = `anotaja_partner_${partnerId}`;
 
-
     await prisma.whatsAppConfig.upsert({
       where: { partnerId },
       update: {
@@ -262,8 +242,6 @@ export class WhatsAppService {
     });
 
     try {
-     
-
       const createRes = await this.evolutionRequest(
         'POST',
         '/instance/create',
@@ -276,7 +254,6 @@ export class WhatsAppService {
         },
       );
 
-      // Configure webhook automatically
       const webhookUrl = process.env.EVOLUTION_WEBHOOK_URL;
       if (webhookUrl) {
         await this.evolutionRequest(
@@ -296,10 +273,8 @@ export class WhatsAppService {
               'CHATS_SET',
             ],
           },
-        ).catch((e) => {
-        });
+        ).catch((e) => {});
       }
-
 
       const instanceId = createRes?.instance?.instanceId || createRes?.instance?.id;
 
@@ -316,24 +291,16 @@ export class WhatsAppService {
         },
       });
 
-      // Fetch QR code from connect endpoint
       const connectRes = await this.evolutionRequest(
         'GET',
         `/instance/connect/${instanceName}`,
       );
 
-
       const qrCode = connectRes?.base64 || connectRes?.qrcode?.base64 || connectRes?.pairingCode || null;
-
-      if (!qrCode) {
-        console.error('[WhatsApp] No QR code in connect response');
-      }
 
       await prisma.whatsAppConfig.update({
         where: { partnerId },
-        data: {
-          qrCode,
-        },
+        data: { qrCode },
       });
 
       return {
@@ -345,35 +312,23 @@ export class WhatsAppService {
       console.error('[WhatsApp] Partner setup error:', error);
 
       if (error?.status === 403 || error?.message?.includes('already') || error?.message?.includes('already in use')) {
-        
-        // Se a instância já existe, apenas busca o QR code diretamente
         try {
           const connectRes = await this.evolutionRequest(
             'GET',
             `/instance/connect/${instanceName}`,
           );
 
-
           const qrCode = connectRes?.base64 || connectRes?.qrcode?.base64 || connectRes?.pairingCode || null;
           const status = qrCode ? 'qr_code' : 'connecting';
 
           await prisma.whatsAppConfig.update({
             where: { partnerId },
-            data: {
-              qrCode,
-              status,
-            },
+            data: { qrCode, status },
           });
 
-          return {
-            status,
-            qrCode,
-            instanceName,
-          };
+          return { status, qrCode, instanceName };
         } catch (connectError: any) {
           console.error('[WhatsApp] Error fetching QR code for existing instance:', connectError);
-          
-          // Se falhar, retorna o connect normal
           return this.connect(undefined, partnerId);
         }
       }
@@ -412,7 +367,6 @@ export class WhatsAppService {
       },
     });
 
-    // Configure webhook automatically on connect (in case it wasn't configured before)
     const webhookUrl = process.env.EVOLUTION_WEBHOOK_URL;
     if (webhookUrl) {
       await this.evolutionRequest(
@@ -432,13 +386,10 @@ export class WhatsAppService {
             'CHATS_SET',
           ],
         },
-      ).catch((e) => {
-      });
+      ).catch((e) => {});
     }
 
-    // Se já estiver conectado (sem QR code), baixa conversas automaticamente
     if (status === 'connecting' && !res?.base64) {
-      // Verifica o status real da conexão após um pequeno delay
       setTimeout(async () => {
         try {
           const currentStatus = await this.getStatus(branchId, partnerId);
@@ -464,27 +415,15 @@ export class WhatsAppService {
       throw new BadRequestException('WhatsApp não configurado. Conecte o WhatsApp primeiro.');
     }
 
+    try {
+      await this.evolutionRequest('DELETE', `/instance/logout/${config.instanceName}`);
+    } catch (error) {}
 
     try {
-      await this.evolutionRequest(
-        'DELETE',
-        `/instance/logout/${config.instanceName}`,
-      );
-    } catch (error) {
-    }
+      await this.evolutionRequest('DELETE', `/instance/delete/${config.instanceName}`);
+    } catch (error) {}
 
-    try {
-      await this.evolutionRequest(
-        'DELETE',
-        `/instance/delete/${config.instanceName}`,
-      );
-    } catch (error) {
-    }
-
-    // Limpa todos os contadores de mensagens não lidas do banco
-    await prisma.whatsAppChatRead.deleteMany({
-      where,
-    });
+    await prisma.whatsAppChatRead.deleteMany({ where });
 
     await prisma.whatsAppConfig.update({
       where: { id: config.id },
@@ -494,8 +433,6 @@ export class WhatsAppService {
         phoneNumber: null,
         profileName: null,
         profilePicUrl: null,
-        // Mantém instanceName e instanceId para o webhook continuar funcionando
-        // Eles são usados para resolver o branchId nos eventos
       },
     });
 
@@ -523,19 +460,13 @@ export class WhatsAppService {
         status = 'connected';
 
         if (config.status !== 'connected') {
-          // Atualiza apenas o status sem buscar informações adicionais da instância
-          // Isso evita chamadas desnecessárias à Evolution API que causam lentidão
           await prisma.whatsAppConfig.update({
             where: { id: config.id },
             data: { status: 'connected', qrCode: null },
           });
         }
       } else if (state === 'connecting') {
-        if (config.qrCode) {
-          status = 'qr_code';
-        } else {
-          status = 'connecting';
-        }
+        status = config.qrCode ? 'qr_code' : 'connecting';
       } else {
         status = 'disconnected';
       }
@@ -551,19 +482,83 @@ export class WhatsAppService {
     }
   }
 
-  // ─── Helper methods ────────────────────────────────────────────
+  // ─── Phone formatting ──────────────────────────────────────────
 
+  /**
+   * Formata número para o padrão E.164 brasileiro compatível com WhatsApp/Evolution API.
+   *
+   * Regras:
+   * - Remove tudo que não for dígito
+   * - Remove DDI 55 se já presente para normalizar
+   * - Celulares BR: DDD(2) + 9 dígitos locais = 11 dígitos locais
+   *   O WhatsApp registra a maioria dos celulares SEM o 9 extra (8 dígitos locais)
+   *   então removemos o 9 do início do número (após o DDD) para evitar "exists: false"
+   * - Fixos BR: DDD(2) + 8 dígitos = 10 dígitos locais — mantém como está
+   * - Números internacionais (não começa com 55 e tem > 10 dígitos): retorna como está
+   */
   private formatPhone(phone: string): string {
-    // Remove all non-digit characters
     const cleaned = phone.replace(/\D/g, '');
 
-    // If already has country code (55 for Brazil), return as is
-    if (cleaned.startsWith('55') && cleaned.length >= 12) {
+    // Extrai parte local (sem DDI 55)
+    const local = cleaned.startsWith('55') && cleaned.length >= 12
+      ? cleaned.slice(2)
+      : cleaned;
+
+    // Número internacional (não é BR)
+    if (!cleaned.startsWith('55') && local.length > 11) {
       return cleaned;
     }
 
-    // Add Brazilian country code (55) if not present
-    return `55${cleaned}`;
+    // Celular BR com 9º dígito: DDD(2) + 9 + número(8) = 11 dígitos locais
+    // Remove o 9 extra: 81 9 9978-9585 → 81 9978-9585
+    if (local.length === 11 && local[2] === '9') {
+      const withoutNinth = local.slice(0, 2) + local.slice(3); // DDD + 8 dígitos
+      return `55${withoutNinth}`;
+    }
+
+    // Fixo BR ou celular já sem o 9 extra (10 dígitos locais): usa direto
+    if (local.length === 10) {
+      return `55${local}`;
+    }
+
+    // Qualquer outro caso: adiciona DDI e retorna
+    return `55${local}`;
+  }
+
+  /**
+   * Retorna a variante alternativa do número formatado.
+   * Se o número foi formatado sem o 9 (10 dígitos locais), tenta com o 9.
+   * Se foi formatado com o 9 (11 dígitos locais), tenta sem o 9.
+   * Útil como fallback quando a primeira tentativa retorna "exists: false".
+   */
+  private formatPhoneAlternative(formatted: string): string | null {
+    const local = formatted.startsWith('55') ? formatted.slice(2) : formatted;
+
+    // Tem 10 dígitos locais (sem 9) → tenta inserir 9 após DDD
+    if (local.length === 10) {
+      return `55${local.slice(0, 2)}9${local.slice(2)}`;
+    }
+
+    // Tem 11 dígitos locais (com 9) → tenta remover o 9
+    if (local.length === 11 && local[2] === '9') {
+      return `55${local.slice(0, 2)}${local.slice(3)}`;
+    }
+
+    return null;
+  }
+
+  /**
+   * Verifica se o erro da Evolution API é especificamente "número não existe no WhatsApp".
+   * Isso nos permite fazer fallback sem suprimir outros erros (ex: instância desconectada).
+   */
+  private isNumberNotFoundError(error: any): boolean {
+    const msg = error?.message || error?.response?.message || '';
+    return (
+      msg.includes('"exists":false') ||
+      msg.includes("exists: false") ||
+      msg.includes('number not found') ||
+      msg.includes('Phone number not found')
+    );
   }
 
   // ─── Send messages ────────────────────────────────────────────
@@ -589,58 +584,101 @@ export class WhatsAppService {
     return { success: true, message: 'Mensagem de teste enviada!' };
   }
 
-  async sendMessage(phone: string, text: string, branchId?: string, partnerId?: string, customerId?: string, customerName?: string) {
+  /**
+   * Envia mensagem WhatsApp via Evolution API.
+   *
+   * Estratégia de fallback de número:
+   * 1. Formata o número removendo o 9 extra (padrão mais comum no WhatsApp BR)
+   * 2. Se a Evolution retornar "exists: false", tenta a variante alternativa (com o 9)
+   * 3. Se ambas falharem, loga e lança exceção
+   *
+   * Isso resolve o problema de números cadastrados no banco com 9 dígitos (81199789585)
+   * mas registrados no WhatsApp sem o 9 (8199789585), e vice-versa.
+   */
+  async sendMessage(
+    phone: string,
+    text: string,
+    branchId?: string,
+    partnerId?: string,
+    customerId?: string,
+    customerName?: string,
+  ) {
     const where = this.getConfigWhere(branchId, partnerId);
-    const config = await prisma.whatsAppConfig.findFirst({
-      where,
-    });
+    const config = await prisma.whatsAppConfig.findFirst({ where });
 
     if (!config || config.status !== 'connected') {
       throw new BadRequestException('WhatsApp não está conectado');
     }
 
-    const formattedPhone = this.formatPhone(phone);
+    const primaryPhone = this.formatPhone(phone);
+    const alternativePhone = this.formatPhoneAlternative(primaryPhone);
 
-    try {
+    const attemptSend = async (numberToTry: string): Promise<void> => {
       await this.evolutionRequest(
         'POST',
         `/message/sendText/${config.instanceName}`,
-        { number: formattedPhone, text },
+        { number: numberToTry, text },
       );
+    };
 
-      // Rastrear mensagem enviada
+    let usedPhone = primaryPhone;
+    let sendError: any = null;
+
+    // Tentativa 1: número primário (sem 9 extra)
+    try {
+      await attemptSend(primaryPhone);
+      this.logger.log(`[WhatsApp] Mensagem enviada para ${primaryPhone}`);
+    } catch (error: any) {
+      sendError = error;
+
+      // Tentativa 2: número alternativo (com/sem 9), apenas se o erro for "not found"
+      if (this.isNumberNotFoundError(error) && alternativePhone) {
+        this.logger.warn(
+          `[WhatsApp] Número ${primaryPhone} não encontrado no WhatsApp. Tentando alternativa: ${alternativePhone}`,
+        );
+        try {
+          await attemptSend(alternativePhone);
+          usedPhone = alternativePhone;
+          sendError = null;
+          this.logger.log(`[WhatsApp] Mensagem enviada para alternativa ${alternativePhone}`);
+        } catch (altError: any) {
+          sendError = altError;
+          this.logger.error(
+            `[WhatsApp] Falha também na alternativa ${alternativePhone}: ${altError?.message}`,
+          );
+        }
+      } else {
+        this.logger.error(
+          `[WhatsApp] Falha ao enviar para ${primaryPhone} (erro não relacionado ao número): ${error?.message}`,
+        );
+      }
+    }
+
+    // Rastreia resultado no banco independente do sucesso/falha
+    const messageStatus = sendError ? 'failed' : 'sent';
+    try {
       await prisma.whatsAppMessage.create({
         data: {
           partnerId,
           branchId,
           customerId,
-          customerPhone: formattedPhone,
+          customerPhone: usedPhone,
           customerName,
           message: text,
-          status: 'sent',
+          status: messageStatus,
           sentAt: new Date(),
         },
       });
+    } catch (dbError) {
+      this.logger.error('[WhatsApp] Falha ao salvar registro de mensagem no banco:', dbError);
+    }
 
-      return { success: true };
-    } catch (error) {
-      console.error(`[WhatsApp] Falha ao enviar mensagem para ${phone}:`, error);
-      
-      // Rastrear mensagem falha
-      await prisma.whatsAppMessage.create({
-        data: {
-          partnerId,
-          branchId,
-          customerId,
-          customerPhone: formattedPhone,
-          customerName,
-          message: text,
-          status: 'failed',
-          sentAt: new Date(),
-        },
-      });
+    if (sendError) {
+      console.error(`[WhatsApp] Failed to send message to ${phone}:`, sendError);
       throw new BadRequestException(`Falha ao enviar mensagem para ${phone}`);
     }
+
+    return { success: true };
   }
 
   async sendBulkMessages(
@@ -655,7 +693,6 @@ export class WhatsAppService {
       errors: [] as string[],
     };
 
-    // Fetch partner code if partnerId is provided
     let partnerCode: string | null = null;
     if (partnerId) {
       const partner = await prisma.partner.findUnique({
@@ -667,7 +704,6 @@ export class WhatsAppService {
 
     for (const { phone, name, segment, customerId } of phonesWithPersonalization) {
       try {
-        // Personalize the message
         let personalizedMessage = message;
         if (name) {
           personalizedMessage = personalizedMessage.replace(/{nome}/g, name);
@@ -677,7 +713,6 @@ export class WhatsAppService {
         }
         personalizedMessage = personalizedMessage.replace(/{telefone}/g, phone);
         
-        // Replace link variables
         const frontendUrl = process.env.FRONTEND_URL || 'https://app.anotaja.com';
         if (partnerCode) {
           personalizedMessage = personalizedMessage.replace(
@@ -694,10 +729,7 @@ export class WhatsAppService {
           /{admin-login}/g,
           `${frontendUrl}/admin/login`
         );
-        personalizedMessage = personalizedMessage.replace(
-          /{loja}/g,
-          frontendUrl
-        );
+        personalizedMessage = personalizedMessage.replace(/{loja}/g, frontendUrl);
 
         await this.sendMessage(phone, personalizedMessage, branchId, partnerId, customerId, name);
         results.success++;
@@ -719,9 +751,7 @@ export class WhatsAppService {
         partnerId,
         branchId,
       },
-      orderBy: {
-        sentAt: 'desc',
-      },
+      orderBy: { sentAt: 'desc' },
       take: 50,
     });
 
@@ -731,7 +761,6 @@ export class WhatsAppService {
   async checkDuplicateMessage(phone: string, message: string, partnerId?: string, branchId?: string) {
     const formattedPhone = this.formatPhone(phone);
     
-    // Check if the same message was sent in the last 24 hours
     const oneDayAgo = new Date();
     oneDayAgo.setHours(oneDayAgo.getHours() - 24);
 
@@ -742,9 +771,7 @@ export class WhatsAppService {
         partnerId,
         branchId,
         status: 'sent',
-        sentAt: {
-          gte: oneDayAgo,
-        },
+        sentAt: { gte: oneDayAgo },
       },
     });
 
@@ -762,7 +789,6 @@ export class WhatsAppService {
       return null;
     }
 
-    // Fetch customer data
     const customers = await prisma.customer.findMany({
       where: { branchId },
       select: {
@@ -802,7 +828,6 @@ export class WhatsAppService {
       },
     });
 
-    // Calculate new orders count per customer (PENDING, CONFIRMED, READY)
     const newOrdersMap = new Map<string, number>();
     for (const customer of customers) {
       const newOrdersCount = customer.orders.filter(
@@ -850,7 +875,6 @@ export class WhatsAppService {
     const totalSpent = customer ? (spentMap.get(customer.id) ?? 0) : 0;
     const defaultAddress = customer?.addresses[0] ?? null;
 
-    // Fetch chat data from Evolution API
     const raw = await this.evolutionRequest(
       'POST',
       `/chat/findChats/${config.instanceName}`,
@@ -869,7 +893,6 @@ export class WhatsAppService {
     });
 
     if (!chat) {
-      // If chat not found in Evolution API, return customer data only
       return {
         jid,
         name: customer?.name || this.jidToPhone(jid),
@@ -979,9 +1002,6 @@ export class WhatsAppService {
       chatsByJid.set(jid, { ...c, _jid: jid });
     }
 
-    // Merge LID chats: incoming messages are stored under @lid JIDs.
-    // If a @lid chat has lastMessage.key.remoteJidAlt pointing to an existing
-    // @s.whatsapp.net chat with a newer timestamp, update that chat's lastMessage.
     for (const c of rawChats) {
       const jid = extractJid(c);
       if (!jid || !jid.endsWith('@lid')) continue;
@@ -1007,7 +1027,6 @@ export class WhatsAppService {
 
     const individualChats = Array.from(chatsByJid.values());
 
-    // Fetch unread counts from database
     const chatReadStatuses = await prisma.whatsAppChatRead.findMany({
       where: { branchId },
     });
@@ -1067,7 +1086,6 @@ export class WhatsAppService {
       spentByCustomer.map((s) => [s.customerId!, s._sum.total ?? 0]),
     );
 
-    // Calculate new orders count per customer (PENDING, CONFIRMED, READY)
     const newOrdersMap = new Map<string, number>();
     for (const customer of customers) {
       const newOrdersCount = customer.orders.filter(
@@ -1112,7 +1130,6 @@ export class WhatsAppService {
       return null;
     };
 
-    // Collect all last order IDs to fetch complete orders
     const lastOrderIds = new Set<string>();
     for (const c of individualChats) {
       const customer = findCustomer(c._jid);
@@ -1122,7 +1139,6 @@ export class WhatsAppService {
       }
     }
 
-    // Fetch complete orders with all properties needed for state machine
     const completeOrders = await prisma.order.findMany({
       where: { id: { in: Array.from(lastOrderIds) } },
     });
@@ -1135,12 +1151,10 @@ export class WhatsAppService {
       const totalSpent = customer ? (spentMap.get(customer.id) ?? 0) : 0;
       const defaultAddress = customer?.addresses[0] ?? null;
 
-      // Get available transitions for the last order using complete order data
       const completeOrder = lastOrder?.id ? ordersMap.get(lastOrder.id) : null;
       const availableTransitions = completeOrder
         ? this.orderStateMachine.getAvailableTransitions(completeOrder)
         : [];
-
 
       return {
         jid: c._jid,
@@ -1196,10 +1210,6 @@ export class WhatsAppService {
 
     const count = dto.count || 50;
 
-    // WhatsApp uses two JID formats:
-    //   - Outgoing msgs: key.remoteJid = "558182647354@s.whatsapp.net"
-    //   - Incoming msgs: key.remoteJid = "39771615309944@lid", key.remoteJidAlt = "558182647354@s.whatsapp.net"
-    // We query BOTH key.remoteJid AND key.remoteJidAlt to get the full conversation.
     const [outgoing, incoming] = await Promise.all([
       this.evolutionRequest(
         'POST',
@@ -1224,7 +1234,6 @@ export class WhatsAppService {
       return [];
     }
 
-    // Deduplicate by message ID
     const seen = new Set<string>();
     const deduped = raw.filter((msg: any) => {
       const id = msg.key?.id || msg.id || String(msg.messageTimestamp);
@@ -1233,14 +1242,12 @@ export class WhatsAppService {
       return true;
     });
 
-    // Sort newest first
     deduped.sort((a, b) => {
       const tA = typeof a.messageTimestamp === 'number' ? a.messageTimestamp : Number(a.messageTimestamp) || 0;
       const tB = typeof b.messageTimestamp === 'number' ? b.messageTimestamp : Number(b.messageTimestamp) || 0;
       return tB - tA;
     });
 
-    // Cursor-based pagination
     let paginated = deduped;
     if (dto.cursor) {
       paginated = deduped.filter((msg: any) => {
@@ -1263,8 +1270,6 @@ export class WhatsAppService {
     }));
   }
 
-
-
   async sendCrmMessage(branchId: string, dto: SendCrmMessageDto) {
     const config = await this.getFullConfig(branchId);
 
@@ -1280,44 +1285,42 @@ export class WhatsAppService {
     };
   }
 
-async sendCrmMedia(
-  branchId: string,
-  jid: string,
-  file: Express.Multer.File,
-  caption?: string,
-) {
-  const config = await this.getFullConfig(branchId);
-  const isAudio = file.mimetype.startsWith('audio/');
+  async sendCrmMedia(
+    branchId: string,
+    jid: string,
+    file: Express.Multer.File,
+    caption?: string,
+  ) {
+    const config = await this.getFullConfig(branchId);
+    const isAudio = file.mimetype.startsWith('audio/');
 
-  const base64File = file.buffer.toString('base64');
+    const base64File = file.buffer.toString('base64');
 
-  // Para áudio, usa sendWhatsAppAudio (PTT) em vez de sendMedia
-  const endpoint = isAudio
-    ? `/message/sendWhatsAppAudio/${config.instanceName}`
-    : `/message/sendMedia/${config.instanceName}`;
+    const endpoint = isAudio
+      ? `/message/sendWhatsAppAudio/${config.instanceName}`
+      : `/message/sendMedia/${config.instanceName}`;
 
-  const body = isAudio
-    ? {
-        number: jid,
-        audio: base64File,
-        encoding: true,
-      }
-    : {
-        number: jid,
-        mediatype: this.detectMediaTypeFromMime(file.mimetype),
-        media: base64File,
-        fileName: file.originalname,
-        caption: caption || '',
-      };
+    const body = isAudio
+      ? {
+          number: jid,
+          audio: base64File,
+          encoding: true,
+        }
+      : {
+          number: jid,
+          mediatype: this.detectMediaTypeFromMime(file.mimetype),
+          media: base64File,
+          fileName: file.originalname,
+          caption: caption || '',
+        };
 
-  const result = await this.evolutionRequest('POST', endpoint, body);
+    const result = await this.evolutionRequest('POST', endpoint, body);
 
-  return {
-    success: true,
-    messageId: result?.key?.id || result?.messageId || null,
-  };
-}
-
+    return {
+      success: true,
+      messageId: result?.key?.id || result?.messageId || null,
+    };
+  }
 
   private detectMediaTypeFromMime(mimeType: string): string {
     if (mimeType.startsWith('image/')) return 'image';
@@ -1345,18 +1348,14 @@ async sendCrmMedia(
     this.logger.log(`[WhatsApp] processWhatsAppAudio - Processing audio from URL: ${url}`);
     
     try {
-      // Download audio from WhatsApp
       const buffer = await this.downloadMedia(url);
       
-      // Create temp file path
       const tempDir = '/tmp';
       const inputPath = path.join(tempDir, `${randomUUID()}.enc`);
       const outputPath = path.join(tempDir, `${randomUUID()}.mp3`);
       
-      // Write input file
       fs.writeFileSync(inputPath, buffer);
       
-      // Convert using FFmpeg
       await new Promise<void>((resolve, reject) => {
         ffmpeg(inputPath)
           .output(outputPath)
@@ -1367,14 +1366,11 @@ async sendCrmMedia(
           .run();
       });
       
-      // Read converted file
       const convertedBuffer = fs.readFileSync(outputPath);
       
-      // Clean up temp files
       fs.unlinkSync(inputPath);
       fs.unlinkSync(outputPath);
       
-      // Upload to R2
       const file: Express.Multer.File = {
         buffer: convertedBuffer,
         originalname: 'audio.mp3',
@@ -1398,94 +1394,80 @@ async sendCrmMedia(
     }
   }
 
-async markChatAsRead(branchId?: string, partnerId?: string, jid?: string) {
-  // If partnerId is provided, we need to get the branchId from the partner's associated branch
-  let actualBranchId = branchId;
-  if (partnerId && !branchId) {
-    // For partners, we skip this operation since WhatsAppChatRead only supports branchId
-    // Partners use a different WhatsApp config structure
-    console.warn('[markChatAsRead] Partner detected but WhatsAppChatRead only supports branchId. Skipping.');
-    return { success: true };
-  }
-
-  if (!actualBranchId) {
-    console.warn('[markChatAsRead] No branchId provided. Skipping.');
-    return { success: true };
-  }
-
-  // Check if the branch exists before attempting upsert
-  try {
-    const branch = await prisma.branch.findUnique({
-      where: { id: actualBranchId },
-    });
-
-    if (!branch) {
-      console.warn(`[markChatAsRead] Branch ${actualBranchId} does not exist. Skipping.`);
+  async markChatAsRead(branchId?: string, partnerId?: string, jid?: string) {
+    let actualBranchId = branchId;
+    if (partnerId && !branchId) {
+      console.warn('[markChatAsRead] Partner detected but WhatsAppChatRead only supports branchId. Skipping.');
       return { success: true };
     }
-  } catch (error) {
-    console.warn('[markChatAsRead] Failed to check branch existence:', error);
-    return { success: true };
-  }
 
-  try {
-    // Try to ensure WhatsAppConfig exists for this branch
-    await prisma.whatsAppConfig.upsert({
+    if (!actualBranchId) {
+      console.warn('[markChatAsRead] No branchId provided. Skipping.');
+      return { success: true };
+    }
+
+    try {
+      const branch = await prisma.branch.findUnique({
+        where: { id: actualBranchId },
+      });
+
+      if (!branch) {
+        console.warn(`[markChatAsRead] Branch ${actualBranchId} does not exist. Skipping.`);
+        return { success: true };
+      }
+    } catch (error) {
+      console.warn('[markChatAsRead] Failed to check branch existence:', error);
+      return { success: true };
+    }
+
+    try {
+      await prisma.whatsAppConfig.upsert({
+        where: { branchId: actualBranchId },
+        create: { branchId: actualBranchId },
+        update: {},
+      });
+    } catch (error) {
+      console.warn('Failed to ensure WhatsAppConfig:', error);
+      return { success: true };
+    }
+
+    const config = await prisma.whatsAppConfig.findUnique({
       where: { branchId: actualBranchId },
-      create: { branchId: actualBranchId },
-      update: {},
     });
-  } catch (error) {
-    // If config creation fails, skip the WhatsAppChatRead operation
-    console.warn('Failed to ensure WhatsAppConfig:', error);
-    return { success: true };
-  }
 
-  // Verify WhatsAppConfig exists before creating WhatsAppChatRead
-  const config = await prisma.whatsAppConfig.findUnique({
-    where: { branchId: actualBranchId },
-  });
+    if (!config) {
+      console.warn(`[markChatAsRead] WhatsAppConfig for branch ${actualBranchId} does not exist. Skipping.`);
+      return { success: true };
+    }
 
-  if (!config) {
-    console.warn(`[markChatAsRead] WhatsAppConfig for branch ${actualBranchId} does not exist. Skipping.`);
-    return { success: true };
-  }
-
-  try {
-    await prisma.whatsAppChatRead.upsert({
-      where: {
-        branchId_jid: {
-          branchId: config.id, // Use WhatsAppConfig.id, not branchId
-          jid: jid || '',
+    try {
+      await prisma.whatsAppChatRead.upsert({
+        where: {
+          branchId_jid: {
+            branchId: config.id,
+            jid: jid || '',
+          },
         },
-      },
-      create: {
-        branchId: config.id, // Use WhatsAppConfig.id, not branchId
-        jid: jid || '',
-        unreadCount: 0,
-        lastReadAt: new Date(),
-      },
-      update: {
-        unreadCount: 0,
-        lastReadAt: new Date(),
-      },
-    });
-  } catch (error) {
-    // If still fails due to FK, skip the operation
-    console.warn('Failed to upsert WhatsAppChatRead:', error);
-  }
+        create: {
+          branchId: config.id,
+          jid: jid || '',
+          unreadCount: 0,
+          lastReadAt: new Date(),
+        },
+        update: {
+          unreadCount: 0,
+          lastReadAt: new Date(),
+        },
+      });
+    } catch (error) {
+      console.warn('Failed to upsert WhatsAppChatRead:', error);
+    }
 
     return { success: true };
   }
 
   // ─── Helpers ──────────────────────────────────────────────────
 
-  /**
-   * Compara dois JIDs do WhatsApp tolerando:
-   * - sufixos @s.whatsapp.net / @lid
-   * - código do país 55
-   * - dígito 9 brasileiro (8 vs 9 dígitos após DDD)
-   */
   private jidsMatch(a: string, b: string): boolean {
     if (!a || !b) return false;
     if (a === b) return true;
@@ -1493,14 +1475,13 @@ async markChatAsRead(branchId?: string, partnerId?: string, jid?: string) {
     const normalize = (jid: string) =>
       jid
         .replace(/@s\.whatsapp\.net|@lid|@g\.us/g, '')
-        .replace(/\D/g, ''); // só números
+        .replace(/\D/g, '');
 
     const nA = normalize(a);
     const nB = normalize(b);
 
     if (nA === nB) return true;
 
-    // Remove código do país BR
     const stripBR = (p: string) =>
       p.startsWith('55') && p.length >= 12 ? p.slice(2) : p;
 
@@ -1509,7 +1490,6 @@ async markChatAsRead(branchId?: string, partnerId?: string, jid?: string) {
 
     if (lA === lB) return true;
 
-    // Dígito 9 brasileiro: DDD (2) + número (8 ou 9 dígitos)
     if (lA.length >= 10 && lB.length >= 10) {
       const areaA = lA.slice(0, 2);
       const areaB = lB.slice(0, 2);
@@ -1539,22 +1519,17 @@ async markChatAsRead(branchId?: string, partnerId?: string, jid?: string) {
     return '+' + (jid || '').replace('@s.whatsapp.net', '');
   }
 
-  /**
-   * Extract text from a message object
-   */
   private extractTextFromMessage(msg: any): string {
     if (!msg) return '';
     if (typeof msg === 'string') return msg;
     const m = msg.message || msg;
 
-    // Check for text content first
     if (m.conversation) return m.conversation;
     if (m.extendedTextMessage?.text) return m.extendedTextMessage.text;
     if (m.buttonsResponseMessage?.selectedDisplayText) return m.buttonsResponseMessage.selectedDisplayText;
     if (m.listResponseMessage?.description) return m.listResponseMessage.description;
     if (m.reactionMessage?.text) return m.reactionMessage.text;
 
-    // For media messages, return descriptive text
     if (m.imageMessage) return m.imageMessage.caption || '📷 Foto';
     if (m.videoMessage) return m.videoMessage.caption || '🎥 Vídeo';
     if (m.documentMessage) return m.documentMessage.caption || m.documentMessage.title || '📄 Documento';
@@ -1566,12 +1541,6 @@ async markChatAsRead(branchId?: string, partnerId?: string, jid?: string) {
     return '';
   }
 
-  /**
-   * Format timestamp for display:
-   * - Today: show time (e.g., 14:30)
-   * - Yesterday (24-48h): show "ontem"
-   * - 2+ days ago: show date (e.g., 24/03/2026)
-   */
   private formatTimestamp(timestamp: number | string | Date): string {
     if (!timestamp) return '';
     
@@ -1582,30 +1551,24 @@ async markChatAsRead(branchId?: string, partnerId?: string, jid?: string) {
     const diffMs = now.getTime() - ts.getTime();
     const diffHours = diffMs / (1000 * 60 * 60);
     
-    // Today: show time
     if (diffHours < 24) {
       const hours = ts.getHours().toString().padStart(2, '0');
       const minutes = ts.getMinutes().toString().padStart(2, '0');
       return `${hours}:${minutes}`;
     }
     
-    // Yesterday (24-48h): show "ontem"
     if (diffHours < 48) {
       return 'ontem';
     }
     
-    // 2+ days ago: show date
     const day = ts.getDate().toString().padStart(2, '0');
     const month = (ts.getMonth() + 1).toString().padStart(2, '0');
     const year = ts.getFullYear();
     return `${day}/${month}/${year}`;
   }
 
-  /**
-   * Detect media type from message
-   */
   private detectMediaType(msg: any): string {
-    if (!msg.message) return 'text';
+    if (!msg?.message) return 'text';
     if (msg.message.imageMessage) return 'image';
     if (msg.message.videoMessage) return 'video';
     if (msg.message.audioMessage) return 'audio';
@@ -1615,7 +1578,7 @@ async markChatAsRead(branchId?: string, partnerId?: string, jid?: string) {
   }
 
   private extractMediaUrl(msg: any): string | null {
-    if (!msg.message) return null;
+    if (!msg?.message) return null;
     if (msg.message.imageMessage?.url) return msg.message.imageMessage.url;
     if (msg.message.videoMessage?.url) return msg.message.videoMessage.url;
     if (msg.message.audioMessage?.url) return msg.message.audioMessage.url;
@@ -1624,34 +1587,29 @@ async markChatAsRead(branchId?: string, partnerId?: string, jid?: string) {
     return null;
   }
 
-  /**
-   * Map Evolution API status to CRM status
-   */
   private mapEvolutionStatus(status: string | number): string {
-  // Status numérico (Evolution API padrão conforme documentação WhatsApp Business)
-  if (typeof status === 'number') {
-    const numericMap: Record<number, string> = {
-      0: 'error',    // ERROR
-      1: 'pending',  // PENDING
-      2: 'sent',     // SERVER_ACK — chegou ao servidor WhatsApp
-      3: 'received', // DELIVERY_ACK — entregue no aparelho
-      4: 'read',     // READ — destinatário visualizou
-      5: 'read',     // PLAYED — áudio ouvido (equivalente a read)
-    };
-    return numericMap[status] ?? 'sent';
-  }
+    if (typeof status === 'number') {
+      const numericMap: Record<number, string> = {
+        0: 'error',
+        1: 'pending',
+        2: 'sent',
+        3: 'received',
+        4: 'read',
+        5: 'read',
+      };
+      return numericMap[status] ?? 'sent';
+    }
  
-  // Status string
-  const statusMap: Record<string, string> = {
-    'PENDING': 'pending',
-    'SERVER_ACK': 'sent',
-    'DELIVERY_ACK': 'received', // CORRIGIDO: era 'delivered', agora 'received'
-    'READ': 'read',
-    'PLAYED': 'read',
-    'ERROR': 'error',
-  };
-  return statusMap[String(status).toUpperCase()] || 'sent';
-}
+    const statusMap: Record<string, string> = {
+      'PENDING': 'pending',
+      'SERVER_ACK': 'sent',
+      'DELIVERY_ACK': 'received',
+      'READ': 'read',
+      'PLAYED': 'read',
+      'ERROR': 'error',
+    };
+    return statusMap[String(status).toUpperCase()] || 'sent';
+  }
 
   private async getFullConfig(branchId: string) {
     const config = await prisma.whatsAppConfig.findUnique({
@@ -1689,7 +1647,6 @@ async markChatAsRead(branchId?: string, partnerId?: string, jid?: string) {
   async registerWebhook(branchId: string, webhookUrl: string) {
     const config = await this.getFullConfig(branchId);
 
-
     try {
       await this.evolutionRequest('POST', `/webhook/set/${config.instanceName}`, {
         webhook: {
@@ -1699,8 +1656,7 @@ async markChatAsRead(branchId?: string, partnerId?: string, jid?: string) {
           webhookBase64: false,
         },
       });
-    } catch {
-    }
+    } catch {}
 
     const result = await this.evolutionRequest(
       'POST',
@@ -1728,7 +1684,6 @@ async markChatAsRead(branchId?: string, partnerId?: string, jid?: string) {
 
   async getTemplates(branchId?: string, partnerId?: string) {
     const where = this.getConfigWhere(branchId, partnerId);
-    // Se where está vazio, retorna array vazio para não expor dados de outros usuários
     if (Object.keys(where).length === 0) {
       return [];
     }
