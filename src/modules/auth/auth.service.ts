@@ -328,6 +328,7 @@ export class AuthService {
                 paymentMethod: true
               }
             },
+             
             orders: {
               include: {
                 customer: {
