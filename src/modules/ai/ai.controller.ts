@@ -6,6 +6,7 @@ import { GenerateWhatsAppTemplateDto } from './dto/generate-whatsapp-template.dt
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { GenerateFreeDto } from './generate-description/dto/generate-free.dto';
 
 @Controller('ai')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -85,5 +86,10 @@ export class AiController {
       type: generateWhatsAppTemplateDto.type,
       template,
     };
+  }
+  @Post('generate-free')
+  async generateFree(@Body() body: GenerateFreeDto) {
+    const result = await this.aiService.generateFree(body.prompt);
+    return { result };
   }
 }
