@@ -35,6 +35,61 @@ export class WhatsAppService {
     return key;
   }
 
+  private async checkWhatsAppNumber(
+    instanceName: string,
+    phone: string,
+  ): Promise<boolean> {
+    try {
+      const res = await this.evolutionRequest(
+        'POST',
+        `/chat/whatsappNumbers/${instanceName}`,
+        {
+          numbers: [phone],
+        },
+      );
+
+      const result = Array.isArray(res) ? res[0] : res?.[0];
+
+      return !!result?.exists;
+    } catch (error) {
+      this.logger.warn(
+        `[WhatsApp] Falha ao verificar número ${phone}: ${error}`,
+      );
+
+      // Se falhar na API, deixa tentar enviar normalmente
+      return true;
+    }
+  }
+
+  private async resolveWhatsAppNumber(
+    instanceName: string,
+    phone: string,
+  ): Promise<string | null> {
+    const primary = this.formatPhone(phone);
+    const alternative = this.formatPhoneAlternative(primary);
+
+    const primaryExists = await this.checkWhatsAppNumber(
+      instanceName,
+      primary,
+    );
+
+    if (primaryExists) {
+      return primary;
+    }
+
+    if (alternative) {
+      const altExists = await this.checkWhatsAppNumber(
+        instanceName,
+        alternative,
+      );
+
+      if (altExists) {
+        return alternative;
+      }
+    }
+
+    return null;
+  }
   // ─── Monitor Instance Connection ──────────────────────────────────
 
   private monitorInstanceConnection(branchId: string, instanceName: string) {
@@ -629,6 +684,21 @@ export class WhatsAppService {
 
     // Tentativa 1: número primário (sem 9 extra)
     try {
+
+      if (!config?.instanceName) {
+        throw new BadRequestException('WhatsApp não está conectado');
+      }
+      const validPhone = await this.resolveWhatsAppNumber(
+        config.instanceName,
+        phone,
+      );
+
+      if (!validPhone) {
+        throw new BadRequestException(
+          `Número ${phone} não possui WhatsApp`,
+        );
+      }
+
       await attemptSend(primaryPhone);
       this.logger.log(`[WhatsApp] Mensagem enviada para ${primaryPhone}`);
     } catch (error: any) {
