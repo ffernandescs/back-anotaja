@@ -496,52 +496,44 @@ export class WhatsAppService {
    * - Fixos BR: DDD(2) + 8 dígitos = 10 dígitos locais — mantém como está
    * - Números internacionais (não começa com 55 e tem > 10 dígitos): retorna como está
    */
+  /**
+   * Normaliza número para E.164 brasileiro SEM alterar a quantidade de dígitos.
+   *
+   * Não removemos o 9 aqui porque é impossível distinguir:
+   *   81 9 97895854  (nono dígito extra + número de 8 dígitos)
+   *   81 997895854   (número de 9 dígitos legítimo)
+   * ambos têm a mesma estrutura. Qualquer remoção automática quebra números válidos.
+   *
+   * O fallback em sendMessage tenta a variante com/sem 9 quando a primeira falha.
+   */
   private formatPhone(phone: string): string {
     const cleaned = phone.replace(/\D/g, '');
 
-    // Extrai parte local (sem DDI 55)
-    const local = cleaned.startsWith('55') && cleaned.length >= 12
-      ? cleaned.slice(2)
-      : cleaned;
-
-    // Número internacional (não é BR)
-    if (!cleaned.startsWith('55') && local.length > 11) {
+    // Já tem DDI 55 correto
+    if (cleaned.startsWith('55') && cleaned.length >= 12) {
       return cleaned;
     }
 
-    // Celular BR com 9º dígito: DDD(2) + 9 + número(8) = 11 dígitos locais
-    // Remove o 9 extra: 81 9 9978-9585 → 81 9978-9585
-    if (local.length === 11 && local[2] === '9') {
-      const withoutNinth = local.slice(0, 2) + local.slice(3); // DDD + 8 dígitos
-      return `55${withoutNinth}`;
-    }
-
-    // Fixo BR ou celular já sem o 9 extra (10 dígitos locais): usa direto
-    if (local.length === 10) {
-      return `55${local}`;
-    }
-
-    // Qualquer outro caso: adiciona DDI e retorna
-    return `55${local}`;
+    // Número sem DDI: adiciona 55
+    return `55${cleaned}`;
   }
 
   /**
-   * Retorna a variante alternativa do número formatado.
-   * Se o número foi formatado sem o 9 (10 dígitos locais), tenta com o 9.
-   * Se foi formatado com o 9 (11 dígitos locais), tenta sem o 9.
-   * Útil como fallback quando a primeira tentativa retorna "exists: false".
+   * Gera a variante alternativa: se tem 13 dígitos (55+DDD+9+8), tenta sem o 9.
+   * Se tem 12 dígitos (55+DDD+8), tenta com o 9.
+   * Cobre tanto números antigos (8 dígitos) quanto novos (9 dígitos).
    */
   private formatPhoneAlternative(formatted: string): string | null {
     const local = formatted.startsWith('55') ? formatted.slice(2) : formatted;
 
-    // Tem 10 dígitos locais (sem 9) → tenta inserir 9 após DDD
-    if (local.length === 10) {
-      return `55${local.slice(0, 2)}9${local.slice(2)}`;
-    }
-
-    // Tem 11 dígitos locais (com 9) → tenta remover o 9
+    // 11 dígitos locais (DDD + 9 dígitos) → tenta sem o 9 após DDD
     if (local.length === 11 && local[2] === '9') {
       return `55${local.slice(0, 2)}${local.slice(3)}`;
+    }
+
+    // 10 dígitos locais (DDD + 8 dígitos) → tenta com o 9 após DDD
+    if (local.length === 10) {
+      return `55${local.slice(0, 2)}9${local.slice(2)}`;
     }
 
     return null;
@@ -552,12 +544,19 @@ export class WhatsAppService {
    * Isso nos permite fazer fallback sem suprimir outros erros (ex: instância desconectada).
    */
   private isNumberNotFoundError(error: any): boolean {
-    const msg = error?.message || error?.response?.message || '';
+    const candidates: string[] = [];
+    if (typeof error?.message === 'string') candidates.push(error.message);
+    if (typeof error?.response?.message === 'string') candidates.push(error.response.message);
+    try { candidates.push(JSON.stringify(error?.response ?? '')); } catch {}
+    try { candidates.push(JSON.stringify(error ?? '')); } catch {}
+    const haystack = candidates.join(' ');
     return (
-      msg.includes('"exists":false') ||
-      msg.includes("exists: false") ||
-      msg.includes('number not found') ||
-      msg.includes('Phone number not found')
+      haystack.includes('"exists":false') ||
+      haystack.includes('"exists": false') ||
+      haystack.includes('exists":false') ||
+      haystack.toLowerCase().includes('number not found') ||
+      haystack.toLowerCase().includes('phone number not found') ||
+      (haystack.includes('jid') && haystack.includes('exists') && haystack.includes('false'))
     );
   }
 
@@ -612,6 +611,10 @@ export class WhatsAppService {
 
     const primaryPhone = this.formatPhone(phone);
     const alternativePhone = this.formatPhoneAlternative(primaryPhone);
+
+    this.logger.debug(
+      `[WhatsApp] sendMessage — raw: ${phone} | primary: ${primaryPhone} | alt: ${alternativePhone ?? 'none'}`,
+    );
 
     const attemptSend = async (numberToTry: string): Promise<void> => {
       await this.evolutionRequest(
