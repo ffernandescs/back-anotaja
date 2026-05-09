@@ -35,6 +35,31 @@ export class WhatsAppService {
     return key;
   }
 
+  private async ensureInstance(instanceName: string) {
+  try {
+    // 1. tenta verificar se existe
+    const state = await this.evolutionRequest(
+      'GET',
+      `/instance/connectionState/${instanceName}`,
+    );
+
+    if (state?.instance?.state === 'open') {
+      return { exists: true, connected: true };
+    }
+
+    return { exists: true, connected: false };
+  } catch (err: any) {
+    // 404 = não existe
+    if (err?.status === 404 || err?.message?.includes('does not exist')) {
+      return { exists: false, connected: false };
+    }
+
+    // outros erros → deixa passar mas loga
+    this.logger.warn('[WhatsApp] ensureInstance error:', err);
+    return { exists: false, connected: false };
+  }
+}
+
   private async checkWhatsAppNumber(
     instanceName: string,
     phone: string,
@@ -157,127 +182,123 @@ export class WhatsAppService {
     });
   }
 
+  
+
   // ─── Evolution API – Instance management ──────────────────────
 
-  async setup(branchId: string) {
-    const instanceName = `anotaja_${branchId}`;
+ async setup(branchId: string) {
+  const instanceName = `anotaja_${branchId}`;
 
-    await prisma.whatsAppConfig.upsert({
-      where: { branchId },
-      update: {
-        serverUrl: this.serverUrl,
-        apiKey: this.globalApiKey,
+  await prisma.whatsAppConfig.upsert({
+    where: { branchId },
+    update: {
+      serverUrl: this.serverUrl,
+      apiKey: this.globalApiKey,
+      instanceName,
+      status: 'connecting',
+    },
+    create: {
+      branchId,
+      serverUrl: this.serverUrl,
+      apiKey: this.globalApiKey,
+      instanceName,
+      status: 'connecting',
+    },
+  });
+
+  const instance = await this.ensureInstance(instanceName);
+
+  try {
+    // 🧹 Se existir quebrada → tenta limpar
+    if (instance.exists) {
+      await this.evolutionRequest(
+        'DELETE',
+        `/instance/logout/${instanceName}`,
+      ).catch(() => {});
+    }
+
+    // 🆕 cria sempre de forma segura
+    await this.evolutionRequest(
+      'POST',
+      '/instance/create',
+      {
         instanceName,
-        status: 'connecting',
+        integration: 'WHATSAPP-BAILEYS',
+        qrcode: true,
+        storeMessages: true,
+        storeFullMessages: true,
       },
-      create: {
-        branchId,
-        serverUrl: this.serverUrl,
-        apiKey: this.globalApiKey,
-        instanceName,
-        status: 'connecting',
+    ).catch((err) => {
+      // se já existir → ignora
+      if (!err?.message?.includes('already')) throw err;
+    });
+
+    // webhook seguro
+    const webhookUrl = process.env.EVOLUTION_WEBHOOK_URL;
+    if (webhookUrl) {
+      await this.evolutionRequest(
+        'POST',
+        `/webhook/set/${instanceName}`,
+        {
+          url: webhookUrl,
+          webhook_by_events: false,
+          events: [
+            'MESSAGES_UPSERT',
+            'MESSAGES_UPDATE',
+            'SEND_MESSAGE',
+            'CONTACTS_UPDATE',
+            'CHATS_UPDATE',
+            'CHATS_UPSERT',
+            'CHATS_DELETE',
+            'CHATS_SET',
+          ],
+        },
+      ).catch(() => {});
+    }
+
+    // conecta sempre
+    const connectRes = await this.evolutionRequest(
+      'GET',
+      `/instance/connect/${instanceName}`,
+    );
+
+    const qrCode =
+      connectRes?.base64 ||
+      connectRes?.qrcode?.base64 ||
+      connectRes?.pairingCode ||
+      null;
+
+    await prisma.whatsAppConfig.update({
+      where: { branchId },
+      data: {
+        status: 'qr_code',
+        qrCode,
       },
     });
 
-    try {
-      const createRes = await this.evolutionRequest(
-        'POST',
-        '/instance/create',
-        {
-          instanceName,
-          integration: 'WHATSAPP-BAILEYS',
-          qrcode: true,
-          storeMessages: true,
-          storeFullMessages: true,
-        },
-      );
+    this.monitorInstanceConnection(branchId, instanceName);
 
-      await this.evolutionRequest(
-        'POST',
-        `/settings/set/${instanceName}`,
-        {
-          sync_full_history: false,
-          read_messages: true,
-          read_status: true,
-        },
-      ).catch((e) => {});
+    return {
+      status: 'qr_code',
+      qrCode,
+      instanceName,
+    };
+  } catch (error: any) {
+    this.logger.error('[WhatsApp] Setup error:', error);
 
-      const webhookUrl = process.env.EVOLUTION_WEBHOOK_URL;
-      if (webhookUrl) {
-        await this.evolutionRequest(
-          'POST',
-          `/webhook/set/${instanceName}`,
-          {
-            url: webhookUrl,
-            webhook_by_events: false,
-            events: [
-              'MESSAGES_UPSERT',
-              'MESSAGES_UPDATE',
-              'SEND_MESSAGE',
-              'CONTACTS_UPDATE',
-              'CHATS_UPDATE',
-              'CHATS_UPSERT',
-              'CHATS_DELETE',
-              'CHATS_SET',
-            ],
-          },
-        ).catch((e) => {});
-      }
+    await prisma.whatsAppConfig.update({
+      where: { branchId },
+      data: { status: 'disconnected' },
+    });
 
-      const instanceId = createRes?.instance?.instanceId || createRes?.instance?.id;
-
-      if (!instanceId) {
-        console.error('[WhatsApp] No instance ID in create response');
-        throw new BadRequestException('Failed to get instance ID from Evolution API');
-      }
-
-      await prisma.whatsAppConfig.update({
-        where: { branchId },
-        data: {
-          instanceId,
-          status: 'qr_code',
-        },
-      });
-
-      const connectRes = await this.evolutionRequest(
-        'GET',
-        `/instance/connect/${instanceName}`,
-      );
-
-      const qrCode = connectRes?.base64 || connectRes?.qrcode?.base64 || connectRes?.pairingCode || null;
-
-      await prisma.whatsAppConfig.update({
-        where: { branchId },
-        data: { qrCode },
-      });
-
-      this.monitorInstanceConnection(branchId, instanceName);
-
-      return {
-        status: 'qr_code',
-        qrCode,
-        instanceName,
-      };
-    } catch (error: any) {
-      console.error('[WhatsApp] Setup error:', error);
-
-      if (error?.status === 403 || error?.message?.includes('already')) {
-        return this.connect(branchId);
-      }
-
-      await prisma.whatsAppConfig.update({
-        where: { branchId },
-        data: { status: 'disconnected' },
-      });
-
-      throw new BadRequestException(
-        `Falha ao conectar Evolution API: ${error?.message || 'Erro desconhecido'}`,
-      );
-    }
+    throw new BadRequestException(
+      error?.message || 'Falha ao inicializar WhatsApp',
+    );
   }
+}
 
   async setupPartner(partnerId: string) {
-    const instanceName = `anotaja_partner_${partnerId}`;
+    const instanceName = `vaidelli_partner_${partnerId}`;
 
     await prisma.whatsAppConfig.upsert({
       where: { partnerId },
@@ -399,68 +420,44 @@ export class WhatsAppService {
     }
   }
 
-  async connect(branchId?: string, partnerId?: string) {
-    const where = this.getConfigWhere(branchId, partnerId);
-    const config = await prisma.whatsAppConfig.findFirst({ where });
+async connect(branchId?: string, partnerId?: string) {
+  const where = this.getConfigWhere(branchId, partnerId);
+  const config = await prisma.whatsAppConfig.findFirst({ where });
 
-    if (!config?.instanceName) {
-      throw new BadRequestException('WhatsApp não configurado. Conecte o WhatsApp primeiro.');
-    }
-
-    const res = await this.evolutionRequest(
-      'GET',
-      `/instance/connect/${config.instanceName}`,
-    );
-
-    const status = res?.base64 ? 'qr_code' : 'connecting';
-
-    await prisma.whatsAppConfig.update({
-      where: { id: config.id },
-      data: {
-        status,
-        qrCode: res?.base64 || null,
-      },
-    });
-
-    const webhookUrl = process.env.EVOLUTION_WEBHOOK_URL;
-    if (webhookUrl) {
-      await this.evolutionRequest(
-        'POST',
-        `/webhook/set/${config.instanceName}`,
-        {
-          url: webhookUrl,
-          webhook_by_events: false,
-          events: [
-            'MESSAGES_UPSERT',
-            'MESSAGES_UPDATE',
-            'SEND_MESSAGE',
-            'CONTACTS_UPDATE',
-            'CHATS_UPDATE',
-            'CHATS_UPSERT',
-            'CHATS_DELETE',
-            'CHATS_SET',
-          ],
-        },
-      ).catch((e) => {});
-    }
-
-    if (status === 'connecting' && !res?.base64) {
-      setTimeout(async () => {
-        try {
-          const currentStatus = await this.getStatus(branchId, partnerId);
-          if (currentStatus.status === 'connected') {
-            if (branchId) {
-              await this.fetchChats(branchId);
-            }
-          }
-        } catch (error) {
-          console.error('[WhatsApp] Error fetching conversations after connect:', error);
-        }
-      }, 3000);
-    }
-
-    return { status, qrCode: res?.base64 || null };
+  if (!config?.instanceName) {
+    throw new BadRequestException('WhatsApp não configurado');
   }
+
+  const instanceName = config.instanceName;
+
+  const instance = await this.ensureInstance(instanceName);
+
+  if (!instance.exists) {
+    throw new BadRequestException(
+      'Instância não existe. Rode setup novamente.',
+    );
+  }
+
+  const res = await this.evolutionRequest(
+    'GET',
+    `/instance/connect/${instanceName}`,
+  );
+
+  const status = res?.base64 ? 'qr_code' : 'connecting';
+
+  await prisma.whatsAppConfig.update({
+    where: { id: config.id },
+    data: {
+      status,
+      qrCode: res?.base64 || null,
+    },
+  });
+
+  return {
+    status,
+    qrCode: res?.base64 || null,
+  };
+}
 
   async disconnect(branchId?: string, partnerId?: string) {
     const where = this.getConfigWhere(branchId, partnerId);
@@ -769,7 +766,7 @@ export class WhatsAppService {
         }
         personalizedMessage = personalizedMessage.replace(/{telefone}/g, phone);
         
-        const frontendUrl = process.env.FRONTEND_URL || 'https://app.anotaja.com';
+        const frontendUrl = process.env.FRONTEND_URL || 'https://app.vaidelli.com';
         if (partnerCode) {
           personalizedMessage = personalizedMessage.replace(
             /{register-company}/g,

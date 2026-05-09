@@ -33,7 +33,7 @@ cert.validity.notAfter.setFullYear(cert.validity.notBefore.getFullYear() + 10);
 // Atributos do certificado - ATUALIZE COM SEU DOMÍNIO REAL
 const attrs = [{
   name: 'commonName',
-  value: process.env.PRODUCTION_DOMAIN || 'anotaja.shop'
+  value: process.env.PRODUCTION_DOMAIN || 'vaidelli.shop'
 }, {
   name: 'organizationName',
   value: 'Anotaja'
@@ -46,7 +46,7 @@ cert.setSubject(attrs);
 cert.setIssuer(attrs);
 
 // Adicionar SAN (Subject Alternative Name) para QZ Tray - ATUALIZE COM SEUS DOMÍNIOS
-const productionDomain = process.env.PRODUCTION_DOMAIN || 'anotaja.shop';
+const productionDomain = process.env.PRODUCTION_DOMAIN || 'vaidelli.shop';
 const sans = [
   {
     type: 2, // DNS name
@@ -62,11 +62,11 @@ const sans = [
   },
   {
     type: 2,
-    value: 'anotaja.shop' // manter como fallback
+    value: 'vaidelli.shop' // manter como fallback
   },
   {
     type: 2,
-    value: 'www.anotaja.shop'
+    value: 'www.vaidelli.shop'
   },
   {
     type: 7, // IP address
@@ -103,4 +103,4 @@ fs.writeFileSync('certificate.pem', forge.pki.certificateToPem(cert));
 fs.writeFileSync('../web-entregaja/public/cert/digital-certificate.txt', forge.pki.certificateToPem(cert));
 
 console.log('✅ Certificado X.509 com SAN gerado para QZ Tray!');
-console.log('📋 Domínios: anotaja.shop, www.anotaja.shop, localhost, 127.0.0.1');
+console.log('📋 Domínios: vaidelli.shop, www.vaidelli.shop, localhost, 127.0.0.1');

@@ -82,10 +82,10 @@ async function seed() {
 
   // ── Master User ────────────────────────────────────────────────────────────
   await prisma.masterUser.upsert({
-    where: { email: 'master@anotaja.com' },
+    where: { email: 'master@vaidelli.com' },
     update: {},
     create: {
-      email: 'master@anotaja.com',
+      email: 'master@vaidelli.com',
       name: 'Master User',
       password: await bcrypt.hash('master123', 10),
     },

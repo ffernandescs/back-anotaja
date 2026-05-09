@@ -4170,7 +4170,7 @@ export async function main() {
             companyName: companyData.name,
             name: companyData.name,
             document: generateRandomDocument(14),
-            email: `teste${userCounter}@anotaja.com`,
+            email: `teste${userCounter}@vaidelli.com`,
             phone: generateUniquePhone(),
             onboardingStep: 'SCHEDULE',
             active: true,
@@ -4265,7 +4265,7 @@ export async function main() {
               document: isMatriz ? companyData.document : branchData.document,
               addressId: createBranchAddress.id,
               phone: branchData.phone,
-            email: `teste${userCounter}@anotaja.com`,
+            email: `teste${userCounter}@vaidelli.com`,
               subdomain: null,
               logoUrl: companyData.logo || null,
               bannerUrl: companyData.banner || null,
@@ -4396,31 +4396,35 @@ export async function main() {
         }
 
         // Verificar e criar usuário admin
-        const adminEmail = `teste${userCounter}@anotaja.com`;
-        let adminUser = await prisma.user.findFirst({
-          where: {
-            email: adminEmail,
-            branchId: branch.id,
-          },
-        });
+        const adminEmail = `teste${userCounter}@vaidelli.com`;
+        let adminUser ={} as any;
+        const existing = await prisma.user.findFirst({
+  where: {
+    email: adminEmail,
+    branchId: branch.id,
+  },
+});
 
-        if (adminUser) {
-          console.log(`✅ Usuário admin já existe para ${branch.branchName}, pulando...`);
-        } else {
-          console.log('👤 Criando usuário admin da filial...');
-          adminUser = await prisma.user.create({
-            data: {
-              name: `Admin ${companyData.name}`,
-            email: adminEmail,
-              phone: adminPhone,
-              password: hashedPassword,
-              companyId: company.id,
-              branchId: branch.id,
-              groupId: adminGroup?.id,
-              active: true,
-            },
-          });
-        }
+if (existing) {
+  adminUser = await prisma.user.update({
+    where: { id: existing.id },
+    data: {},
+  });
+} else {
+  adminUser = await prisma.user.create({
+    data: {
+      name: `Admin ${companyData.name}`,
+      email: adminEmail,
+      phone: adminPhone,
+      password: hashedPassword,
+      companyId: company.id,
+      branchId: branch.id,
+      groupId: adminGroup?.id,
+      active: true,
+    },
+  });
+}
+       
         await seedTablesForBranch(branch.id, adminUser.id);
 
         console.log('💰 Criando métodos de pagamento para a filial matriz...');
@@ -4640,11 +4644,11 @@ export async function main() {
   console.log('👑 Criando usuário master...');
   const masterPassword = await generateHashedPassword('master123');
   const masterUser = await prisma.masterUser.upsert({
-    where: { email: 'master@anotaja.com' },
+    where: { email: 'master@vaidelli.com' },
     update: {},
     create: {
       name: 'Master Admin',
-      email: 'master@anotaja.com',
+      email: 'master@vaidelli.com',
       password: masterPassword,
       active: true,
     },

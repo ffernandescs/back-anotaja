@@ -24,7 +24,7 @@ async function bootstrap() {
       }
 
       const allowedOrigins = [
-        /^https?:\/\/([a-z0-9-]+\.)*anotaja\.shop$/i,
+        /^https?:\/\/([a-z0-9-]+\.)*vaidelli\.shop$/i,
         /^https?:\/\/([a-z0-9-]+\.)*vercel\.app$/i,
         /^http:\/\/([a-z0-9-]+\.)*localhost:\d+$/i,
       ];

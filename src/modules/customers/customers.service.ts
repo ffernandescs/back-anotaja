@@ -723,7 +723,7 @@ export class CustomersService {
 
     // Generate menu link based on branch subdomain
     const menuLink = branch?.subdomain
-      ? `https://${branch.subdomain}.anotaja.shop/menu`
+      ? `https://${branch.subdomain}.vaidelli.shop/menu`
       : '';
 
     // Transform to CampaignCustomer format

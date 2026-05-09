@@ -47,7 +47,7 @@ export class GeocodingService {
           addressdetails: 1,
         },
         headers: {
-          'User-Agent': 'AnotaJa/1.0 (contato@anotaja.shop)', // Obrigatório para Nominatim
+          'User-Agent': 'AnotaJa/1.0 (contato@vaidelli.shop)', // Obrigatório para Nominatim
         },
         timeout: 5000, // 5 segundos de timeout
       });
@@ -102,7 +102,7 @@ export class GeocodingService {
           limit: 1,
         },
         headers: {
-          'User-Agent': 'AnotaJa/1.0 (contato@anotaja.shop)',
+          'User-Agent': 'AnotaJa/1.0 (contato@vaidelli.shop)',
         },
         timeout: 5000,
       });

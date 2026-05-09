@@ -3706,7 +3706,7 @@ if (!fullOrder) {
         transaction_amount: Math.round(dto.amount) / 100,
         payment_method_id: 'pix',
         payer: {
-          email: dto.payerEmail || 'cliente@anotaja.com.br',
+          email: dto.payerEmail || 'cliente@vaidelli.com.br',
         },
         description: dto.description || 'Pedido online',
       }),

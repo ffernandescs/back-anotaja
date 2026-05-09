@@ -9,7 +9,7 @@ async function createOwner() {
     // Verificar se já existe um usuário owner
     const existingOwner = await prisma.masterUser.findFirst({
       where: {
-        email: 'owner@anotaja.com',
+        email: 'owner@vaidelli.com',
       },
     });
 
@@ -25,14 +25,14 @@ async function createOwner() {
     const ownerUser = await prisma.masterUser.create({
       data: {
         name: 'Owner',
-        email: 'owner@anotaja.com',
+        email: 'owner@vaidelli.com',
         password: hashedPassword,
         active: true,
       },
     });
 
     console.log('✅ Usuário Owner criado com sucesso na tabela masterUser!');
-    console.log('📧 Email: owner@anotaja.com');
+    console.log('📧 Email: owner@vaidelli.com');
     console.log('🔑 Senha: Owner@123');
     console.log('👤 Nome: Owner');
 

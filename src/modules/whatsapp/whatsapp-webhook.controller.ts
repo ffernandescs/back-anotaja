@@ -457,9 +457,9 @@ export class WhatsAppWebhookController {
   private async resolveBranchId(instanceName: string): Promise<string | null> {
     this.logger.log(`[Webhook] resolveBranchId called with instanceName: ${instanceName}`);
     
-    // Instance name format: anotaja_{branchId}
-    if (instanceName.startsWith('anotaja_')) {
-      const branchId = instanceName.replace('anotaja_', '');
+    // Instance name format: vaidelli_{branchId}
+    if (instanceName.startsWith('vaidelli_')) {
+      const branchId = instanceName.replace('vaidelli_', '');
       this.logger.log(`[Webhook] Extracted branchId from instance name: ${branchId}`);
       return branchId;
     }

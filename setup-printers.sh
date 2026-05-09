@@ -23,7 +23,7 @@ echo ""
 
 # Verificar se está no diretório correto
 if [ ! -f "package.json" ] || [ ! -d "prisma" ]; then
-    echo -e "${RED}❌ Execute este script no diretório raiz do backend (back-anotaja)${NC}"
+    echo -e "${RED}❌ Execute este script no diretório raiz do backend (back-vaidelli)${NC}"
     exit 1
 fi
 

@@ -16,7 +16,7 @@ async function seedPrinters() {
         branchName: 'Filial Exemplo - Anotaja',
         phone: '11999999999',
         document: '00000000000100',
-        email: 'exemplo@anotaja.com',
+        email: 'exemplo@vaidelli.com',
         subdomain: 'exemplo',
         active: true,
         primaryColor: '#3B82F6',
@@ -45,7 +45,7 @@ async function seedPrinters() {
       copies: 1,
       printComplements: true,
       customMessage: 'Obrigado pela preferência! Volte sempre!',
-      qrCodeUrl: 'https://anotaja.com/avaliacao',
+      qrCodeUrl: 'https://vaidelli.com/avaliacao',
       branchId: branch.id,
     },
     {
@@ -88,7 +88,7 @@ async function seedPrinters() {
       copies: 1,
       printComplements: true,
       customMessage: 'Pedido para delivery - verificar endereço!',
-      qrCodeUrl: 'https://anotaja.com/track',
+      qrCodeUrl: 'https://vaidelli.com/track',
       branchId: branch.id,
     },
   ];

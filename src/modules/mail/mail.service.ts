@@ -2,7 +2,7 @@ import * as nodemailer from 'nodemailer';
 import { Injectable, Logger } from '@nestjs/common';
 
 const OTP_EXPIRES_IN_MINUTES = Number(process.env.OTP_EXPIRES_IN_MINUTES ?? 10);
-const EMAIL_FROM = process.env.EMAIL_FROM ?? 'suporte@anotaja.shop';
+const EMAIL_FROM = process.env.EMAIL_FROM ?? 'suporte@vaidelli.shop';
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
@@ -280,7 +280,7 @@ export class MailService {
                         <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 32px;">
                           <tr>
                             <td align="center">
-                              <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://app.anotaja.shop'}" style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #ffffff; text-decoration: none; padding: 16px 48px; border-radius: 8px; font-size: 16px; font-weight: 700; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4); transition: transform 0.2s;">
+                              <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://app.vaidelli.shop'}" style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #ffffff; text-decoration: none; padding: 16px 48px; border-radius: 8px; font-size: 16px; font-weight: 700; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4); transition: transform 0.2s;">
                                 🚀 Acessar Minha Conta
                               </a>
                             </td>
@@ -531,7 +531,7 @@ export class MailService {
       reference?: string;
     },
   ): Promise<boolean> {
-    const masterEmail = process.env.MASTER_EMAIL || 'master@anotaja.shop';
+    const masterEmail = process.env.MASTER_EMAIL || 'master@vaidelli.shop';
 
     try {
       await this.transporter.sendMail({
