@@ -188,12 +188,23 @@ private sleep(ms: number) {
 }
   // ─── Evolution API – Instance management ──────────────────────
 
+// ─────────────────────────────────────────────────────────────
+// WHATSAPP SETUP — EVOLUTION API v2.2.x (CORRIGIDO)
+// Fluxo correto:
+// 1. remove instância antiga
+// 2. cria instância
+// 3. registra webhook
+// 4. inicia connect
+// 5. polling aguardando QR
+// 6. salva QR no banco
+// ─────────────────────────────────────────────────────────────
+
 async setup(branchId: string) {
   const instanceName = `anotaja_${branchId}`;
 
   const webhookUrl =
     process.env.EVOLUTION_WEBHOOK_URL ||
-    'https://api.vaidelli.com.br/api/whatsapp/webhook';
+    'https://api2.vaidelli.com.br/api/whatsapp/webhook';
 
   await prisma.whatsAppConfig.upsert({
     where: { branchId },
@@ -202,6 +213,7 @@ async setup(branchId: string) {
       apiKey: this.globalApiKey,
       instanceName,
       status: 'connecting',
+      qrCode: null,
     },
     create: {
       branchId,
@@ -209,95 +221,228 @@ async setup(branchId: string) {
       apiKey: this.globalApiKey,
       instanceName,
       status: 'connecting',
+      qrCode: null,
     },
   });
 
   try {
-    // remove sessão antiga
-    await this.evolutionRequest(
-      'DELETE',
-      `/instance/logout/${instanceName}`,
-    ).catch(() => {});
+    // ─────────────────────────────────────────
+    // REMOVE INSTÂNCIA ANTIGA
+    // ─────────────────────────────────────────
 
-    await this.sleep(2000);
+    try {
+      await this.evolutionRequest(
+        'DELETE',
+        `/instance/logout/${instanceName}`,
+      );
+    } catch (e) {
+      console.log('[WhatsApp] logout skip');
+    }
 
-    await this.evolutionRequest(
-      'DELETE',
-      `/instance/delete/${instanceName}`,
-    ).catch(() => {});
+    await this.sleep(5000);
 
-    await this.sleep(2000);
+    try {
+      await this.evolutionRequest(
+        'DELETE',
+        `/instance/delete/${instanceName}`,
+      );
+    } catch (e) {
+      console.log('[WhatsApp] delete skip');
+    }
 
-    // cria instância
-    await this.evolutionRequest(
+    // importante
+    await this.sleep(8000);
+
+    // ─────────────────────────────────────────
+    // CREATE INSTANCE
+    // ─────────────────────────────────────────
+
+    console.log('[WhatsApp] creating instance');
+
+    const createRes = await this.evolutionRequest(
       'POST',
       '/instance/create',
       {
         instanceName,
         integration: 'WHATSAPP-BAILEYS',
         qrcode: true,
+        rejectCall: false,
+        groupsIgnore: false,
+        alwaysOnline: false,
+        readMessages: false,
+        readStatus: false,
+        syncFullHistory: false,
         storeMessages: true,
         storeFullMessages: true,
       },
     );
 
-    await this.sleep(4000);
+    console.log('[WhatsApp] create response', createRes);
 
-    // conecta
-    const connectRes = await this.evolutionRequest(
+    await this.sleep(8000);
+
+    // ─────────────────────────────────────────
+    // WEBHOOK
+    // ─────────────────────────────────────────
+
+    try {
+      await this.evolutionRequest(
+        'POST',
+        `/webhook/set/${instanceName}`,
+        {
+          url: webhookUrl,
+          webhook_by_events: true,
+          webhook_base64: false,
+          events: [
+            'QRCODE_UPDATED',
+            'CONNECTION_UPDATE',
+            'MESSAGES_UPSERT',
+            'MESSAGES_UPDATE',
+          ],
+        },
+      );
+
+      console.log('[WhatsApp] webhook registered');
+    } catch (e) {
+      console.error('[WhatsApp] webhook error', e);
+    }
+
+    // ─────────────────────────────────────────
+    // CONNECT
+    // IMPORTANTE:
+    // NÃO PEGAR QR DAQUI
+    // ─────────────────────────────────────────
+
+    console.log('[WhatsApp] starting connect');
+
+    await this.evolutionRequest(
       'GET',
       `/instance/connect/${instanceName}`,
     );
 
-    console.log('CONNECT RES', connectRes);
+    // espera socket inicializar
+    await this.sleep(5000);
 
-    let qrCode =
-      connectRes?.base64 ||
-      connectRes?.qrcode?.base64 ||
-      connectRes?.qrcode ||
-      connectRes?.code ||
-      null;
+    // ─────────────────────────────────────────
+    // POLLING QR CODE
+    // ─────────────────────────────────────────
 
-    // fallback buscando QR direto
-    if (!qrCode) {
+    let qrCode: string | null = null;
+    let connected = false;
+
+    for (let i = 0; i < 30; i++) {
+      console.log(`[WhatsApp] checking qr attempt ${i + 1}`);
+
       await this.sleep(3000);
 
-      const qrRes = await this.evolutionRequest(
-        'GET',
-        `/instance/connect/${instanceName}`,
-      );
+      try {
+        // tenta pegar infos da instância
+        const instances = await this.evolutionRequest(
+          'GET',
+          '/instance/fetchInstances',
+        );
 
-      console.log('QR RES', qrRes);
+        console.log(
+          '[WhatsApp] fetchInstances response',
+          JSON.stringify(instances, null, 2),
+        );
 
-      qrCode =
-        qrRes?.base64 ||
-        qrRes?.qrcode?.base64 ||
-        qrRes?.qrcode ||
-        qrRes?.code ||
-        null;
+        const instance = Array.isArray(instances)
+          ? instances.find((x) => x.name === instanceName)
+          : null;
+
+        if (!instance) {
+          continue;
+        }
+
+        // status conectado
+        const state =
+          instance?.connectionStatus ||
+          instance?.instance?.state ||
+          instance?.state;
+
+        if (state === 'open') {
+          connected = true;
+          break;
+        }
+
+        // qr code
+        qrCode =
+          instance?.qrcode?.base64 ||
+          instance?.qrcode ||
+          instance?.base64 ||
+          instance?.code ||
+          null;
+
+        if (qrCode) {
+          console.log('[WhatsApp] qr obtained');
+
+          await prisma.whatsAppConfig.update({
+            where: { branchId },
+            data: {
+              qrCode,
+              status: 'qr_code',
+            },
+          });
+
+          return {
+            success: true,
+            status: 'qr_code',
+            qrCode,
+            instanceName,
+          };
+        }
+      } catch (e) {
+        console.error('[WhatsApp] polling error', e);
+      }
     }
+
+    // ─────────────────────────────────────────
+    // CONNECTED SEM QR
+    // ─────────────────────────────────────────
+
+    if (connected) {
+      await prisma.whatsAppConfig.update({
+        where: { branchId },
+        data: {
+          status: 'connected',
+          qrCode: null,
+        },
+      });
+
+      return {
+        success: true,
+        status: 'connected',
+        qrCode: null,
+        instanceName,
+      };
+    }
+
+    // ─────────────────────────────────────────
+    // FALLBACK
+    // ─────────────────────────────────────────
 
     await prisma.whatsAppConfig.update({
       where: { branchId },
       data: {
-        status: qrCode ? 'qr_code' : 'connecting',
-        qrCode,
+        status: 'connecting',
       },
     });
 
     return {
       success: true,
-      status: qrCode ? 'qr_code' : 'connecting',
-      qrCode,
+      status: 'connecting',
+      qrCode: null,
       instanceName,
     };
   } catch (error: any) {
-    console.error(error);
+    console.error('[WhatsApp] setup error', error);
 
     await prisma.whatsAppConfig.update({
       where: { branchId },
       data: {
         status: 'disconnected',
+        qrCode: null,
       },
     });
 
@@ -503,48 +648,87 @@ async connect(branchId?: string, partnerId?: string) {
     return { status: 'disconnected' };
   }
 
-  async getStatus(branchId?: string, partnerId?: string) {
-    const where = this.getConfigWhere(branchId, partnerId);
-    const config = await prisma.whatsAppConfig.findFirst({ where });
+ async getStatus(branchId?: string, partnerId?: string) {
+  const where = this.getConfigWhere(branchId, partnerId);
 
-    if (!config?.instanceName) {
-      return { status: 'disconnected' };
-    }
+  const config = await prisma.whatsAppConfig.findFirst({
+    where,
+  });
 
-    try {
-      const res = await this.evolutionRequest(
-        'GET',
-        `/instance/connectionState/${config.instanceName}`,
-      );
-
-      const state = res?.instance?.state || res?.state || 'close';
-      let status: string;
-
-      if (state === 'open') {
-        status = 'connected';
-
-        if (config.status !== 'connected') {
-          await prisma.whatsAppConfig.update({
-            where: { id: config.id },
-            data: { status: 'connected', qrCode: null },
-          });
-        }
-      } else if (state === 'connecting') {
-        status = config.qrCode ? 'qr_code' : 'connecting';
-      } else {
-        status = 'disconnected';
-      }
-
-      return {
-        status,
-        phoneNumber: config.phoneNumber,
-        profileName: config.profileName,
-        profilePicUrl: config.profilePicUrl,
-      };
-    } catch {
-      return { status: config.status || 'disconnected' };
-    }
+  if (!config?.instanceName) {
+    return {
+      status: 'disconnected',
+    };
   }
+
+  try {
+    const res = await this.evolutionRequest(
+      'GET',
+      '/instance/fetchInstances',
+    );
+
+    const instance = Array.isArray(res)
+      ? res.find(
+          (x) => x.name === config.instanceName,
+        )
+      : null;
+
+    if (!instance) {
+      return {
+        status: 'disconnected',
+      };
+    }
+
+    const state =
+      instance?.connectionStatus ||
+      instance?.instance?.state ||
+      instance?.state;
+
+    let status = 'disconnected';
+
+    if (state === 'open') {
+      status = 'connected';
+    } else if (
+      state === 'connecting'
+    ) {
+      status = config.qrCode
+        ? 'qr_code'
+        : 'connecting';
+    }
+
+    const qrCode =
+      instance?.qrcode?.base64 ||
+      instance?.qrcode ||
+      config.qrCode ||
+      null;
+
+    await prisma.whatsAppConfig.update({
+      where: { id: config.id },
+      data: {
+        status,
+        qrCode,
+      },
+    });
+
+    return {
+      status,
+      qrCode,
+      phoneNumber: config.phoneNumber,
+      profileName: config.profileName,
+      profilePicUrl: config.profilePicUrl,
+    };
+  } catch (error) {
+    console.error(
+      '[WhatsApp] getStatus error',
+      error,
+    );
+
+    return {
+      status: config.status || 'disconnected',
+      qrCode: config.qrCode,
+    };
+  }
+}
 
   // ─── Phone formatting ──────────────────────────────────────────
 

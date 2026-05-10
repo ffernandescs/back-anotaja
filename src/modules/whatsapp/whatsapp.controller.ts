@@ -34,6 +34,7 @@ import {
   UpdateMessageTemplateDto,
   CreateCampaignRecordDto,
 } from './dto/whatsapp.dto';
+import { prisma } from 'lib/prisma';
 
 @Controller('whatsapp')
 export class WhatsAppController {
@@ -367,6 +368,89 @@ export class WhatsAppController {
       throw new BadRequestException((error as Error).message);
     }
   }
+
+  @Post('/webhook')
+async webhook(@Body() body: any) {
+  console.log(
+    '[WHATSAPP WEBHOOK]',
+    JSON.stringify(body, null, 2),
+  );
+
+  const instanceName =
+    body?.instance ||
+    body?.instanceName ||
+    body?.data?.instanceName;
+
+  if (!instanceName) {
+    return { success: false };
+  }
+
+  const config = await prisma.whatsAppConfig.findFirst({
+    where: { instanceName },
+  });
+
+  if (!config) {
+    return { success: false };
+  }
+
+  // ─────────────────────────────────────────
+  // QR CODE
+  // ─────────────────────────────────────────
+
+  if (body.event === 'QRCODE_UPDATED') {
+    const qrCode =
+      body?.data?.qrcode?.base64 ||
+      body?.data?.qrcode ||
+      null;
+
+    if (qrCode) {
+      await prisma.whatsAppConfig.update({
+        where: { id: config.id },
+        data: {
+          qrCode,
+          status: 'qr_code',
+        },
+      });
+    }
+  }
+
+  // ─────────────────────────────────────────
+  // CONNECTED
+  // ─────────────────────────────────────────
+
+  if (body.event === 'CONNECTION_UPDATE') {
+    const state =
+      body?.data?.state ||
+      body?.data?.connection ||
+      null;
+
+    if (state === 'open') {
+      await prisma.whatsAppConfig.update({
+        where: { id: config.id },
+        data: {
+          status: 'connected',
+          qrCode: null,
+        },
+      });
+    }
+
+    if (
+      state === 'close' ||
+      state === 'closed'
+    ) {
+      await prisma.whatsAppConfig.update({
+        where: { id: config.id },
+        data: {
+          status: 'disconnected',
+        },
+      });
+    }
+  }
+
+  return {
+    success: true,
+  };
+}
 
   // ─── Templates ─────────────────────────────────────────────────
 
