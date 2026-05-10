@@ -249,6 +249,7 @@ private async setupAsync(branchId: string, instanceName: string, webhookUrl: str
     // 2. Cria instância JÁ COM webhook configurado
     //    assim o QRCODE_UPDATED é capturado desde o início
     this.logger.log('[WhatsApp] creating instance:', instanceName);
+    // setupAsync — mude byEvents para false
     await this.evolutionRequest('POST', '/instance/create', {
       instanceName,
       integration: 'WHATSAPP-BAILEYS',
@@ -261,10 +262,9 @@ private async setupAsync(branchId: string, instanceName: string, webhookUrl: str
       syncFullHistory: false,
       storeMessages: true,
       storeFullMessages: true,
-      // ✅ formato correto inline
       webhook: {
         url: webhookUrl,
-        byEvents: true,
+        byEvents: false,   // ← tudo vai para /webhook sem sufixo
         base64: true,
         events: ['QRCODE_UPDATED', 'CONNECTION_UPDATE', 'MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
       },
