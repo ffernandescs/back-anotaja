@@ -186,113 +186,204 @@ export class WhatsAppService {
 
   // ─── Evolution API – Instance management ──────────────────────
 
- async setup(branchId: string) {
+async setup(branchId: string) {
   const instanceName = `anotaja_${branchId}`;
 
-  await prisma.whatsAppConfig.upsert({
-    where: { branchId },
-    update: {
-      serverUrl: this.serverUrl,
-      apiKey: this.globalApiKey,
-      instanceName,
-      status: 'connecting',
-    },
-    create: {
-      branchId,
-      serverUrl: this.serverUrl,
-      apiKey: this.globalApiKey,
-      instanceName,
-      status: 'connecting',
-    },
-  });
-
-  const instance = await this.ensureInstance(instanceName);
-
   try {
-    // 🧹 Se existir quebrada → tenta limpar
-    if (instance.exists) {
-      await this.evolutionRequest(
-        'DELETE',
-        `/instance/logout/${instanceName}`,
-      ).catch(() => {});
-    }
-
-    // 🆕 cria sempre de forma segura
-    await this.evolutionRequest(
-      'POST',
-      '/instance/create',
-      {
+    // salva config inicial
+    await prisma.whatsAppConfig.upsert({
+      where: { branchId },
+      update: {
+        serverUrl: this.serverUrl,
+        apiKey: this.globalApiKey,
         instanceName,
-        integration: 'WHATSAPP-BAILEYS',
-        qrcode: true,
-        storeMessages: true,
-        storeFullMessages: true,
+        status: 'connecting',
       },
-    ).catch((err) => {
-      // se já existir → ignora
-      if (!err?.message?.includes('already')) throw err;
+      create: {
+        branchId,
+        serverUrl: this.serverUrl,
+        apiKey: this.globalApiKey,
+        instanceName,
+        status: 'connecting',
+      },
     });
 
-    // webhook seguro
-    const webhookUrl = process.env.EVOLUTION_WEBHOOK_URL;
-    if (webhookUrl) {
+    // verifica se instancia já existe
+    const instance = await this.ensureInstance(instanceName);
+
+    /**
+     * ⚠️ IMPORTANTE
+     * Não desloga sempre.
+     * Só limpa sessão quebrada.
+     */
+    if (instance?.exists) {
+      this.logger.log(
+        `[WhatsApp] Instância já existe: ${instanceName}`,
+      );
+    } else {
       await this.evolutionRequest(
         'POST',
-        `/webhook/set/${instanceName}`,
+        '/instance/create',
         {
-          url: webhookUrl,
-          webhook_by_events: false,
-          events: [
-            'MESSAGES_UPSERT',
-            'MESSAGES_UPDATE',
-            'SEND_MESSAGE',
-            'CONTACTS_UPDATE',
-            'CHATS_UPDATE',
-            'CHATS_UPSERT',
-            'CHATS_DELETE',
-            'CHATS_SET',
-          ],
+          instanceName,
+
+          integration: 'WHATSAPP-BAILEYS',
+
+          qrcode: true,
+
+          storeMessages: true,
+
+          storeFullMessages: true,
+
+          webhook: {
+            url: process.env.EVOLUTION_WEBHOOK_URL,
+
+            byEvents: false,
+
+            base64: false,
+
+            events: [
+              'QRCODE_UPDATED',
+              'CONNECTION_UPDATE',
+              'MESSAGES_UPSERT',
+              'MESSAGES_UPDATE',
+            ],
+          },
         },
-      ).catch(() => {});
+      );
     }
 
-    // conecta sempre
+    /**
+     * 🚀 Cria instância
+     */
+    if (!instance?.exists) {
+      this.logger.log(
+        `[WhatsApp] Criando instância: ${instanceName}`,
+      );
+
+      await this.evolutionRequest(
+        'POST',
+        '/instance/create',
+        {
+          instanceName,
+
+          integration: 'WHATSAPP-BAILEYS',
+
+          qrcode: true,
+
+          rejectCall: false,
+
+          groupsIgnore: false,
+
+          alwaysOnline: true,
+
+          readMessages: false,
+
+          readStatus: false,
+
+          syncFullHistory: false,
+
+          storeMessages: true,
+
+          storeFullMessages: true,
+
+          webhook: {
+            url: process.env.EVOLUTION_WEBHOOK_URL,
+
+            byEvents: false,
+
+            base64: false,
+
+            events: [
+              'APPLICATION_STARTUP',
+              'QRCODE_UPDATED',
+              'CONNECTION_UPDATE',
+              'MESSAGES_UPSERT',
+              'MESSAGES_UPDATE',
+              'MESSAGES_DELETE',
+              'SEND_MESSAGE',
+              'CONTACTS_UPDATE',
+              'CHATS_UPDATE',
+              'CHATS_UPSERT',
+              'CHATS_DELETE',
+              'CHATS_SET',
+            ],
+          },
+        },
+      ).catch((err) => {
+        if (
+          !err?.message?.includes('already') &&
+          !err?.response?.data?.message?.includes('already')
+        ) {
+          throw err;
+        }
+      });
+    }
+
+    /**
+     * 🔌 Conecta instância
+     */
+    this.logger.log(
+      `[WhatsApp] Conectando instância: ${instanceName}`,
+    );
+
     const connectRes = await this.evolutionRequest(
       'GET',
       `/instance/connect/${instanceName}`,
     );
 
+    /**
+     * 📱 QRCode
+     */
     const qrCode =
       connectRes?.base64 ||
       connectRes?.qrcode?.base64 ||
       connectRes?.pairingCode ||
+      connectRes?.code ||
       null;
 
+    /**
+     * 💾 Atualiza banco
+     */
     await prisma.whatsAppConfig.update({
       where: { branchId },
       data: {
-        status: 'qr_code',
+        status: qrCode ? 'qr_code' : 'connecting',
         qrCode,
       },
     });
 
-    this.monitorInstanceConnection(branchId, instanceName);
+    /**
+     * 👀 Monitora conexão
+     */
+    this.monitorInstanceConnection(
+      branchId,
+      instanceName,
+    );
 
     return {
-      status: 'qr_code',
+      success: true,
+      status: qrCode ? 'qr_code' : 'connecting',
       qrCode,
       instanceName,
     };
   } catch (error: any) {
-    this.logger.error('[WhatsApp] Setup error:', error);
+    this.logger.error(
+      '[WhatsApp] Setup error:',
+      error?.response?.data || error,
+    );
 
     await prisma.whatsAppConfig.update({
       where: { branchId },
-      data: { status: 'disconnected' },
+      data: {
+        status: 'disconnected',
+      },
     });
 
     throw new BadRequestException(
-      error?.message || 'Falha ao inicializar WhatsApp',
+      error?.response?.data?.message ||
+        error?.message ||
+        'Falha ao inicializar WhatsApp',
     );
   }
 }
