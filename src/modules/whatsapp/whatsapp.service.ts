@@ -698,8 +698,8 @@ async connect(branchId?: string, partnerId?: string) {
 
     usedPhone = validPhone;
 
-      await attemptSend(primaryPhone);
-      this.logger.log(`[WhatsApp] Mensagem enviada para ${primaryPhone}`);
+      await attemptSend(validPhone);
+      this.logger.log(`[WhatsApp] Mensagem enviada para ${usedPhone}`);
     } catch (error: any) {
       sendError = error;
 
