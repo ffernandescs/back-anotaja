@@ -183,168 +183,112 @@ export class WhatsAppService {
   }
 
   
-
+private sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
   // ─── Evolution API – Instance management ──────────────────────
 
 async setup(branchId: string) {
   const instanceName = `anotaja_${branchId}`;
 
+  const webhookUrl =
+    process.env.EVOLUTION_WEBHOOK_URL ||
+    'https://api.vaidelli.com.br/api/whatsapp/webhook';
+
+  await prisma.whatsAppConfig.upsert({
+    where: { branchId },
+    update: {
+      serverUrl: this.serverUrl,
+      apiKey: this.globalApiKey,
+      instanceName,
+      status: 'connecting',
+    },
+    create: {
+      branchId,
+      serverUrl: this.serverUrl,
+      apiKey: this.globalApiKey,
+      instanceName,
+      status: 'connecting',
+    },
+  });
+
   try {
-    // salva config inicial
-    await prisma.whatsAppConfig.upsert({
-      where: { branchId },
-      update: {
-        serverUrl: this.serverUrl,
-        apiKey: this.globalApiKey,
+    // remove sessão antiga
+    await this.evolutionRequest(
+      'DELETE',
+      `/instance/logout/${instanceName}`,
+    ).catch(() => {});
+
+    await this.sleep(2000);
+
+    await this.evolutionRequest(
+      'DELETE',
+      `/instance/delete/${instanceName}`,
+    ).catch(() => {});
+
+    await this.sleep(2000);
+
+    // cria instância
+    await this.evolutionRequest(
+      'POST',
+      '/instance/create',
+      {
         instanceName,
-        status: 'connecting',
+        integration: 'WHATSAPP-BAILEYS',
+
+        qrcode: true,
+
+        webhook: webhookUrl,
+
+        webhook_by_events: false,
+
+        events: [
+          'QRCODE_UPDATED',
+          'CONNECTION_UPDATE',
+          'MESSAGES_UPSERT',
+        ],
+
+        storeMessages: true,
+        storeFullMessages: true,
       },
-      create: {
-        branchId,
-        serverUrl: this.serverUrl,
-        apiKey: this.globalApiKey,
-        instanceName,
-        status: 'connecting',
-      },
-    });
-
-    // verifica se instancia já existe
-    const instance = await this.ensureInstance(instanceName);
-
-    /**
-     * ⚠️ IMPORTANTE
-     * Não desloga sempre.
-     * Só limpa sessão quebrada.
-     */
-    if (instance?.exists) {
-      this.logger.log(
-        `[WhatsApp] Instância já existe: ${instanceName}`,
-      );
-    } else {
-      await this.evolutionRequest(
-        'POST',
-        '/instance/create',
-        {
-          instanceName,
-
-          integration: 'WHATSAPP-BAILEYS',
-
-          qrcode: true,
-
-          storeMessages: true,
-
-          storeFullMessages: true,
-
-          webhook: {
-            url: process.env.EVOLUTION_WEBHOOK_URL,
-
-            byEvents: false,
-
-            base64: false,
-
-            events: [
-              'QRCODE_UPDATED',
-              'CONNECTION_UPDATE',
-              'MESSAGES_UPSERT',
-              'MESSAGES_UPDATE',
-            ],
-          },
-        },
-      );
-    }
-
-    /**
-     * 🚀 Cria instância
-     */
-    if (!instance?.exists) {
-      this.logger.log(
-        `[WhatsApp] Criando instância: ${instanceName}`,
-      );
-
-      await this.evolutionRequest(
-        'POST',
-        '/instance/create',
-        {
-          instanceName,
-
-          integration: 'WHATSAPP-BAILEYS',
-
-          qrcode: true,
-
-          rejectCall: false,
-
-          groupsIgnore: false,
-
-          alwaysOnline: true,
-
-          readMessages: false,
-
-          readStatus: false,
-
-          syncFullHistory: false,
-
-          storeMessages: true,
-
-          storeFullMessages: true,
-
-          webhook: {
-            url: process.env.EVOLUTION_WEBHOOK_URL,
-
-            byEvents: false,
-
-            base64: false,
-
-            events: [
-              'APPLICATION_STARTUP',
-              'QRCODE_UPDATED',
-              'CONNECTION_UPDATE',
-              'MESSAGES_UPSERT',
-              'MESSAGES_UPDATE',
-              'MESSAGES_DELETE',
-              'SEND_MESSAGE',
-              'CONTACTS_UPDATE',
-              'CHATS_UPDATE',
-              'CHATS_UPSERT',
-              'CHATS_DELETE',
-              'CHATS_SET',
-            ],
-          },
-        },
-      ).catch((err) => {
-        if (
-          !err?.message?.includes('already') &&
-          !err?.response?.data?.message?.includes('already')
-        ) {
-          throw err;
-        }
-      });
-    }
-
-    /**
-     * 🔌 Conecta instância
-     */
-    this.logger.log(
-      `[WhatsApp] Conectando instância: ${instanceName}`,
     );
 
+    await this.sleep(4000);
+
+    // conecta
     const connectRes = await this.evolutionRequest(
       'GET',
       `/instance/connect/${instanceName}`,
     );
 
-    /**
-     * 📱 QRCode
-     */
-    const qrCode =
+    console.log('CONNECT RES', connectRes);
+
+    let qrCode =
       connectRes?.base64 ||
       connectRes?.qrcode?.base64 ||
-      connectRes?.pairingCode ||
+      connectRes?.qrcode ||
       connectRes?.code ||
       null;
 
-    /**
-     * 💾 Atualiza banco
-     */
+    // fallback buscando QR direto
+    if (!qrCode) {
+      await this.sleep(3000);
+
+      const qrRes = await this.evolutionRequest(
+        'GET',
+        `/instance/connect/${instanceName}`,
+      );
+
+      console.log('QR RES', qrRes);
+
+      qrCode =
+        qrRes?.base64 ||
+        qrRes?.qrcode?.base64 ||
+        qrRes?.qrcode ||
+        qrRes?.code ||
+        null;
+    }
+
     await prisma.whatsAppConfig.update({
       where: { branchId },
       data: {
@@ -353,14 +297,6 @@ async setup(branchId: string) {
       },
     });
 
-    /**
-     * 👀 Monitora conexão
-     */
-    this.monitorInstanceConnection(
-      branchId,
-      instanceName,
-    );
-
     return {
       success: true,
       status: qrCode ? 'qr_code' : 'connecting',
@@ -368,10 +304,7 @@ async setup(branchId: string) {
       instanceName,
     };
   } catch (error: any) {
-    this.logger.error(
-      '[WhatsApp] Setup error:',
-      error?.response?.data || error,
-    );
+    console.error(error);
 
     await prisma.whatsAppConfig.update({
       where: { branchId },
@@ -383,7 +316,7 @@ async setup(branchId: string) {
     throw new BadRequestException(
       error?.response?.data?.message ||
         error?.message ||
-        'Falha ao inicializar WhatsApp',
+        'Erro ao conectar WhatsApp',
     );
   }
 }
