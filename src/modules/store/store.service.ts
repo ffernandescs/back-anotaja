@@ -30,6 +30,7 @@ import { NormalizedOrder } from '../orders/dto/order-normalized.type';
 import { DeliveryTypeDto } from '../orders/dto/create-order-item.dto';
 import { OrderAction, OrderStateMachineService } from './store-state-machine.service';
 import { IfoodOrder } from '../food-delivery-integrations/ifood.service';
+import { StoreSurveyService } from './store-survey.service';
 interface PlanLimits {
   branches: number;
   users: number;
@@ -61,6 +62,7 @@ export class StoreService {
     private jwtService: JwtService,
     private couponsService: CouponsService,
     private whatsappService: WhatsAppService,
+    private readonly surveySvc: StoreSurveyService,
   ) {}
 
 async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPersonId?: string) {
@@ -2008,10 +2010,17 @@ Verifique no sistema!`;
     }
   }
 
+  const surveyToken = await this.surveySvc.createTokenForOrder(
+    finalOrder.id,
+    finalOrder.branchId,
+  );
+
   return {
     success: true,
     order: finalOrder,
+    surveyToken: surveyToken ?? undefined, // ← incluído na resposta
   };
+
 }
 
   async calculateDeliveryFee(

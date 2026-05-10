@@ -619,7 +619,10 @@ model Branch {
   whatsappConfig             WhatsAppConfig?
   whatsappMessages           WhatsAppMessage[]
   foodDeliveryConfig         FoodDeliveryIntegrationConfig?
+  surveyTokens               SurveyToken[]
+  surveyResponses            SurveyResponse[]
 }
+
 
 model BranchSchedule {
   id        String     @id @default(cuid())
@@ -1055,6 +1058,7 @@ model Order {
   cashMovements                                                           CashMovement[]
   pointsTransactions                                                      PointsTransaction[]
   billSplitPersons                                                        BillSplitPerson[]
+  surveyToken   SurveyToken?
 
   @@unique([orderNumber, branchId]) // Número único por filial
 }
@@ -2225,4 +2229,47 @@ model WhatsAppMessage {
   @@index([customerPhone])
   @@index([customerId])
   @@index([campaignId])
+}
+
+model SurveyToken {
+  id        String    @id @default(cuid())
+  token     String    @unique @default(cuid())
+  orderId   String    @unique  // ← adicionar @unique aqui
+  branchId  String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  order     Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  branch    Branch          @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  response  SurveyResponse?
+
+  @@index([token])
+  @@index([orderId])
+  @@index([branchId])
+  @@map("survey_tokens")
+}
+
+model SurveyResponse {
+  id             String   @id @default(cuid())
+  tokenId        String   @unique
+  branchId       String
+  orderId        String
+
+  overallRating  Int
+  menuNavigation Int
+  productPhotos  Int
+  mobileExperience  Int
+  checkoutEase   Int
+  wouldRecommend Boolean
+  comment        String?
+
+  createdAt      DateTime @default(now())
+
+  token   SurveyToken @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  branch  Branch      @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId])
+  @@index([createdAt])
+  @@map("survey_responses")
 }

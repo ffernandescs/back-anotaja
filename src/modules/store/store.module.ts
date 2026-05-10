@@ -8,6 +8,8 @@ import { CouponsModule } from '../coupons/coupons.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { StoreController } from './store.controller';
 import { StoreService } from './store.service';
+import { StoreSurveyService } from './store-survey.service';
+import { StoreSurveyController } from './store-survey.controller';
 
 @Module({
   imports: [
@@ -37,8 +39,8 @@ import { StoreService } from './store.service';
       inject: [ConfigService],
     }),
   ],
-  controllers: [StoreController],
-  providers: [StoreService],
+  controllers: [StoreController, StoreSurveyController],
+  providers: [StoreService, StoreSurveyService],
   exports: [StoreService],
 })
 export class StoreModule {}
