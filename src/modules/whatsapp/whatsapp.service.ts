@@ -238,11 +238,7 @@ async setup(branchId: string) {
   };
 }
 
-private async setupAsync(
-  branchId: string,
-  instanceName: string,
-  webhookUrl: string,
-) {
+private async setupAsync(branchId: string, instanceName: string, webhookUrl: string) {
   try {
     // 1. Remove instância antiga
     await this.evolutionRequest('DELETE', `/instance/logout/${instanceName}`).catch(() => {});
@@ -250,7 +246,8 @@ private async setupAsync(
     await this.evolutionRequest('DELETE', `/instance/delete/${instanceName}`).catch(() => {});
     await this.sleep(2000);
 
-    // 2. Cria instância (qrcode: true já inicia a conexão internamente)
+    // 2. Cria instância JÁ COM webhook configurado
+    //    assim o QRCODE_UPDATED é capturado desde o início
     this.logger.log('[WhatsApp] creating instance:', instanceName);
     await this.evolutionRequest('POST', '/instance/create', {
       instanceName,
@@ -264,26 +261,18 @@ private async setupAsync(
       syncFullHistory: false,
       storeMessages: true,
       storeFullMessages: true,
+      // ─── Webhook inline ───────────────────────────
+      webhook: webhookUrl,
+      webhookByEvents: true,
+      webhookBase64: true,
+      events: ['QRCODE_UPDATED', 'CONNECTION_UPDATE', 'MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
     });
 
-    await this.sleep(2000);
+    this.logger.log('[WhatsApp] instance created, waiting for QR via webhook...');
 
-    // 3. Registra webhook — formato correto para v2.2.x
-    await this.evolutionRequest('POST', `/webhook/set/${instanceName}`, {
-      webhook: {
-        enabled: true,
-        url: webhookUrl,
-        webhookByEvents: true,
-        webhookBase64: true,  // QR vem como base64 no evento QRCODE_UPDATED
-        events: ['QRCODE_UPDATED', 'CONNECTION_UPDATE', 'MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
-      },
-    });
-
-    this.logger.log('[WhatsApp] webhook registered');
-
-    // 4. NÃO chama /instance/connect aqui
-    // qrcode: true no create já cuida disso
-    // O QR chegará via webhook QRCODE_UPDATED → salvo pelo endpoint /webhook
+    // 3. Aguarda alguns segundos e tenta buscar QR direto como fallback
+    await this.sleep(5000);
+    await this.tryFetchQrFallback(branchId, instanceName);
 
   } catch (error: any) {
     this.logger.error('[WhatsApp] setupAsync failed', error);
@@ -291,6 +280,41 @@ private async setupAsync(
       where: { branchId },
       data: { status: 'disconnected', qrCode: null },
     });
+  }
+}
+
+// Fallback: busca QR direto da API caso webhook não tenha chegado
+private async tryFetchQrFallback(branchId: string, instanceName: string) {
+  try {
+    // Verifica se o webhook já salvou o QR
+    const config = await prisma.whatsAppConfig.findFirst({ where: { branchId } });
+    if (config?.qrCode) {
+      this.logger.log('[WhatsApp] QR already saved by webhook, skipping fallback');
+      return;
+    }
+
+    this.logger.log('[WhatsApp] QR not yet received via webhook, trying direct fetch...');
+
+    const connectRes = await this.evolutionRequest('GET', `/instance/connect/${instanceName}`);
+    this.logger.log('[WhatsApp] connect response:', JSON.stringify(connectRes));
+
+    const qrCode =
+      connectRes?.base64 ||
+      connectRes?.qrcode?.base64 ||
+      connectRes?.code ||
+      null;
+
+    if (qrCode) {
+      await prisma.whatsAppConfig.update({
+        where: { branchId },
+        data: { qrCode, status: 'qr_code' },
+      });
+      this.logger.log('[WhatsApp] QR saved from fallback connect');
+    } else {
+      this.logger.warn('[WhatsApp] No QR in connect response either:', JSON.stringify(connectRes));
+    }
+  } catch (e) {
+    this.logger.error('[WhatsApp] tryFetchQrFallback error', e);
   }
 }
 
