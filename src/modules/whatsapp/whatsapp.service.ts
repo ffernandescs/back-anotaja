@@ -286,35 +286,29 @@ private async setupAsync(branchId: string, instanceName: string, webhookUrl: str
 // Fallback: busca QR direto da API caso webhook não tenha chegado
 private async tryFetchQrFallback(branchId: string, instanceName: string) {
   try {
-    // Verifica se o webhook já salvou o QR
     const config = await prisma.whatsAppConfig.findFirst({ where: { branchId } });
     if (config?.qrCode) {
-      this.logger.log('[WhatsApp] QR already saved by webhook, skipping fallback');
+      this.logger.log('[WhatsApp] QR already saved by webhook');
       return;
     }
 
-    this.logger.log('[WhatsApp] QR not yet received via webhook, trying direct fetch...');
-
     const connectRes = await this.evolutionRequest('GET', `/instance/connect/${instanceName}`);
-    this.logger.log('[WhatsApp] connect response:', JSON.stringify(connectRes));
+    
+    // LOG COMPLETO para diagnóstico
+    this.logger.log('[WhatsApp] /connect full response:', JSON.stringify(connectRes, null, 2));
 
-    const qrCode =
-      connectRes?.base64 ||
-      connectRes?.qrcode?.base64 ||
-      connectRes?.code ||
-      null;
+    const qrCode = connectRes?.base64 || connectRes?.qrcode?.base64 || connectRes?.code || null;
 
     if (qrCode) {
       await prisma.whatsAppConfig.update({
         where: { branchId },
         data: { qrCode, status: 'qr_code' },
       });
-      this.logger.log('[WhatsApp] QR saved from fallback connect');
-    } else {
-      this.logger.warn('[WhatsApp] No QR in connect response either:', JSON.stringify(connectRes));
+      this.logger.log('[WhatsApp] QR saved from fallback');
     }
-  } catch (e) {
-    this.logger.error('[WhatsApp] tryFetchQrFallback error', e);
+  } catch (e: any) {
+    // LOG DO ERRO COMPLETO
+    this.logger.error('[WhatsApp] tryFetchQrFallback error:', JSON.stringify(e?.message || e));
   }
 }
 
