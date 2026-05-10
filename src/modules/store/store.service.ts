@@ -29,8 +29,9 @@ import { UpdateOrderDto } from '../orders/dto/update-order.dto';
 import { NormalizedOrder } from '../orders/dto/order-normalized.type';
 import { DeliveryTypeDto } from '../orders/dto/create-order-item.dto';
 import { OrderAction, OrderStateMachineService } from './store-state-machine.service';
-import { IfoodOrder } from '../food-delivery-integrations/ifood.service';
 import { StoreSurveyService } from './store-survey.service';
+import { OrderSurveyService } from '../order-survey/order-survey.service';
+
 interface PlanLimits {
   branches: number;
   users: number;
@@ -63,7 +64,87 @@ export class StoreService {
     private couponsService: CouponsService,
     private whatsappService: WhatsAppService,
     private readonly surveySvc: StoreSurveyService,
+    private readonly orderSurveyService: OrderSurveyService,
   ) {}
+
+   private async notifyCustomer(branchId: string, order: any, status: OrderStatus,surveyUrl?: string,
+) {
+
+    const config = await (prisma as any).whatsAppConfig.findUnique({
+      where: { branchId },
+    });
+
+    // Only send notifications for ONLINE orders
+    if (order.channel !== OrderChannel.ONLINE) {
+      return;
+    }
+
+    // Return if no config found
+    if (!config) {
+      return;
+    }
+
+    let shouldSend = false;
+    let messageType: 'confirmation' | 'preparing' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled' = 'confirmation';
+
+    const isDelivery = order.deliveryType === DeliveryType.DELIVERY;
+
+    switch (status) {
+      case OrderStatus.CONFIRMED:
+        shouldSend = config.orderConfirmationEnabled;
+        messageType = 'confirmation';
+        break;
+
+      case OrderStatus.IN_PROGRESS:
+        shouldSend = config.orderConfirmationEnabled;
+        messageType = 'preparing';
+        break;
+      case OrderStatus.READY:
+        // Don't send notification for DELIVERY orders when ready (only when delivering)
+        if (!isDelivery) {
+          shouldSend = config.orderReadyEnabled;
+          messageType = 'ready';
+        } else {
+          shouldSend = false;
+        }
+        break;
+      case OrderStatus.DELIVERING:
+        // Only send out_for_delivery for delivery orders
+        if (isDelivery) {
+          shouldSend = config.orderReadyEnabled;
+          messageType = 'out_for_delivery';
+        } else {
+          shouldSend = false;
+        }
+        break;
+      case OrderStatus.DELIVERED:
+        shouldSend = config.orderReadyEnabled;
+        messageType = 'delivered';
+        break;
+      case OrderStatus.CANCELLED:
+        shouldSend = config.deliveryCancelEnabled;
+        messageType = 'cancelled';
+        break;
+      default:
+        shouldSend = false;
+    }
+
+
+    if (shouldSend) {
+    let message = await this.formatOrderMessageWithTemplate(
+      order,
+      messageType,
+      branchId,
+    );
+
+    // se tiver surveyUrl, injeta no texto/template
+    if (surveyUrl) {
+      message += `\n\nAvalie seu pedido: ${surveyUrl}`;
+    }      console.log('MESSAGE_TYPE:', messageType);
+console.log('MESSAGE:', message);
+      await this.sendWhatsAppNotification(branchId, order.customer.phone, message);
+    } 
+  }
 
 async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPersonId?: string) {
   const order = await prisma.order.findUnique({
@@ -164,7 +245,31 @@ async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPer
   // ─── WhatsApp Notifications ─────────────────────────────────────
   // Notify customer about status change
   if (order.status !== updatedOrder.status && updatedOrder.branchId) {
-    await this.notifyCustomer(updatedOrder.branchId, updatedOrder, updatedOrder.status);
+ 
+    // ── DELIVERED: gera token de pesquisa + envia mensagem com link ───────────
+    if (updatedOrder.status === OrderStatus.DELIVERED) {
+ 
+      // Gerar token (idempotente — não duplica se chamar 2x)
+      const surveyToken = await this.orderSurveyService.generateToken(updatedOrder.id);
+ 
+      // URL vinda do env do backend (mesmo domínio do cardápio do cliente)
+      const storeUrl = process.env.STORE_URL ?? process.env.APP_URL ?? '';
+      const surveyUrl = surveyToken
+        ? `${storeUrl}/pesquisa-pedido/${surveyToken}`
+        : null;
+ 
+      // Notificar cliente com template "delivered" + variável {surveyUrl}
+      await this.notifyCustomer(
+        updatedOrder.branchId,
+        updatedOrder,
+        updatedOrder.status,
+        surveyUrl ?? undefined,
+      );
+ 
+    } else {
+      // Demais status: notificação normal sem surveyUrl
+      await this.notifyCustomer(updatedOrder.branchId, updatedOrder, updatedOrder.status);
+    }
   }
 
   // Notify delivery person when status changes to DELIVERING
@@ -175,6 +280,9 @@ async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPer
       updatedOrder.deliveryPerson.phone,
     );
   }
+
+
+ 
 
 
   // ─── Get auto-print configuration ─────────────────────────────────────
@@ -3929,84 +4037,7 @@ Se tiver alguma dúvida, entre em contato conosco.`,
     }).join('\n\n');
   }
 
-  private async notifyCustomer(branchId: string, order: any, status: OrderStatus) {
-
-    const config = await (prisma as any).whatsAppConfig.findUnique({
-      where: { branchId },
-    });
-
-    // Only send notifications for ONLINE orders
-    if (order.channel !== OrderChannel.ONLINE) {
-      return;
-    }
-
-    // Return if no config found
-    if (!config) {
-      return;
-    }
-
-    let shouldSend = false;
-    let messageType: 'confirmation' | 'preparing' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled' = 'confirmation';
-
-    const isDelivery = order.deliveryType === DeliveryType.DELIVERY;
-
-    switch (status) {
-      case OrderStatus.CONFIRMED:
-        shouldSend = config.orderConfirmationEnabled;
-        messageType = 'confirmation';
-        break;
-
-      case OrderStatus.IN_PROGRESS:
-        shouldSend = config.orderConfirmationEnabled;
-        messageType = 'preparing';
-        break;
-      case OrderStatus.READY:
-        // Don't send notification for DELIVERY orders when ready (only when delivering)
-        if (!isDelivery) {
-          shouldSend = config.orderReadyEnabled;
-          messageType = 'ready';
-        } else {
-          shouldSend = false;
-        }
-        break;
-         case OrderStatus.READY:
-        // Don't send notification for DELIVERY orders when ready (only when delivering)
-        if (!isDelivery) {
-          shouldSend = config.orderReadyEnabled;
-          messageType = 'ready';
-        } else {
-          shouldSend = false;
-        }
-        break;
-      case OrderStatus.DELIVERING:
-        // Only send out_for_delivery for delivery orders
-        if (isDelivery) {
-          shouldSend = config.orderReadyEnabled;
-          messageType = 'out_for_delivery';
-        } else {
-          shouldSend = false;
-        }
-        break;
-      case OrderStatus.DELIVERED:
-        shouldSend = config.orderReadyEnabled;
-        messageType = 'delivered';
-        break;
-      case OrderStatus.CANCELLED:
-        shouldSend = config.deliveryCancelEnabled;
-        messageType = 'cancelled';
-        break;
-      default:
-        shouldSend = false;
-    }
-
-
-    if (shouldSend) {
-      const message = await this.formatOrderMessageWithTemplate(order, messageType, branchId);
-      console.log('MESSAGE_TYPE:', messageType);
-console.log('MESSAGE:', message);
-      await this.sendWhatsAppNotification(branchId, order.customer.phone, message);
-    } 
-  }
+ 
 
   private async notifyDeliveryPerson(branchId: string, order: any, deliveryPersonPhone: string) {
     const config = await (prisma as any).whatsAppConfig.findUnique({

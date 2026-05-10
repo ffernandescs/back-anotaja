@@ -58,6 +58,7 @@ import { WhatsAppModule } from './modules/whatsapp/whatsapp.module';
 import { PartnerModule } from './modules/partner/partner.module';
 import { FoodDeliveryIntegrationsModule } from './modules/food-delivery-integrations/food-delivery-integrations.module';
 import { BullModule } from '@nestjs/bullmq';
+import { OrderSurveyModule } from './modules/order-survey/order-survey.module';
 
 @Module({
   imports: [
@@ -125,6 +126,7 @@ import { BullModule } from '@nestjs/bullmq';
     WhatsAppModule,
     PartnerModule,
     FoodDeliveryIntegrationsModule,
+    OrderSurveyModule,
   ],
   providers: [
     {

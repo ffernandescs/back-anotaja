@@ -621,6 +621,8 @@ model Branch {
   foodDeliveryConfig         FoodDeliveryIntegrationConfig?
   surveyTokens               SurveyToken[]
   surveyResponses            SurveyResponse[]
+  orderSurveyTokens    OrderSurveyToken[]
+  orderSurveyResponses OrderSurveyResponse[]
 }
 
 
@@ -1059,7 +1061,7 @@ model Order {
   pointsTransactions                                                      PointsTransaction[]
   billSplitPersons                                                        BillSplitPerson[]
   surveyToken   SurveyToken?
-
+  orderSurveyTokens    OrderSurveyToken[]
   @@unique([orderNumber, branchId]) // Número único por filial
 }
 
@@ -2272,4 +2274,45 @@ model SurveyResponse {
   @@index([branchId])
   @@index([createdAt])
   @@map("survey_responses")
+}
+
+model OrderSurveyToken {
+  id        String    @id @default(cuid())
+  token     String    @unique @default(cuid())
+  orderId   String    @unique
+  branchId  String
+  expiresAt DateTime
+  usedAt    DateTime?
+  sentVia   String?
+  createdAt DateTime  @default(now())
+
+  order     Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  branch    Branch              @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  response  OrderSurveyResponse?
+
+  @@index([token])
+  @@index([orderId])
+  @@index([branchId])
+  @@map("order_survey_tokens")
+}
+
+model OrderSurveyResponse {
+  id               String   @id @default(cuid())
+  tokenId          String   @unique
+  branchId         String
+  orderId          String
+  productQuality   Int
+  deliveryTime     Int
+  attendantRating  Int
+  packagingRating  Int
+  wouldRecommend   Boolean
+  comment          String?
+  createdAt        DateTime @default(now())
+
+  token  OrderSurveyToken @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  branch Branch           @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId])
+  @@index([createdAt])
+  @@map("order_survey_responses")
 }
