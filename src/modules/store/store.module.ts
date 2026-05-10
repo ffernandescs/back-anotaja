@@ -10,6 +10,7 @@ import { StoreController } from './store.controller';
 import { StoreService } from './store.service';
 import { StoreSurveyService } from './store-survey.service';
 import { StoreSurveyController } from './store-survey.controller';
+import { OrderSurveyService } from '../order-survey/order-survey.service';
 
 @Module({
   imports: [
@@ -40,7 +41,7 @@ import { StoreSurveyController } from './store-survey.controller';
     }),
   ],
   controllers: [StoreController, StoreSurveyController],
-  providers: [StoreService, StoreSurveyService],
+  providers: [StoreService, StoreSurveyService, OrderSurveyService],
   exports: [StoreService],
 })
 export class StoreModule {}
