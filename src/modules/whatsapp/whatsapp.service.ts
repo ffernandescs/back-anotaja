@@ -246,11 +246,11 @@ private async setupAsync(
   try {
     // 1. Remove instância antiga
     await this.evolutionRequest('DELETE', `/instance/logout/${instanceName}`).catch(() => {});
-    await this.sleep(2000);
+    await this.sleep(1000);
     await this.evolutionRequest('DELETE', `/instance/delete/${instanceName}`).catch(() => {});
-    await this.sleep(3000);
+    await this.sleep(2000);
 
-    // 2. Cria instância
+    // 2. Cria instância (qrcode: true já inicia a conexão internamente)
     this.logger.log('[WhatsApp] creating instance:', instanceName);
     await this.evolutionRequest('POST', '/instance/create', {
       instanceName,
@@ -266,45 +266,24 @@ private async setupAsync(
       storeFullMessages: true,
     });
 
-    await this.sleep(3000);
+    await this.sleep(2000);
 
-    // 3. Registra webhook ANTES de conectar
+    // 3. Registra webhook — formato correto para v2.2.x
     await this.evolutionRequest('POST', `/webhook/set/${instanceName}`, {
-      url: webhookUrl,
-      webhook_by_events: true,
-      webhook_base64: true,   // ← true para receber QR em base64 no webhook
-      events: ['QRCODE_UPDATED', 'CONNECTION_UPDATE', 'MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
-    }).catch((e) => this.logger.error('[WhatsApp] webhook error', e));
-
-    await this.sleep(1000);
-
-    // 4. Conecta — o QR virá pelo webhook QRCODE_UPDATED
-    //    mas também tenta pegar direto da resposta como fallback
-    const connectRes = await this.evolutionRequest(
-      'GET',
-      `/instance/connect/${instanceName}`,
-    ).catch((e) => {
-      this.logger.error('[WhatsApp] connect error', e);
-      return null;
+      webhook: {
+        enabled: true,
+        url: webhookUrl,
+        webhookByEvents: true,
+        webhookBase64: true,  // QR vem como base64 no evento QRCODE_UPDATED
+        events: ['QRCODE_UPDATED', 'CONNECTION_UPDATE', 'MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
+      },
     });
 
-    this.logger.log('[WhatsApp] connect response', JSON.stringify(connectRes));
+    this.logger.log('[WhatsApp] webhook registered');
 
-    // Tenta extrair QR da resposta do connect (fallback caso webhook demore)
-    const qrFromConnect =
-      connectRes?.base64 ||
-      connectRes?.qrcode?.base64 ||
-      connectRes?.code ||
-      null;
-
-    if (qrFromConnect) {
-      await prisma.whatsAppConfig.update({
-        where: { branchId },
-        data: { qrCode: qrFromConnect, status: 'qr_code' },
-      });
-      this.logger.log('[WhatsApp] QR obtained from connect response');
-    }
-    // Caso contrário, o webhook QRCODE_UPDATED vai salvar o QR automaticamente
+    // 4. NÃO chama /instance/connect aqui
+    // qrcode: true no create já cuida disso
+    // O QR chegará via webhook QRCODE_UPDATED → salvo pelo endpoint /webhook
 
   } catch (error: any) {
     this.logger.error('[WhatsApp] setupAsync failed', error);
@@ -1744,41 +1723,25 @@ async getStatus(branchId?: string, partnerId?: string) {
 
   // ─── Webhook registration ────────────────────────────────────
 
-  async registerWebhook(branchId: string, webhookUrl: string) {
-    const config = await this.getFullConfig(branchId);
+async registerWebhook(branchId: string, webhookUrl: string) {
+  const config = await this.getFullConfig(branchId);
 
-    try {
-      await this.evolutionRequest('POST', `/webhook/set/${config.instanceName}`, {
-        webhook: {
-          enabled: false,
-          url: webhookUrl,
-          webhookByEvents: false,
-          webhookBase64: false,
-        },
-      });
-    } catch {}
-
-    const result = await this.evolutionRequest(
-      'POST',
-      `/webhook/set/${config.instanceName}`,
-      {
-        webhook: {
-          enabled: true,
-          url: webhookUrl,
-          webhookByEvents: true,
-          webhookBase64: false,
-          events: [
-            'MESSAGES_UPSERT',
-            'MESSAGES_UPDATE',
-            'PRESENCE_UPDATE',
-            'CHATS_UPDATE',
-          ],
-        },
+  const result = await this.evolutionRequest(
+    'POST',
+    `/webhook/set/${config.instanceName}`,
+    {
+      webhook: {           // ← wrapper obrigatório no v2.2.x
+        enabled: true,
+        url: webhookUrl,
+        webhookByEvents: true,
+        webhookBase64: false,
+        events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'PRESENCE_UPDATE', 'CHATS_UPDATE'],
       },
-    );
+    },
+  );
 
-    return result;
-  }
+  return result;
+}
 
   // ─── Templates e Campanhas ─────────────────────────────────────
 
