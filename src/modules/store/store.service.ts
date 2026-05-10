@@ -247,7 +247,7 @@ async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPer
   if (order.status !== updatedOrder.status && updatedOrder.branchId) {
  
     // ── DELIVERED: gera token de pesquisa + envia mensagem com link ───────────
-    if (updatedOrder.status === OrderStatus.DELIVERED) {
+    if ((updatedOrder.status === OrderStatus.DELIVERED || updatedOrder.status === OrderStatus.COMPLETED) && updatedOrder.channel === OrderChannel.ONLINE) {
  
       // Gerar token (idempotente — não duplica se chamar 2x)
       const surveyToken = await this.orderSurveyService.generateToken(updatedOrder.id);
@@ -257,6 +257,8 @@ async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPer
       const surveyUrl = surveyToken
         ? `${storeUrl}/pesquisa-pedido/${surveyToken}`
         : null;
+
+        console.log('Generated survey URL:', surveyUrl);
  
       // Notificar cliente com template "delivered" + variável {surveyUrl}
       await this.notifyCustomer(

@@ -11,6 +11,7 @@ import { OrderSurveyService } from './order-survey.service';
 import { CreateOrderSurveyDto } from './dto/create-order-survey.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { Public } from 'src/common/decorators/public.decorator';
 
 interface RequestWithUser extends Request {
   user: {
@@ -26,12 +27,14 @@ export class OrderSurveyPublicController {
   constructor(private readonly orderSurveyService: OrderSurveyService) {}
 
   // GET /store/order-survey/:token → valida token e retorna dados para a página
+  @Public()
   @Get(':token')
   validateToken(@Param('token') token: string) {
     return this.orderSurveyService.validateToken(token);
   }
 
   // POST /store/order-survey/:token → submete a resposta
+  @Public()
   @Post(':token')
   submitResponse(
     @Param('token') token: string,
