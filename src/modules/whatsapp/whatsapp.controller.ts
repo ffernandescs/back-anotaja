@@ -369,6 +369,7 @@ export class WhatsAppController {
     }
   }
 
+  @Public()
   @Post('/webhook')
 async webhook(@Body() body: any) {
   console.log(
