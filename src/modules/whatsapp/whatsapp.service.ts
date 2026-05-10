@@ -261,11 +261,13 @@ private async setupAsync(branchId: string, instanceName: string, webhookUrl: str
       syncFullHistory: false,
       storeMessages: true,
       storeFullMessages: true,
-      // ─── Webhook inline ───────────────────────────
-      webhook: webhookUrl,
-      webhookByEvents: true,
-      webhookBase64: true,
-      events: ['QRCODE_UPDATED', 'CONNECTION_UPDATE', 'MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
+      // ✅ formato correto inline
+      webhook: {
+        url: webhookUrl,
+        byEvents: true,
+        base64: true,
+        events: ['QRCODE_UPDATED', 'CONNECTION_UPDATE', 'MESSAGES_UPSERT', 'MESSAGES_UPDATE'],
+      },
     });
 
     this.logger.log('[WhatsApp] instance created, waiting for QR via webhook...');
