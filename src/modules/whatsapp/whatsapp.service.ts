@@ -235,19 +235,7 @@ async setup(branchId: string) {
       {
         instanceName,
         integration: 'WHATSAPP-BAILEYS',
-
         qrcode: true,
-
-        webhook: webhookUrl,
-
-        webhook_by_events: false,
-
-        events: [
-          'QRCODE_UPDATED',
-          'CONNECTION_UPDATE',
-          'MESSAGES_UPSERT',
-        ],
-
         storeMessages: true,
         storeFullMessages: true,
       },
