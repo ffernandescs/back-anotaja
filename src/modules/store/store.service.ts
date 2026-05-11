@@ -188,6 +188,7 @@ async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPer
       },
       customer: true,
       deliveryPerson: true,
+      customerAddress: true,
       payments: true,
       coupon: true,
       branch: true,
@@ -4082,8 +4083,18 @@ Se tiver alguma dúvida, entre em contato conosco.`,
     const orderNumber = order.orderNumber || order.id.slice(0, 8);
     const customerName = order.customer?.name || 'Cliente';
     const customerPhone = order.customer?.phone || '';
-    const customerAddress = `${order.customerAddress.street}, ${order.customerAddress.neighborhood}, ${order.customerAddress.number}, ${order.customerAddress.city} - ${order.customerAddress.state}`;
-    const total = formatCurrency(order.total) || '0.00';
+    const address = order.customerAddress;
+
+    const customerAddress = address
+      ? [
+          address.street,
+          address.neighborhood,
+          address.number,
+          `${address.city} - ${address.state}`,
+        ]
+          .filter(Boolean)
+          .join(', ')
+      : 'Endereço não informado';    const total = formatCurrency(order.total) || '0.00';
 
     const message = `🏍️ *Nova Entrega*
 
