@@ -46,6 +46,7 @@ export async function getKanbanOrders(userId: string): Promise<KanbanResponse> {
       items: true,
       customer: true,
       deliveryPerson: true,
+      customerAddress: true,
     },
     orderBy: { createdAt: 'desc' },
   });

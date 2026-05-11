@@ -31,6 +31,7 @@ import { DeliveryTypeDto } from '../orders/dto/create-order-item.dto';
 import { OrderAction, OrderStateMachineService } from './store-state-machine.service';
 import { StoreSurveyService } from './store-survey.service';
 import { OrderSurveyService } from '../order-survey/order-survey.service';
+import { formatPhone } from 'src/utils/formatPhone';
 
 interface PlanLimits {
   branches: number;
@@ -4087,7 +4088,7 @@ Se tiver alguma dúvida, entre em contato conosco.`,
 
 📦 *Pedido:* #${orderNumber}
 👤 *Cliente:* ${customerName}
-📱 *Telefone:* ${customerPhone}
+📱 *Telefone:* ${formatPhone(customerPhone)}
 📍 *Endereço:* ${customerAddress}
 💰 *Total:* R$ ${total}
 
