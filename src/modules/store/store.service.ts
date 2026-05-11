@@ -54,6 +54,15 @@ type LatLng = { lat: number; lng: number };
 
   const stateMachine = new OrderStateMachineService();
 
+  const generateSubdomainUrl = (subdomain: string): string => {
+  const domain = (process.env.FRONTEND_URL || '').replace(/^https?:\/\//, '');
+
+  const protocol = process.env.NODE_ENV === 'development' ? 'http' : 'https';
+  const baseUrl = domain ? `${protocol}://${subdomain}.${domain}` : `${protocol}://${subdomain}`;
+
+  return baseUrl;
+}
+
 const isValidCoord = (v: unknown): v is number =>
   typeof v === 'number' && !isNaN(v);
 @Injectable()
@@ -145,6 +154,9 @@ console.log('MESSAGE:', message);
       await this.sendWhatsAppNotification(branchId, order.customer.phone, message);
     } 
   }
+
+  
+
 
 async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPersonId?: string) {
   const order = await prisma.order.findUnique({
@@ -251,11 +263,11 @@ async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPer
  
       // Gerar token (idempotente — não duplica se chamar 2x)
       const surveyToken = await this.orderSurveyService.generateToken(updatedOrder.id);
- 
+      const subDomain = await prisma.branch.findUnique({ where: { id: updatedOrder.branchId }, select: { subdomain: true } }).then(branch => branch?.subdomain || ''); // Obter subdomínio da filial  
+      const domain = generateSubdomainUrl(subDomain)
       // URL vinda do env do backend (mesmo domínio do cardápio do cliente)
-      const storeUrl = process.env.STORE_URL ?? process.env.APP_URL ?? '';
       const surveyUrl = surveyToken
-        ? `${storeUrl}/pesquisa-pedido/${surveyToken}`
+        ? `${domain}/pesquisa-pedido/${surveyToken}`
         : null;
 
         console.log('Generated survey URL:', surveyUrl);
