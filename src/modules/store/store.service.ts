@@ -32,6 +32,7 @@ import { OrderAction, OrderStateMachineService } from './store-state-machine.ser
 import { StoreSurveyService } from './store-survey.service';
 import { OrderSurveyService } from '../order-survey/order-survey.service';
 import { formatPhone } from 'src/utils/formatPhone';
+import { formatCurrency } from 'src/utils/formatCurrency';
 
 interface PlanLimits {
   branches: number;
@@ -4081,8 +4082,8 @@ Se tiver alguma dúvida, entre em contato conosco.`,
     const orderNumber = order.orderNumber || order.id.slice(0, 8);
     const customerName = order.customer?.name || 'Cliente';
     const customerPhone = order.customer?.phone || '';
-    const customerAddress = order.customerAddress?.fullAddress || order.customerAddress?.street || 'Endereço não informado';
-    const total = order.total?.toFixed(2) || '0.00';
+    const customerAddress = `${order.customerAddress.street}, ${order.customerAddress.neighborhood}, ${order.customerAddress.number}, ${order.customerAddress.city} - ${order.customerAddress.state}`;
+    const total = formatCurrency(order.total) || '0.00';
 
     const message = `🏍️ *Nova Entrega*
 
