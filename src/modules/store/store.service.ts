@@ -287,13 +287,28 @@ async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPer
   }
 
   // Notify delivery person when status changes to DELIVERING
-  if (updatedOrder.status === OrderStatus.DELIVERING && updatedOrder.deliveryPerson?.phone) {
-    await this.notifyDeliveryPerson(
-      updatedOrder.branchId,
-      updatedOrder,
-      updatedOrder.deliveryPerson.phone,
-    );
+  if (updatedOrder.status === OrderStatus.DELIVERING) {
+  const effectiveDeliveryPersonId =
+    (updates as any).deliveryPersonId ||
+    updatedOrder.deliveryPersonId;
+
+  if (effectiveDeliveryPersonId) {
+    const deliveryPhone =
+      updatedOrder.deliveryPerson?.phone ??
+      (await prisma.deliveryPerson.findUnique({
+        where: { id: effectiveDeliveryPersonId },
+        select: { phone: true },
+      }).then(d => d?.phone ?? null));
+
+    if (deliveryPhone) {
+      await this.notifyDeliveryPerson(
+        updatedOrder.branchId,
+        updatedOrder,
+        deliveryPhone,
+      );
+    }
   }
+}
 
 
  
