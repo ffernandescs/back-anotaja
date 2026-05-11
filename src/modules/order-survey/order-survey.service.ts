@@ -56,8 +56,11 @@ export class OrderSurveyService {
       },
     });
 
-    const baseUrl = process.env.NEXT_PUBLIC_STORE_URL ?? process.env.APP_URL ?? '';
-    const surveyUrl = `${baseUrl}/pesquisa-pedido/${surveyToken.token}`;
+    const subDomain = await prisma.branch.findUnique({ where: { id: order.branchId }, select: { subdomain: true } }).then(branch => branch?.subdomain || ''); // Obter subdomínio da filial  
+    
+    const baseUrl = generateSubdomainUrl(subDomain || '');
+
+    const surveyUrl = `${baseUrl}pesquisa-pedido/${surveyToken.token}`;
     const sentVia: string[] = ['screen'];
 
     // ── Envio WhatsApp (fire-and-forget) ────────────────────────────────────
