@@ -287,7 +287,7 @@ async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPer
   }
 
   // Notify delivery person when status changes to DELIVERING
-  if (updatedOrder.status === OrderStatus.DELIVERING) {
+  if (action === "ASSIGN_DRIVER" || (action === "START_DELIVERY" && updatedOrder.status === OrderStatus.DELIVERING)) {
   const effectiveDeliveryPersonId =
     (updates as any).deliveryPersonId ||
     updatedOrder.deliveryPersonId;
