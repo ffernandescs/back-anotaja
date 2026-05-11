@@ -28,11 +28,7 @@ export class OrderSurveyService {
       where: { id: orderId },
       include: {
         customer: true,
-        branch: {
-          include: {
-            whatsappConfig: true,
-          },
-        },
+        branch: true, // whatsappConfig removido do include pois não é mais necessário
       },
     });
 
@@ -56,34 +52,9 @@ export class OrderSurveyService {
       },
     });
 
-    const subDomain = await prisma.branch.findUnique({ where: { id: order.branchId }, select: { subdomain: true } }).then(branch => branch?.subdomain || ''); // Obter subdomínio da filial  
-    
-    const baseUrl = generateSubdomainUrl(subDomain || '');
-
-    const surveyUrl = `${baseUrl}pesquisa-pedido/${surveyToken.token}`;
-    const sentVia: string[] = ['screen'];
-
-    // ── Envio WhatsApp (fire-and-forget) ────────────────────────────────────
-    const customerPhone = order.customer?.phone;
-    const whatsappEnabled = order.branch?.whatsappConfig?.enabled;
-
-    if (customerPhone && whatsappEnabled) {
-      this.sendWhatsApp({
-        whatsappConfig: order.branch.whatsappConfig!,
-        customerName: order.customer?.name ?? 'Cliente',
-        customerPhone,
-        orderNumber: order.orderNumber ?? 0,
-        surveyUrl,
-      }).then(() => {
-        sentVia.push('whatsapp');
-        return prisma.orderSurveyToken.update({
-          where: { id: surveyToken.id },
-          data: { sentVia: JSON.stringify(sentVia) },
-        });
-      }).catch((err) => {
-        console.error('[OrderSurvey] Falha ao enviar WhatsApp:', err);
-      });
-    }
+    // Envio WhatsApp REMOVIDO daqui.
+    // O StoreService.notifyCustomer já faz o envio com o template do banco,
+    // injetando o surveyUrl no template "delivered".
 
     return surveyToken.token;
   }
@@ -255,43 +226,5 @@ export class OrderSurveyService {
   }
 
   // ─── Envio WhatsApp (privado) ────────────────────────────────────────────────
-  private async sendWhatsApp(params: {
-    whatsappConfig: { serverUrl?: string | null; instanceName?: string | null; apiKey?: string | null };
-    customerName: string;
-    customerPhone: string;
-    orderNumber: number;
-    surveyUrl: string;
-  }) {
-    const { whatsappConfig, customerName, customerPhone, orderNumber, surveyUrl } = params;
-
-    if (!whatsappConfig.serverUrl || !whatsappConfig.instanceName || !whatsappConfig.apiKey) {
-      throw new Error('WhatsApp config incompleta');
-    }
-
-    const phone = customerPhone.replace(/\D/g, '');
-
-    const message =
-      `Olá, ${customerName}! 😊\n\n` +
-      `Seu pedido *#${orderNumber}* foi concluído! 🎉\n\n` +
-      `Como foi sua experiência? Leva menos de 1 minuto:\n\n` +
-      `👉 ${surveyUrl}\n\n` +
-      `Obrigado pelo seu feedback! 🙏`;
-
-    const res = await fetch(
-      `${whatsappConfig.serverUrl}/message/sendText/${whatsappConfig.instanceName}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          apikey: whatsappConfig.apiKey,
-        },
-        body: JSON.stringify({ number: `55${phone}`, text: message }),
-      },
-    );
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Evolution API ${res.status}: ${body}`);
-    }
-  }
+ 
 }
