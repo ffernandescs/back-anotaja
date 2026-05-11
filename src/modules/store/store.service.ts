@@ -55,13 +55,13 @@ type LatLng = { lat: number; lng: number };
   const stateMachine = new OrderStateMachineService();
 
   const generateSubdomainUrl = (subdomain: string): string => {
-  const domain = (process.env.FRONTEND_URL || '').replace(/^https?:\/\//, '');
+    const domain = (process.env.FRONTEND_URL || '').replace(/^https?:\/\//, '');
 
-  const protocol = process.env.NODE_ENV === 'development' ? 'http' : 'https';
-  const baseUrl = domain ? `${protocol}://${subdomain}.${domain}` : `${protocol}://${subdomain}`;
+    const protocol = process.env.NODE_ENV === 'development' ? 'http' : 'https';
+    const baseUrl = domain ? `${protocol}://${subdomain}.${domain}` : `${protocol}://${subdomain}`;
 
-  return baseUrl;
-}
+    return baseUrl;
+  }
 
 const isValidCoord = (v: unknown): v is number =>
   typeof v === 'number' && !isNaN(v);
@@ -267,7 +267,7 @@ async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPer
       const domain = generateSubdomainUrl(subDomain)
       // URL vinda do env do backend (mesmo domínio do cardápio do cliente)
       const surveyUrl = surveyToken
-        ? `${domain}/pesquisa-pedido/${surveyToken}`
+        ? `${domain}pesquisa-pedido/${surveyToken}`
         : null;
 
         console.log('Generated survey URL:', surveyUrl);

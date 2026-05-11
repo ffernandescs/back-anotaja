@@ -10,6 +10,15 @@ import { CreateOrderSurveyDto } from './dto/create-order-survey.dto';
 
 const SURVEY_EXPIRY_DAYS = 7;
 
+const generateSubdomainUrl = (subdomain: string): string => {
+  const domain = (process.env.FRONTEND_URL || '').replace(/^https?:\/\//, '');
+
+  const protocol = process.env.NODE_ENV === 'development' ? 'http' : 'https';
+  const baseUrl = domain ? `${protocol}://${subdomain}.${domain}` : `${protocol}://${subdomain}`;
+
+  return baseUrl;
+}
+
 @Injectable()
 export class OrderSurveyService {
 
@@ -161,25 +170,29 @@ export class OrderSurveyService {
     return { success: true, id: response.id };
   }
 
+  
   // ─── Buscar token de um pedido (para exibir na tela de acompanhamento) ──────
   async getTokenByOrder(orderId: string) {
     const record = await prisma.orderSurveyToken.findUnique({
       where: { orderId },
-      select: {
-        token: true,
-        expiresAt: true,
-        usedAt: true,
-        sentVia: true,
-      },
+      include: {
+        branch: {
+          select: {
+            subdomain: true,
+          },
+        },
+      }
     });
 
     if (!record) return { token: null };
 
-    const baseUrl = process.env.NEXT_PUBLIC_STORE_URL ?? process.env.APP_URL ?? '';
+    
+
+    const baseUrl = generateSubdomainUrl(record.branch.subdomain || '');
 
     return {
       token: record.token,
-      url: `${baseUrl}/pesquisa-pedido/${record.token}`,
+      url: `${baseUrl}pesquisa-pedido/${record.token}`,
       expiresAt: record.expiresAt,
       answered: !!record.usedAt,
       sentVia: JSON.parse(record.sentVia ?? '[]') as string[],
