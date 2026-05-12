@@ -1,5 +1,6 @@
 import * as nodemailer from 'nodemailer';
 import { Injectable, Logger } from '@nestjs/common';
+import { prisma } from 'lib/prisma';
 
 const OTP_EXPIRES_IN_MINUTES = Number(process.env.OTP_EXPIRES_IN_MINUTES ?? 10);
 const EMAIL_FROM = process.env.EMAIL_FROM ?? 'suporte@vaidelli.shop';
@@ -17,8 +18,71 @@ export class MailService {
     },
   });
 
+ private async getBrandingHeader() {
+    try {
+      const masterUser = await prisma.masterUser.findFirst({
+        where: { active: true },
+      });
+
+      if (!masterUser) {
+        return this.defaultBrandHeader();
+      }
+
+       if (!masterUser) {
+          return {
+            configs: {
+              ifood_client_id: null,
+              ifood_client_secret: null,
+              ninetynine_food_api_key: null,
+              strapi_url: null,
+              strapi_api_token: null,
+              strapi_webhook_secret: null,
+              strapi_enabled: false,
+            },
+          };
+        }
+
+ const branding = await prisma.masterBranding.findUnique({
+      where: { masterUserId: masterUser.id },
+    });
+      const appName = branding?.appName || 'VaiDelli';
+
+      if (branding?.logoUrl) {
+        return `
+          <img 
+            src="${branding.logoUrl}" 
+            alt="${appName}" 
+            style="max-height:50px;object-fit:contain;"
+          />
+        `;
+      }
+
+      return `
+        <h1 style="margin:0;color:#ffffff;font-size:28px;font-weight:800;">
+          ${appName}
+        </h1>
+      `;
+    } catch (error) {
+      this.logger.error('Erro ao carregar branding do email', error);
+      return this.defaultBrandHeader();
+    }
+  }
+
+  private defaultBrandHeader() {
+    return `
+      <h1 style="margin:0;color:#ffffff;font-size:28px;font-weight:800;">
+        VaiDelli
+      </h1>
+    `;
+  }
+
+  private async renderHeaderHtml() {
+    return await this.getBrandingHeader();
+  }
+
   async sendResetPasswordEmail(email: string, otp: string): Promise<boolean> {
     try {
+      const header = await this.renderHeaderHtml();
       await this.transporter.sendMail({
         from: `"Suporte VaiDelli" <${process.env.SMTP_USER}>`,
         to: email,
@@ -31,8 +95,7 @@ export class MailService {
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Recuperação de Senha</title>
           </head>
-          <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f5f5f5;">
-            <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 40px 20px;">
+            <body style="margin:0;padding:0;background-color:#0B0B0B;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial;">            <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 40px 20px;">
               <tr>
                 <td align="center">
                   <!-- Container Principal -->
@@ -40,16 +103,8 @@ export class MailService {
                     
                     <!-- Header com Gradiente -->
                     <tr>
-                      <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 30px; text-align: center;">
-                        <div style="background-color: rgba(255, 255, 255, 0.2); width: 80px; height: 80px; border-radius: 50%; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center;">
-                          <span style="font-size: 40px;">🔐</span>
-                        </div>
-                        <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 700; letter-spacing: -0.5px;">
-                          Recuperação de Senha
-                        </h1>
-                        <p style="margin: 10px 0 0; color: rgba(255, 255, 255, 0.9); font-size: 16px;">
-                          Recebemos uma solicitação para redefinir sua senha
-                        </p>
+                      <td style="background:#0B0B0B;padding:40px 30px;text-align:center;border-bottom:3px solid #F5B800;">
+                        ${header}
                       </td>
                     </tr>
   
@@ -66,15 +121,18 @@ export class MailService {
                         <!-- Código OTP -->
                         <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 32px;">
                           <tr>
-                            <td align="center" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; padding: 24px;">
-                              <div style="background-color: rgba(255, 255, 255, 0.15); border-radius: 8px; padding: 20px; backdrop-filter: blur(10px);">
-                                <p style="margin: 0 0 8px; color: rgba(255, 255, 255, 0.9); font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">
-                                  Seu Código
-                                </p>
-                                <p style="margin: 0; color: #ffffff; font-size: 42px; font-weight: 800; letter-spacing: 8px; font-family: 'Courier New', monospace;">
-                                  ${otp}
-                                </p>
-                              </div>
+                            <td align="center" style="background:#111111;border:1px solid #F5B800;border-radius:12px;padding:24px;">
+                              <p style="margin:0 0 8px;color:#F5B800;font-size:12px;font-weight:700;">
+                                SEU CÓDIGO
+                              </p>
+
+                              <p style="margin:0;color:#ffffff;font-size:42px;font-weight:800;letter-spacing:8px;">
+                                ${otp}
+                              </p>
+
+                              <p style="margin-top:10px;color:#B3B3B3;font-size:12px;">
+                                expira em ${OTP_EXPIRES_IN_MINUTES} minutos
+                              </p>
                             </td>
                           </tr>
                         </table>
@@ -129,9 +187,12 @@ export class MailService {
                   <!-- Mensagem Adicional -->
                   <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; margin-top: 20px;">
                     <tr>
-                      <td align="center" style="padding: 0 20px;">
-                        <p style="margin: 0; color: #9ca3af; font-size: 12px; line-height: 1.5;">
-                          Você está recebendo este email porque uma solicitação de redefinição de senha foi feita para sua conta no VaiDelli.
+                      <td style="background:#0B0B0B;padding:30px;text-align:center;border-top:1px solid #1F1F1F;">
+                        <p style="margin:0;color:#B3B3B3;font-size:12px;">
+                          © ${new Date().getFullYear()} VaiDelli - Todos os direitos reservados
+                        </p>
+                        <p style="margin:6px 0 0;color:#F5B800;font-size:11px;">
+                          SISTEMA DE GESTÃO PARA DELIVERY
                         </p>
                       </td>
                     </tr>
@@ -164,7 +225,7 @@ export class MailService {
       const trialEndDate = new Date();
       trialEndDate.setDate(trialEndDate.getDate() + trialDays);
       const formattedEndDate = trialEndDate.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
-
+      const header = await this.renderHeaderHtml();
       await this.transporter.sendMail({
         from: `"VaiDelli - Gestão Inteligente" <${process.env.SMTP_USER}>`,
         to: email,
@@ -177,24 +238,15 @@ export class MailService {
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Bem-vindo ao VaiDelli</title>
           </head>
-          <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f5f5f5;">
-            <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 40px 20px;">
+            <body style="margin:0;padding:0;background-color:#0B0B0B;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial;">            <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 40px 20px;">
               <tr>
                 <td align="center">
                   <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; background-color: #ffffff; border-radius: 16px; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1); overflow: hidden;">
                     
                     <!-- Header com Gradiente -->
                     <tr>
-                      <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 50px 30px; text-align: center; position: relative;">
-                        <div style="background-color: rgba(255, 255, 255, 0.25); width: 100px; height: 100px; border-radius: 50%; margin: 0 auto 24px; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);">
-                          <span style="font-size: 50px;">🚀</span>
-                        </div>
-                        <h1 style="margin: 0; color: #ffffff; font-size: 32px; font-weight: 800; letter-spacing: -0.5px; text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
-                          Bem-vindo ao VaiDelli!
-                        </h1>
-                        <p style="margin: 12px 0 0; color: rgba(255, 255, 255, 0.95); font-size: 18px; font-weight: 500;">
-                          Transforme seu negócio com tecnologia
-                        </p>
+                      <td style="background:#0B0B0B;padding:40px 30px;text-align:center;border-bottom:3px solid #F5B800;">
+                        ${header}
                       </td>
                     </tr>
           
@@ -280,8 +332,11 @@ export class MailService {
                         <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 32px;">
                           <tr>
                             <td align="center">
-                              <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://app.vaidelli.shop'}" style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #ffffff; text-decoration: none; padding: 16px 48px; border-radius: 8px; font-size: 16px; font-weight: 700; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4); transition: transform 0.2s;">
-                                🚀 Acessar Minha Conta
+                             <a href="${process.env.NEXT_PUBLIC_APP_URL}" 
+                                style="display:inline-block;background:#F5B800;color:#000000;
+                                text-decoration:none;padding:14px 40px;border-radius:8px;
+                                font-weight:800;font-size:14px;">
+                                ACESSAR SISTEMA
                               </a>
                             </td>
                           </tr>
@@ -302,18 +357,12 @@ export class MailService {
           
                     <!-- Footer -->
                     <tr>
-                      <td style="background-color: #f9fafb; padding: 30px; text-align: center; border-top: 1px solid #e5e7eb;">
-                        <p style="margin: 0 0 16px; color: #6b7280; font-size: 14px; font-weight: 600;">
-                          Precisa de ajuda? Estamos aqui!
+                      <td style="background:#0B0B0B;padding:30px;text-align:center;border-top:1px solid #1F1F1F;">
+                        <p style="margin:0;color:#B3B3B3;font-size:12px;">
+                          © ${new Date().getFullYear()} VaiDelli - Todos os direitos reservados
                         </p>
-                        <a href="mailto:${EMAIL_FROM}" style="display: inline-block; margin: 0 0 20px; color: #667eea; text-decoration: none; font-weight: 700; font-size: 15px;">
-                          📧 ${EMAIL_FROM}
-                        </a>
-                        <p style="margin: 0 0 8px; color: #9ca3af; font-size: 13px; line-height: 1.5;">
-                          © ${new Date().getFullYear()} VaiDelli - Gestão Inteligente para Restaurantes
-                        </p>
-                        <p style="margin: 0; color: #9ca3af; font-size: 12px;">
-                          Todos os direitos reservados.
+                        <p style="margin:6px 0 0;color:#F5B800;font-size:11px;">
+                          SISTEMA DE GESTÃO PARA DELIVERY
                         </p>
                       </td>
                     </tr>
@@ -532,7 +581,7 @@ export class MailService {
     },
   ): Promise<boolean> {
     const masterEmail = process.env.MASTER_EMAIL || 'master@vaidelli.shop';
-
+    const header = await this.renderHeaderHtml();
     try {
       await this.transporter.sendMail({
         from: `"VaiDelli - Novo Interesse" <${process.env.SMTP_USER}>`,
@@ -546,24 +595,16 @@ export class MailService {
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Novo Interesse em Testar o Sistema</title>
           </head>
-          <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f5f5f5;">
-            <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 40px 20px;">
+            <body style="margin:0;padding:0;background-color:#0B0B0B;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial;">            <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 40px 20px;">
               <tr>
                 <td align="center">
                   <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); overflow: hidden;">
                     
                     <!-- Header -->
+                    
                     <tr>
-                      <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 30px; text-align: center;">
-                        <div style="background-color: rgba(255, 255, 255, 0.2); width: 80px; height: 80px; border-radius: 50%; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center;">
-                          <span style="font-size: 40px;">🎯</span>
-                        </div>
-                        <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 700; letter-spacing: -0.5px;">
-                          Novo Interesse em Testar o Sistema
-                        </h1>
-                        <p style="margin: 10px 0 0; color: rgba(255, 255, 255, 0.9); font-size: 16px;">
-                          ${customerData.companyName}
-                        </p>
+                      <td style="background:#0B0B0B;padding:40px 30px;text-align:center;border-bottom:3px solid #F5B800;">
+                        ${header}
                       </td>
                     </tr>
   
@@ -679,12 +720,12 @@ export class MailService {
   
                     <!-- Footer -->
                     <tr>
-                      <td style="background-color: #f9fafb; padding: 30px; text-align: center; border-top: 1px solid #e5e7eb;">
-                        <p style="margin: 0 0 8px; color: #9ca3af; font-size: 13px; line-height: 1.5;">
-                          © ${new Date().getFullYear()} VaiDelli. Todos os direitos reservados.
+                      <td style="background:#0B0B0B;padding:30px;text-align:center;border-top:1px solid #1F1F1F;">
+                        <p style="margin:0;color:#B3B3B3;font-size:12px;">
+                          © ${new Date().getFullYear()} VaiDelli - Todos os direitos reservados
                         </p>
-                        <p style="margin: 0; color: #9ca3af; font-size: 12px;">
-                          Este é um email automático gerado pelo sistema de registro de interesses.
+                        <p style="margin:6px 0 0;color:#F5B800;font-size:11px;">
+                          SISTEMA DE GESTÃO PARA DELIVERY
                         </p>
                       </td>
                     </tr>
