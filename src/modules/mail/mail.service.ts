@@ -4,9 +4,85 @@ import { prisma } from 'lib/prisma';
 
 const OTP_EXPIRES_IN_MINUTES = Number(process.env.OTP_EXPIRES_IN_MINUTES ?? 10);
 const EMAIL_FROM = process.env.EMAIL_FROM ?? 'suporte@vaidelli.shop';
+
+export type EmailBranding = {
+  appName: string;
+  logoUrl: string | null;
+  colors: {
+    primary: string;
+    background: string;
+    surface: string;
+    text: string;
+    muted: string;
+    border: string;
+    success:string
+  };
+};
+
+export const defaultEmailTheme: EmailBranding = {
+  appName: 'VaiDelli',
+  logoUrl: null,
+  colors: {
+    primary: '#F5B800',
+    background: '#0B0B0B',
+    surface: '#111111',
+    text: '#ffffff',
+    muted: '#B3B3B3',
+    border: '#1F1F1F',
+    success: '#4BB543',
+  },
+};
+
+
+
+export function renderEmailHeader(theme: EmailBranding) {
+  const { appName, logoUrl, colors } = theme;
+
+  return `
+    <div style="text-align:center;">
+      ${
+        logoUrl
+          ? `<img src="${logoUrl}" style="max-height:50px;object-fit:contain;" />`
+          : `<h1 style="margin:0;color:${colors.text};font-size:28px;font-weight:800;">
+              ${appName}
+            </h1>`
+      }
+    </div>
+  `;
+}
+
+export function renderEmailFooter(theme: EmailBranding) {
+  const { appName, colors } = theme;
+
+  return `
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td style="background:${colors.background};
+                   padding:30px;
+                   text-align:center;
+                   border-top:1px solid ${colors.border};">
+
+          <p style="margin:0;color:${colors.muted};font-size:12px;">
+            © ${new Date().getFullYear()} ${appName} - Todos os direitos reservados
+          </p>
+
+          <p style="margin:6px 0 0;color:${colors.primary};font-size:11px;font-weight:700;">
+            SISTEMA DE GESTÃO PARA DELIVERY
+          </p>
+
+          <p style="margin:10px 0 0;color:${colors.muted};font-size:11px;">
+            Este é um email automático, não responda.
+          </p>
+        </td>
+      </tr>
+    </table>
+  `;
+}
+
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
+
 
   private transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
@@ -17,6 +93,32 @@ export class MailService {
       pass: process.env.SMTP_PASS,
     },
   });
+
+  async getTheme(): Promise<EmailBranding> {
+    const masterUser = await prisma.masterUser.findFirst({
+      where: { active: true },
+    });
+
+    if (!masterUser) return defaultEmailTheme;
+
+    const branding = await prisma.masterBranding.findUnique({
+      where: { masterUserId: masterUser.id },
+    });
+
+    return {
+      appName: branding?.appName || defaultEmailTheme.appName,
+      logoUrl: branding?.logoUrl || null,
+      colors: {
+        primary: branding?.primaryColor || defaultEmailTheme.colors.primary,
+        background: defaultEmailTheme.colors.background,
+        surface: defaultEmailTheme.colors.surface,
+        text: defaultEmailTheme.colors.text,
+        muted: defaultEmailTheme.colors.muted,
+        border: defaultEmailTheme.colors.border,
+        success: defaultEmailTheme.colors.success,
+      },
+    };
+  }
 
  private async getBrandingHeader() {
     try {
@@ -76,680 +178,591 @@ export class MailService {
     `;
   }
 
-  private async renderHeaderHtml() {
-    return await this.getBrandingHeader();
-  }
-
   async sendResetPasswordEmail(email: string, otp: string): Promise<boolean> {
-    try {
-      const header = await this.renderHeaderHtml();
-      await this.transporter.sendMail({
-        from: `"Suporte VaiDelli" <${process.env.SMTP_USER}>`,
-        to: email,
-        subject: '🔐 Código de Recuperação de Senha',
-        html: `
-          <!DOCTYPE html>
-          <html lang="pt-BR">
-          <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Recuperação de Senha</title>
-          </head>
-            <body style="margin:0;padding:0;background-color:#0B0B0B;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial;">            <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 40px 20px;">
+  try {
+    const theme = await this.getTheme();
+
+    const header = renderEmailHeader(theme);
+    const footer = renderEmailFooter(theme);
+
+    await this.transporter.sendMail({
+      from: `"${theme.appName}" <${process.env.SMTP_USER}>`,
+      to: email,
+      subject: '🔐 Código de Recuperação de Senha',
+      html: `
+        <html>
+          <body style="margin:0;background:${theme.colors.background};font-family:Arial;">
+            <table width="100%" style="padding:40px;">
               <tr>
                 <td align="center">
-                  <!-- Container Principal -->
-                  <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); overflow: hidden;">
-                    
-                    <!-- Header com Gradiente -->
+                  <table width="600" style="background:${theme.colors.surface};border-radius:12px;overflow:hidden;">
+
                     <tr>
-                      <td style="background:#0B0B0B;padding:40px 30px;text-align:center;border-bottom:3px solid #F5B800;">
+                      <td style="background:${theme.colors.background};
+                                 padding:40px;
+                                 text-align:center;
+                                 border-bottom:3px solid ${theme.colors.primary};">
                         ${header}
                       </td>
                     </tr>
-  
-                    <!-- Conteúdo -->
-                    <tr>
-                      <td style="padding: 40px 30px;">
-                        <p style="margin: 0 0 24px; color: #374151; font-size: 16px; line-height: 1.6;">
-                          Olá! 👋
-                        </p>
-                        <p style="margin: 0 0 32px; color: #374151; font-size: 16px; line-height: 1.6;">
-                          Para redefinir sua senha, use o código de verificação abaixo:
-                        </p>
-  
-                        <!-- Código OTP -->
-                        <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 32px;">
-                          <tr>
-                            <td align="center" style="background:#111111;border:1px solid #F5B800;border-radius:12px;padding:24px;">
-                              <p style="margin:0 0 8px;color:#F5B800;font-size:12px;font-weight:700;">
-                                SEU CÓDIGO
-                              </p>
 
-                              <p style="margin:0;color:#ffffff;font-size:42px;font-weight:800;letter-spacing:8px;">
-                                ${otp}
-                              </p>
+                    <tr>
+                      <td style="padding:40px;color:${theme.colors.text};">
 
-                              <p style="margin-top:10px;color:#B3B3B3;font-size:12px;">
-                                expira em ${OTP_EXPIRES_IN_MINUTES} minutos
-                              </p>
-                            </td>
-                          </tr>
-                        </table>
-  
-                        <!-- Informações Importantes -->
-                        <div style="background-color: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 8px; padding: 16px 20px; margin: 0 0 32px;">
-                          <p style="margin: 0; color: #92400e; font-size: 14px; line-height: 1.5;">
-                            ⏱️ <strong>Importante:</strong> Este código expira em <strong>${OTP_EXPIRES_IN_MINUTES} minutos</strong> por motivos de segurança.
-                          </p>
+                        <p>Seu código de recuperação:</p>
+
+                        <div style="
+                          background:#111;
+                          border:1px solid ${theme.colors.primary};
+                          padding:20px;
+                          text-align:center;
+                          border-radius:10px;
+                          font-size:32px;
+                          letter-spacing:6px;
+                          color:white;
+                        ">
+                          ${otp}
                         </div>
-  
-                        <p style="margin: 0 0 16px; color: #374151; font-size: 15px; line-height: 1.6;">
-                          Se você não solicitou a redefinição de senha, ignore este email. Sua senha permanecerá inalterada.
+
+                        <p style="color:${theme.colors.muted};margin-top:10px;">
+                          Expira em 10 minutos
                         </p>
-  
-                        <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 32px 0;">
-  
-                        <!-- Dicas de Segurança -->
-                        <div style="background-color: #f9fafb; border-radius: 8px; padding: 20px; margin: 0 0 24px;">
-                          <p style="margin: 0 0 12px; color: #111827; font-size: 15px; font-weight: 600;">
-                            🛡️ Dicas de Segurança
-                          </p>
-                          <ul style="margin: 0; padding-left: 20px; color: #6b7280; font-size: 14px; line-height: 1.8;">
-                            <li>Nunca compartilhe este código com ninguém</li>
-                            <li>Nossa equipe nunca solicitará este código</li>
-                            <li>Use uma senha forte e única</li>
-                            <li>Ative a autenticação de dois fatores quando disponível</li>
-                          </ul>
-                        </div>
+
                       </td>
                     </tr>
-  
-                    <!-- Footer -->
-                    <tr>
-                      <td style="background-color: #f9fafb; padding: 30px; text-align: center; border-top: 1px solid #e5e7eb;">
-                        <p style="margin: 0 0 12px; color: #6b7280; font-size: 14px;">
-                          Precisa de ajuda? Entre em contato conosco
-                        </p>
-                        <a href="mailto:${EMAIL_FROM}" style="display: inline-block; margin: 0 0 20px; color: #667eea; text-decoration: none; font-weight: 600; font-size: 14px;">
-                          ${EMAIL_FROM}
-                        </a>
-                        <p style="margin: 0; color: #9ca3af; font-size: 13px; line-height: 1.5;">
-                          © ${new Date().getFullYear()} VaiDelli. Todos os direitos reservados.
-                        </p>
-                        <p style="margin: 8px 0 0; color: #9ca3af; font-size: 12px;">
-                          Este é um email automático, por favor não responda.
-                        </p>
-                      </td>
-                    </tr>
-                  </table>
-  
-                  <!-- Mensagem Adicional -->
-                  <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; margin-top: 20px;">
-                    <tr>
-                      <td style="background:#0B0B0B;padding:30px;text-align:center;border-top:1px solid #1F1F1F;">
-                        <p style="margin:0;color:#B3B3B3;font-size:12px;">
-                          © ${new Date().getFullYear()} VaiDelli - Todos os direitos reservados
-                        </p>
-                        <p style="margin:6px 0 0;color:#F5B800;font-size:11px;">
-                          SISTEMA DE GESTÃO PARA DELIVERY
-                        </p>
-                      </td>
-                    </tr>
+
+                    ${footer}
+
                   </table>
                 </td>
               </tr>
             </table>
           </body>
-          </html>
-        `,
-      });
+        </html>
+      `,
+    });
 
-      return true;
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        this.logger.error(`Erro ao enviar email para ${email}`, error.stack);
-      } else {
-        this.logger.error(
-          `Erro desconhecido ao enviar email para ${email}`,
-          JSON.stringify(error),
-        );
-      }
-
-      return false;
-    }
+    return true;
+  } catch (error) {
+    this.logger.error('Erro ao enviar email de reset', error);
+    return false;
   }
+}
 
-  async sendWelcomeEmail(email: string, name: string, trialDays: number): Promise<boolean> {
-    try {
-      const trialEndDate = new Date();
-      trialEndDate.setDate(trialEndDate.getDate() + trialDays);
-      const formattedEndDate = trialEndDate.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
-      const header = await this.renderHeaderHtml();
-      await this.transporter.sendMail({
-        from: `"VaiDelli - Gestão Inteligente" <${process.env.SMTP_USER}>`,
-        to: email,
-        subject: '🎉 Bem-vindo ao VaiDelli - Seu Trial de 7 Dias Começou!',
-        html: `
-          <!DOCTYPE html>
-          <html lang="pt-BR">
-          <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Bem-vindo ao VaiDelli</title>
-          </head>
-            <body style="margin:0;padding:0;background-color:#0B0B0B;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial;">            <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 40px 20px;">
-              <tr>
-                <td align="center">
-                  <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; background-color: #ffffff; border-radius: 16px; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1); overflow: hidden;">
-                    
-                    <!-- Header com Gradiente -->
-                    <tr>
-                      <td style="background:#0B0B0B;padding:40px 30px;text-align:center;border-bottom:3px solid #F5B800;">
-                        ${header}
-                      </td>
-                    </tr>
-          
-                    <!-- Conteúdo Principal -->
-                    <tr>
-                      <td style="padding: 40px 30px;">
-                        <p style="margin: 0 0 24px; color: #374151; font-size: 18px; line-height: 1.6;">
-                          Olá, <strong style="color: #667eea;">${name}</strong>! 👋
-                        </p>
-                        <p style="margin: 0 0 32px; color: #374151; font-size: 16px; line-height: 1.7;">
-                          Parabéns por dar o primeiro passo rumo à transformação digital do seu negócio! 🎯 Sua conta foi criada com sucesso e você já pode começar a explorar todas as funcionalidades da nossa plataforma.
-                        </p>
 
-                        <!-- Trial Info Card -->
-                        <div style="background: linear-gradient(135deg, #dbeafe 0%, #e0e7ff 100%); border-radius: 12px; padding: 24px; margin: 0 0 32px; border: 2px solid #3b82f6;">
-                          <div style="text-align: center;">
-                            <p style="margin: 0 0 8px; color: #1e40af; font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;">
-                              🎁 Período Trial Gratuito
-                            </p>
-                            <p style="margin: 0 0 16px; color: #1e3a8a; font-size: 36px; font-weight: 800; line-height: 1;">
-                              ${trialDays} Dias
-                            </p>
-                            <p style="margin: 0; color: #1e40af; font-size: 14px; line-height: 1.5;">
-                              Válido até <strong>${formattedEndDate}</strong>
-                            </p>
-                          </div>
-                        </div>
+  async sendWelcomeEmail(
+  email: string,
+  name: string,
+  trialDays: number,
+): Promise<boolean> {
+  try {
+    const theme = await this.getTheme();
 
-                        <!-- Benefícios -->
-                        <div style="background-color: #f0fdf4; border-left: 4px solid #10b981; border-radius: 8px; padding: 20px; margin: 0 0 32px;">
-                          <p style="margin: 0 0 12px; color: #065f46; font-size: 16px; font-weight: 700;">
-                            ✨ O que você ganha com o VaiDelli:
-                          </p>
-                          <ul style="margin: 0; padding-left: 20px; color: #047857; font-size: 14px; line-height: 2;">
-                            <li><strong>Gestão Completa</strong> - Pedidos, estoque, delivery e PDV</li>
-                            <li><strong>Cardápio Digital</strong> - Seu próprio site de vendas</li>
-                            <li><strong>Entregas Otimizadas</strong> - Rotas inteligentes e rastreamento</li>
-                            <li><strong>Relatórios em Tempo Real</strong> - Acompanhe suas vendas</li>
-                            <li><strong>Suporte Dedicado</strong> - Estamos aqui para ajudar</li>
-                          </ul>
-                        </div>
+    const header = renderEmailHeader(theme);
+    const footer = renderEmailFooter(theme);
 
-                        <!-- Próximos Passos -->
-                        <div style="background: linear-gradient(to right, #fef3c7, #fde68a); border-radius: 12px; padding: 24px; margin: 0 0 32px;">
-                          <p style="margin: 0 0 16px; color: #78350f; font-size: 17px; font-weight: 700;">
-                            🚀 Comece Agora em 5 Passos:
-                          </p>
-                          <table width="100%" cellpadding="0" cellspacing="0">
-                            <tr>
-                              <td style="padding: 8px 0;">
-                                <span style="display: inline-block; width: 28px; height: 28px; background-color: #f59e0b; color: #ffffff; border-radius: 50%; text-align: center; line-height: 28px; font-weight: 700; margin-right: 12px;">1</span>
-                                <span style="color: #92400e; font-size: 14px; font-weight: 600;">Complete o onboarding no painel</span>
-                              </td>
-                            </tr>
-                            <tr>
-                              <td style="padding: 8px 0;">
-                                <span style="display: inline-block; width: 28px; height: 28px; background-color: #f59e0b; color: #ffffff; border-radius: 50%; text-align: center; line-height: 28px; font-weight: 700; margin-right: 12px;">2</span>
-                                <span style="color: #92400e; font-size: 14px; font-weight: 600;">Configure horários e área de entrega</span>
-                              </td>
-                            </tr>
-                            <tr>
-                              <td style="padding: 8px 0;">
-                                <span style="display: inline-block; width: 28px; height: 28px; background-color: #f59e0b; color: #ffffff; border-radius: 50%; text-align: center; line-height: 28px; font-weight: 700; margin-right: 12px;">3</span>
-                                <span style="color: #92400e; font-size: 14px; font-weight: 600;">Personalize seu subdomínio e marca</span>
-                              </td>
-                            </tr>
-                            <tr>
-                              <td style="padding: 8px 0;">
-                                <span style="display: inline-block; width: 28px; height: 28px; background-color: #f59e0b; color: #ffffff; border-radius: 50%; text-align: center; line-height: 28px; font-weight: 700; margin-right: 12px;">4</span>
-                                <span style="color: #92400e; font-size: 14px; font-weight: 600;">Adicione formas de pagamento</span>
-                              </td>
-                            </tr>
-                            <tr>
-                              <td style="padding: 8px 0;">
-                                <span style="display: inline-block; width: 28px; height: 28px; background-color: #f59e0b; color: #ffffff; border-radius: 50%; text-align: center; line-height: 28px; font-weight: 700; margin-right: 12px;">5</span>
-                                <span style="color: #92400e; font-size: 14px; font-weight: 600;">Cadastre produtos e comece a vender! 🎉</span>
-                              </td>
-                            </tr>
-                          </table>
-                        </div>
+    const trialEndDate = new Date();
+    trialEndDate.setDate(trialEndDate.getDate() + trialDays);
 
-                        <!-- CTA Button -->
-                        <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 32px;">
-                          <tr>
-                            <td align="center">
-                             <a href="${process.env.NEXT_PUBLIC_APP_URL}" 
-                                style="display:inline-block;background:#F5B800;color:#000000;
-                                text-decoration:none;padding:14px 40px;border-radius:8px;
-                                font-weight:800;font-size:14px;">
-                                ACESSAR SISTEMA
-                              </a>
-                            </td>
-                          </tr>
-                        </table>
+    const formattedEndDate = trialEndDate.toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric',
+    });
 
-                        <!-- Dica Extra -->
-                        <div style="background-color: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 8px; padding: 16px 20px; margin: 0 0 24px;">
-                          <p style="margin: 0; color: #92400e; font-size: 14px; line-height: 1.6;">
-                            💡 <strong>Dica:</strong> Não se preocupe! Após o período trial, você pode escolher o plano que melhor se adapta ao seu negócio. Sem compromisso, sem cartão de crédito necessário agora.
-                          </p>
-                        </div>
+    await this.transporter.sendMail({
+      from: `"${theme.appName}" <${process.env.SMTP_USER}>`,
+      to: email,
+      subject: `🎉 Bem-vindo ao ${theme.appName} - Seu Trial começou!`,
+      html: `
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Bem-vindo</title>
+      </head>
 
-                        <p style="margin: 0; color: #374151; font-size: 15px; line-height: 1.6; text-align: center;">
-                          Qualquer dúvida, nossa equipe está pronta para ajudar! 💬
-                        </p>
-                      </td>
-                    </tr>
-          
-                    <!-- Footer -->
-                    <tr>
-                      <td style="background:#0B0B0B;padding:30px;text-align:center;border-top:1px solid #1F1F1F;">
-                        <p style="margin:0;color:#B3B3B3;font-size:12px;">
-                          © ${new Date().getFullYear()} VaiDelli - Todos os direitos reservados
-                        </p>
-                        <p style="margin:6px 0 0;color:#F5B800;font-size:11px;">
-                          SISTEMA DE GESTÃO PARA DELIVERY
-                        </p>
-                      </td>
-                    </tr>
-                  </table>
+      <body style="margin:0;padding:0;background:${theme.colors.background};font-family:Arial;">
 
-                  <!-- Mensagem Adicional -->
-                  <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; margin-top: 20px;">
-                    <tr>
-                      <td align="center" style="padding: 0 20px;">
-                        <p style="margin: 0; color: #9ca3af; font-size: 12px; line-height: 1.5;">
-                          Você está recebendo este email porque criou uma conta no VaiDelli.
-                        </p>
-                      </td>
-                    </tr>
-                  </table>
-                </td>
-              </tr>
-            </table>
-          </body>
-          </html>
-        `,
-      });
+        <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 20px;">
+          <tr>
+            <td align="center">
 
-      return true;
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        this.logger.error(`Erro ao enviar email de boas-vindas para ${email}`, error.stack);
-      } else {
-        this.logger.error(
-          `Erro desconhecido ao enviar email de boas-vindas para ${email}`,
-          JSON.stringify(error),
-        );
-      }
+              <table width="100%" cellpadding="0" cellspacing="0"
+                style="max-width:600px;background:${theme.colors.surface};border-radius:12px;overflow:hidden;">
 
-      return false;
+                <!-- HEADER -->
+                <tr>
+                  <td style="background:${theme.colors.background};
+                             padding:40px;
+                             text-align:center;
+                             border-bottom:3px solid ${theme.colors.primary};">
+
+                    ${header}
+
+                    <h1 style="margin:20px 0 0;color:${theme.colors.text};font-size:22px;font-weight:800;">
+                      Bem-vindo ao ${theme.appName} 🎉
+                    </h1>
+
+                  </td>
+                </tr>
+
+                <!-- CONTENT -->
+                <tr>
+                  <td style="padding:40px;color:${theme.colors.text};">
+
+                    <p style="margin:0 0 16px;">
+                      Olá, <strong style="color:${theme.colors.primary};">${name}</strong> 👋
+                    </p>
+
+                    <p style="margin:0 0 24px;color:${theme.colors.muted};line-height:1.6;">
+                      Sua conta foi criada com sucesso. Você já pode começar a usar a plataforma.
+                    </p>
+
+                    <!-- TRIAL CARD -->
+                    <div style="
+                      background:${theme.colors.background};
+                      border:1px solid ${theme.colors.primary};
+                      border-radius:10px;
+                      padding:24px;
+                      margin-bottom:24px;
+                      text-align:center;
+                    ">
+
+                      <p style="margin:0 0 8px;color:${theme.colors.muted};font-size:12px;font-weight:700;">
+                        PERÍODO TRIAL
+                      </p>
+
+                      <p style="margin:0 0 12px;color:${theme.colors.primary};font-size:34px;font-weight:900;">
+                        ${trialDays} DIAS
+                      </p>
+
+                      <p style="margin:0;color:${theme.colors.text};font-size:13px;">
+                        Válido até <strong>${formattedEndDate}</strong>
+                      </p>
+
+                    </div>
+
+                    <!-- BENEFÍCIOS -->
+                    <div style="
+                      background:${theme.colors.background};
+                      border-left:4px solid ${theme.colors.primary};
+                      border-radius:8px;
+                      padding:20px;
+                      margin-bottom:24px;
+                    ">
+
+                      <p style="margin:0 0 12px;color:${theme.colors.primary};font-weight:700;">
+                        O que você ganha:
+                      </p>
+
+                      <ul style="margin:0;padding-left:18px;color:${theme.colors.muted};line-height:1.8;">
+                        <li>Gestão completa de pedidos</li>
+                        <li>Cardápio digital</li>
+                        <li>Controle de entregas</li>
+                        <li>Relatórios em tempo real</li>
+                        <li>Suporte dedicado</li>
+                      </ul>
+
+                    </div>
+
+                    <!-- CTA -->
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td align="center">
+
+                          <a href="${process.env.NEXT_PUBLIC_APP_URL}"
+                            style="display:inline-block;
+                            background:${theme.colors.primary};
+                            color:${theme.colors.text || '#000'};
+                            text-decoration:none;
+                            padding:14px 40px;
+                            border-radius:8px;
+                            font-weight:800;">
+                            ACESSAR SISTEMA
+                          </a>
+
+                        </td>
+                      </tr>
+                    </table>
+
+                    <!-- DICA -->
+                    <div style="
+                      background:${theme.colors.background};
+                      border:1px solid ${theme.colors.border || theme.colors.primary};
+                      border-radius:8px;
+                      padding:16px;
+                      margin-top:24px;
+                    ">
+
+                      <p style="margin:0;color:${theme.colors.muted};font-size:13px;line-height:1.6;">
+                        💡 Após o trial, você poderá escolher o plano ideal para o seu negócio.
+                      </p>
+
+                    </div>
+
+                  </td>
+                </tr>
+
+                <!-- FOOTER -->
+                ${footer}
+
+              </table>
+
+            </td>
+          </tr>
+        </table>
+
+      </body>
+      </html>
+      `,
+    });
+
+    return true;
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      this.logger.error(`Erro ao enviar email de boas-vindas para ${email}`, error.stack);
+    } else {
+      this.logger.error(`Erro desconhecido ao enviar email de boas-vindas`, JSON.stringify(error));
     }
+
+    return false;
   }
+}
 
-  async sendClientActivationEmail(
-    data: {
-      email: string;
-      companyName: string;
-      userName: string;
-      userEmail: string;
-      password: string;
-      adminUrl: string;
-    },
-  ): Promise<boolean> {
-    try {
-      await this.transporter.sendMail({
-        from: `"VaiDelli - Ativação de Conta" <${process.env.SMTP_USER}>`,
-        to: data.email,
-        subject: '🚀 Sua conta foi ativada - Acesse o Painel Admin',
-        html: `
-          <!DOCTYPE html>
-          <html lang="pt-BR">
-          <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Ativação de Conta</title>
-          </head>
-          <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f5f5f5;">
-            <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 40px 20px;">
-              <tr>
-                <td align="center">
-                  <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; background-color: #ffffff; border-radius: 16px; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1); overflow: hidden;">
-                    
-                    <!-- Header -->
-                    <tr>
-                      <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 50px 30px; text-align: center;">
-                        <div style="background-color: rgba(255, 255, 255, 0.25); width: 100px; height: 100px; border-radius: 50%; margin: 0 auto 24px; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);">
-                          <span style="font-size: 50px;">🚀</span>
-                        </div>
-                        <h1 style="margin: 0; color: #ffffff; font-size: 32px; font-weight: 800; letter-spacing: -0.5px; text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
-                          Sua conta foi ativada!
-                        </h1>
-                        <p style="margin: 12px 0 0; color: rgba(255, 255, 255, 0.95); font-size: 18px; font-weight: 500;">
-                          ${data.companyName}
-                        </p>
-                      </td>
-                    </tr>
-          
-                    <!-- Conteúdo Principal -->
-                    <tr>
-                      <td style="padding: 40px 30px;">
-                        <p style="margin: 0 0 24px; color: #374151; font-size: 18px; line-height: 1.6;">
-                          Olá, <strong style="color: #667eea;">${data.userName}</strong>! 👋
-                        </p>
-                        <p style="margin: 0 0 32px; color: #374151; font-size: 16px; line-height: 1.7;">
-                          Sua conta foi ativada com sucesso! Abaixo estão suas credenciais de acesso ao painel administrativo da VaiDelli.
-                        </p>
+async sendClientActivationEmail(
+  data: {
+    email: string;
+    companyName: string;
+    userName: string;
+    userEmail: string;
+    password: string;
+    adminUrl: string;
+  },
+): Promise<boolean> {
+  try {
+    const theme = await this.getTheme();
 
-                        <!-- Credenciais Card -->
-                        <div style="background: linear-gradient(135deg, #dbeafe 0%, #e0e7ff 100%); border-radius: 12px; padding: 32px; margin: 0 0 32px; border: 2px solid #3b82f6;">
-                          <h2 style="margin: 0 0 24px; color: #1e40af; font-size: 18px; font-weight: 700; text-align: center;">
-                            🔐 Credenciais de Acesso
-                          </h2>
-                          
-                          <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 20px;">
-                            <tr>
-                              <td style="padding: 12px 0; color: #1e40af; font-size: 14px; font-weight: 600; width: 80px;">Email:</td>
-                              <td style="padding: 12px 0; color: #1e3a8a; font-size: 15px; font-weight: 500;">${data.userEmail}</td>
-                            </tr>
-                            <tr>
-                              <td style="padding: 12px 0; color: #1e40af; font-size: 14px; font-weight: 600;">Senha:</td>
-                              <td style="padding: 12px 0; color: #1e3a8a; font-size: 18px; font-weight: 700; letter-spacing: 1px;">${data.password}</td>
-                            </tr>
-                          </table>
+    const header = renderEmailHeader(theme);
+    const footer = renderEmailFooter(theme);
 
-                          <div style="background-color: rgba(255, 255, 255, 0.5); border-radius: 8px; padding: 12px; margin-top: 16px;">
-                            <p style="margin: 0; color: #1e40af; font-size: 13px; line-height: 1.5; text-align: center;">
-                              ⚠️ <strong>Importante:</strong> Recomendamos alterar sua senha após o primeiro acesso.
-                            </p>
-                          </div>
-                        </div>
+    await this.transporter.sendMail({
+      from: `"${theme.appName}" <${process.env.SMTP_USER}>`,
+      to: data.email,
+      subject: '🚀 Sua conta foi ativada - Acesse o Painel Admin',
+      html: `
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Ativação de Conta</title>
+      </head>
 
-                        <!-- CTA Button -->
-                        <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 32px;">
-                          <tr>
-                            <td align="center">
-                              <a href="${data.adminUrl}" style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #ffffff; text-decoration: none; padding: 16px 48px; border-radius: 8px; font-size: 16px; font-weight: 700; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4); transition: transform 0.2s;">
-                                🚀 Acessar Painel Admin
-                              </a>
-                            </td>
-                          </tr>
-                        </table>
+      <body style="margin:0;padding:0;background:${theme.colors.background};font-family:Arial;">
 
-                        <!-- Dicas -->
-                        <div style="background-color: #f0fdf4; border-left: 4px solid #10b981; border-radius: 8px; padding: 20px; margin: 0 0 24px;">
-                          <p style="margin: 0 0 12px; color: #065f46; font-size: 16px; font-weight: 700;">
-                            💡 Próximos Passos:
-                          </p>
-                          <ul style="margin: 0; padding-left: 20px; color: #047857; font-size: 14px; line-height: 2;">
-                            <li>Acesse o painel admin com suas credenciais</li>
-                            <li>Complete o onboarding inicial</li>
-                            <li>Configure horários e área de entrega</li>
-                            <li>Cadastre seus produtos</li>
-                            <li>Comece a vender! 🎉</li>
-                          </ul>
-                        </div>
+        <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 20px;">
+          <tr>
+            <td align="center">
 
-                        <p style="margin: 0; color: #374151; font-size: 15px; line-height: 1.6; text-align: center;">
-                          Qualquer dúvida, nossa equipe está pronta para ajudar! 💬
-                        </p>
-                      </td>
-                    </tr>
-          
-                    <!-- Footer -->
-                    <tr>
-                      <td style="background-color: #f9fafb; padding: 30px; text-align: center; border-top: 1px solid #e5e7eb;">
-                        <p style="margin: 0 0 16px; color: #6b7280; font-size: 14px; font-weight: 600;">
-                          Precisa de ajuda? Estamos aqui!
-                        </p>
-                        <a href="mailto:${EMAIL_FROM}" style="display: inline-block; margin: 0 0 20px; color: #667eea; text-decoration: none; font-weight: 700; font-size: 15px;">
-                          📧 ${EMAIL_FROM}
-                        </a>
-                        <p style="margin: 0 0 8px; color: #9ca3af; font-size: 13px; line-height: 1.5;">
-                          © ${new Date().getFullYear()} VaiDelli - Gestão Inteligente para Restaurantes
-                        </p>
-                        <p style="margin: 0; color: #9ca3af; font-size: 12px;">
-                          Todos os direitos reservados.
-                        </p>
-                      </td>
-                    </tr>
-                  </table>
+              <table width="100%" cellpadding="0" cellspacing="0"
+                style="max-width:600px;background:${theme.colors.surface};border-radius:12px;overflow:hidden;">
 
-                  <!-- Mensagem Adicional -->
-                  <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; margin-top: 20px;">
-                    <tr>
-                      <td align="center" style="padding: 0 20px;">
-                        <p style="margin: 0; color: #9ca3af; font-size: 12px; line-height: 1.5;">
-                          Você está recebendo este email porque sua conta foi ativada no VaiDelli.
-                        </p>
-                      </td>
-                    </tr>
-                  </table>
-                </td>
-              </tr>
-            </table>
-          </body>
-          </html>
-        `,
-      });
+                <!-- HEADER -->
+                <tr>
+                  <td style="background:${theme.colors.background};
+                             padding:40px;
+                             text-align:center;
+                             border-bottom:3px solid ${theme.colors.primary};">
 
-      return true;
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        this.logger.error(`Erro ao enviar email de ativação para ${data.email}`, error.stack);
-      } else {
-        this.logger.error(
-          `Erro desconhecido ao enviar email de ativação para ${data.email}`,
-          JSON.stringify(error),
-        );
-      }
+                    ${header}
 
-      return false;
+                    <h1 style="margin:20px 0 0;color:${theme.colors.text};font-size:24px;font-weight:800;">
+                      Conta ativada com sucesso 🚀
+                    </h1>
+
+                    <p style="margin:8px 0 0;color:${theme.colors.muted};font-size:14px;">
+                      ${data.companyName}
+                    </p>
+
+                  </td>
+                </tr>
+
+                <!-- CONTENT -->
+                <tr>
+                  <td style="padding:40px;color:${theme.colors.text};">
+
+                    <p style="margin:0 0 16px;">
+                      Olá, <strong style="color:${theme.colors.primary};">${data.userName}</strong> 👋
+                    </p>
+
+                    <p style="margin:0 0 24px;color:${theme.colors.muted};line-height:1.6;">
+                      Sua conta foi ativada com sucesso. Aqui estão suas credenciais de acesso ao painel administrativo.
+                    </p>
+
+                    <!-- CREDENCIAIS -->
+                    <div style="
+                      background:${theme.colors.background};
+                      border:1px solid ${theme.colors.primary};
+                      border-radius:10px;
+                      padding:20px;
+                      margin-bottom:24px;
+                    ">
+
+                      <p style="margin:0 0 12px;color:${theme.colors.primary};font-weight:700;">
+                        Credenciais de acesso
+                      </p>
+
+                      <p style="margin:0 0 8px;color:${theme.colors.text};">
+                        <strong>Email:</strong> ${data.userEmail}
+                      </p>
+
+                      <p style="margin:0;color:${theme.colors.text};">
+                        <strong>Senha:</strong>
+                        <span style="color:${theme.colors.primary};font-weight:700;letter-spacing:2px;">
+                          ${data.password}
+                        </span>
+                      </p>
+
+                      <p style="margin:16px 0 0;color:${theme.colors.muted};font-size:12px;">
+                        ⚠️ Recomendamos alterar sua senha no primeiro acesso.
+                      </p>
+                    </div>
+
+                    <!-- CTA -->
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td align="center">
+                          <a href="${data.adminUrl}"
+                            style="display:inline-block;
+                            background:${theme.colors.primary};
+                            color:${theme.colors.text || '#000'};
+                            text-decoration:none;
+                            padding:14px 40px;
+                            border-radius:8px;
+                            font-weight:800;">
+                            ACESSAR PAINEL
+                          </a>
+                        </td>
+                      </tr>
+                    </table>
+
+                  </td>
+                </tr>
+
+                <!-- FOOTER -->
+                ${footer}
+
+              </table>
+
+            </td>
+          </tr>
+        </table>
+
+      </body>
+      </html>
+      `,
+    });
+
+    return true;
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      this.logger.error(`Erro ao enviar email de ativação para ${data.email}`, error.stack);
+    } else {
+      this.logger.error(`Erro desconhecido ao enviar email de ativação`, JSON.stringify(error));
     }
+
+    return false;
   }
+}
 
-  async sendCompanyInterestEmail(
-    customerData: {
-      name: string;
-      companyName: string;
-      document: string;
-      email: string;
-      phone: string;
-      segment?: string;
-      street: string;
-      number: string;
-      complement?: string;
-      neighborhood: string;
-      city: string;
-      state: string;
-      zipCode: string;
-      reference?: string;
-    },
-  ): Promise<boolean> {
-    const masterEmail = process.env.MASTER_EMAIL || 'master@vaidelli.shop';
-    const header = await this.renderHeaderHtml();
-    try {
-      await this.transporter.sendMail({
-        from: `"VaiDelli - Novo Interesse" <${process.env.SMTP_USER}>`,
-        to: masterEmail,
-        subject: `🎯 Novo Interesse em Testar o Sistema - ${customerData.companyName}`,
-        html: `
-          <!DOCTYPE html>
-          <html lang="pt-BR">
-          <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Novo Interesse em Testar o Sistema</title>
-          </head>
-            <body style="margin:0;padding:0;background-color:#0B0B0B;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial;">            <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 40px 20px;">
-              <tr>
-                <td align="center">
-                  <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); overflow: hidden;">
-                    
-                    <!-- Header -->
-                    
-                    <tr>
-                      <td style="background:#0B0B0B;padding:40px 30px;text-align:center;border-bottom:3px solid #F5B800;">
-                        ${header}
-                      </td>
-                    </tr>
-  
-                    <!-- Conteúdo -->
-                    <tr>
-                      <td style="padding: 40px 30px;">
-                        <p style="margin: 0 0 32px; color: #374151; font-size: 16px; line-height: 1.6;">
-                          Um novo cliente demonstrou interesse em testar o sistema VaiDelli. Abaixo estão os dados fornecidos:
-                        </p>
-  
-                        <!-- Dados do Cliente -->
-                        <div style="background-color: #f9fafb; border-radius: 8px; padding: 24px; margin: 0 0 32px; border: 1px solid #e5e7eb;">
-                          <h2 style="margin: 0 0 20px; color: #111827; font-size: 18px; font-weight: 700; border-bottom: 2px solid #667eea; padding-bottom: 12px;">
-                            📋 Dados do Cliente
-                          </h2>
-                          
-                          <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 16px;">
-                            <tr>
-                              <td style="padding: 8px 0; color: #6b7280; font-size: 14px; width: 140px; font-weight: 600;">Nome:</td>
-                              <td style="padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500;">${customerData.name}</td>
-                            </tr>
-                            <tr>
-                              <td style="padding: 8px 0; color: #6b7280; font-size: 14px; width: 140px; font-weight: 600;">Empresa:</td>
-                              <td style="padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500;">${customerData.companyName}</td>
-                            </tr>
-                            <tr>
-                              <td style="padding: 8px 0; color: #6b7280; font-size: 14px; width: 140px; font-weight: 600;">Segmento:</td>
-                              <td style="padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500;">${customerData.segment || 'Não informado'}</td>
-                            </tr>
-                            <tr>
-                              <td style="padding: 8px 0; color: #6b7280; font-size: 14px; width: 140px; font-weight: 600;">CPF/CNPJ:</td>
-                              <td style="padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500;">${customerData.document}</td>
-                            </tr>
-                            <tr>
-                              <td style="padding: 8px 0; color: #6b7280; font-size: 14px; width: 140px; font-weight: 600;">Email:</td>
-                              <td style="padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500;">
-                                <a href="mailto:${customerData.email}" style="color: #667eea; text-decoration: none;">${customerData.email}</a>
-                              </td>
-                            </tr>
-                            <tr>
-                              <td style="padding: 8px 0; color: #6b7280; font-size: 14px; width: 140px; font-weight: 600;">Telefone:</td>
-                              <td style="padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500;">
-                                <a href="tel:${customerData.phone}" style="color: #667eea; text-decoration: none;">${customerData.phone}</a>
-                              </td>
-                            </tr>
-                          </table>
-                        </div>
-  
-                        <!-- Endereço -->
-                        <div style="background-color: #f9fafb; border-radius: 8px; padding: 24px; margin: 0 0 32px; border: 1px solid #e5e7eb;">
-                          <h2 style="margin: 0 0 20px; color: #111827; font-size: 18px; font-weight: 700; border-bottom: 2px solid #667eea; padding-bottom: 12px;">
-                            📍 Endereço
-                          </h2>
-                          
-                          <table width="100%" cellpadding="0" cellspacing="0">
-                            <tr>
-                              <td style="padding: 8px 0; color: #6b7280; font-size: 14px; width: 140px; font-weight: 600;">Rua:</td>
-                              <td style="padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500;">${customerData.street}, ${customerData.number}</td>
-                            </tr>
-                            ${customerData.complement ? `
-                            <tr>
-                              <td style="padding: 8px 0; color: #6b7280; font-size: 14px; width: 140px; font-weight: 600;">Complemento:</td>
-                              <td style="padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500;">${customerData.complement}</td>
-                            </tr>
-                            ` : ''}
-                            <tr>
-                              <td style="padding: 8px 0; color: #6b7280; font-size: 14px; width: 140px; font-weight: 600;">Bairro:</td>
-                              <td style="padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500;">${customerData.neighborhood}</td>
-                            </tr>
-                            <tr>
-                              <td style="padding: 8px 0; color: #6b7280; font-size: 14px; width: 140px; font-weight: 600;">Cidade/UF:</td>
-                              <td style="padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500;">${customerData.city} - ${customerData.state}</td>
-                            </tr>
-                            <tr>
-                              <td style="padding: 8px 0; color: #6b7280; font-size: 14px; width: 140px; font-weight: 600;">CEP:</td>
-                              <td style="padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500;">${customerData.zipCode}</td>
-                            </tr>
-                            ${customerData.reference ? `
-                            <tr>
-                              <td style="padding: 8px 0; color: #6b7280; font-size: 14px; width: 140px; font-weight: 600;">Referência:</td>
-                              <td style="padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500;">${customerData.reference}</td>
-                            </tr>
-                            ` : ''}
-                          </table>
-                        </div>
-  
-                        <!-- Ações Rápidas -->
-                        <div style="background: linear-gradient(135deg, #dbeafe 0%, #e0e7ff 100%); border-radius: 8px; padding: 24px; margin: 0 0 24px; border: 2px solid #3b82f6;">
-                          <h2 style="margin: 0 0 16px; color: #1e40af; font-size: 16px; font-weight: 700;">
-                            ⚡ Ações Rápidas
-                          </h2>
-                          <table width="100%" cellpadding="0" cellspacing="0">
-                            <tr>
-                              <td style="padding: 8px 0;">
-                                <a href="mailto:${customerData.email}" style="display: inline-block; background-color: #667eea; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 6px; font-size: 14px; font-weight: 600; margin-right: 8px;">
-                                  📧 Enviar Email
-                                </a>
-                              </td>
-                              <td style="padding: 8px 0;">
-                                <a href="tel:${customerData.phone}" style="display: inline-block; background-color: #10b981; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 6px; font-size: 14px; font-weight: 600;">
-                                  📞 Ligar Agora
-                                </a>
-                              </td>
-                            </tr>
-                          </table>
-                        </div>
-  
-                        <p style="margin: 0; color: #374151; font-size: 14px; line-height: 1.6;">
-                          Entre em contato com o cliente o mais breve possível para converter este interesse em uma venda! 🚀
-                        </p>
-                      </td>
-                    </tr>
-  
-                    <!-- Footer -->
-                    <tr>
-                      <td style="background:#0B0B0B;padding:30px;text-align:center;border-top:1px solid #1F1F1F;">
-                        <p style="margin:0;color:#B3B3B3;font-size:12px;">
-                          © ${new Date().getFullYear()} VaiDelli - Todos os direitos reservados
-                        </p>
-                        <p style="margin:6px 0 0;color:#F5B800;font-size:11px;">
-                          SISTEMA DE GESTÃO PARA DELIVERY
-                        </p>
-                      </td>
-                    </tr>
-                  </table>
-                </td>
-              </tr>
-            </table>
-          </body>
-          </html>
-        `,
-      });
+async sendCompanyInterestEmail(
+  customerData: {
+    name: string;
+    companyName: string;
+    document: string;
+    email: string;
+    phone: string;
+    segment?: string;
+    street: string;
+    number: string;
+    complement?: string;
+    neighborhood: string;
+    city: string;
+    state: string;
+    zipCode: string;
+    reference?: string;
+  },
+): Promise<boolean> {
+  const masterEmail = process.env.MASTER_EMAIL || 'master@vaidelli.shop';
 
-      return true;
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        this.logger.error(`Erro ao enviar email de interesse para ${masterEmail}`, error.stack);
-      } else {
-        this.logger.error(
-          `Erro desconhecido ao enviar email de interesse para ${masterEmail}`,
-          JSON.stringify(error),
-        );
-      }
+  try {
+    const theme = await this.getTheme();
 
-      return false;
+    const header = renderEmailHeader(theme);
+    const footer = renderEmailFooter(theme);
+
+    await this.transporter.sendMail({
+      from: `"${theme.appName}" <${process.env.SMTP_USER}>`,
+      to: masterEmail,
+      subject: `🎯 Novo Interesse em Testar o Sistema - ${customerData.companyName}`,
+      html: `
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Novo Interesse</title>
+      </head>
+
+      <body style="margin:0;padding:0;background:${theme.colors.background};font-family:Arial;">
+
+        <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 20px;">
+          <tr>
+            <td align="center">
+
+              <table width="100%" cellpadding="0" cellspacing="0"
+                style="max-width:600px;background:${theme.colors.surface};border-radius:12px;overflow:hidden;">
+
+                <!-- HEADER -->
+                <tr>
+                  <td style="background:${theme.colors.background};
+                             padding:40px;
+                             text-align:center;
+                             border-bottom:3px solid ${theme.colors.primary};">
+
+                    ${header}
+
+                    <h1 style="margin:20px 0 0;color:${theme.colors.text};font-size:22px;font-weight:800;">
+                      Novo interesse recebido 🎯
+                    </h1>
+
+                    <p style="margin:8px 0 0;color:${theme.colors.muted};font-size:14px;">
+                      ${customerData.companyName}
+                    </p>
+
+                  </td>
+                </tr>
+
+                <!-- CONTENT -->
+                <tr>
+                  <td style="padding:40px;color:${theme.colors.text};">
+
+                    <p style="margin:0 0 24px;color:${theme.colors.muted};line-height:1.6;">
+                      Um novo cliente demonstrou interesse no sistema VaiDelli.
+                    </p>
+
+                    <!-- CARD CLIENTE -->
+                    <div style="
+                      background:${theme.colors.background};
+                      border:1px solid ${theme.colors.border || theme.colors.primary};
+                      border-radius:10px;
+                      padding:20px;
+                      margin-bottom:24px;
+                    ">
+
+                      <p style="margin:0 0 12px;color:${theme.colors.primary};font-weight:700;">
+                        Dados do cliente
+                      </p>
+
+                      <p style="margin:0 0 6px;color:${theme.colors.text};">
+                        <strong>Nome:</strong> ${customerData.name}
+                      </p>
+
+                      <p style="margin:0 0 6px;color:${theme.colors.text};">
+                        <strong>Email:</strong> ${customerData.email}
+                      </p>
+
+                      <p style="margin:0 0 6px;color:${theme.colors.text};">
+                        <strong>Telefone:</strong> ${customerData.phone}
+                      </p>
+
+                      <p style="margin:0;color:${theme.colors.text};">
+                        <strong>Empresa:</strong> ${customerData.companyName}
+                      </p>
+
+                    </div>
+
+                    <!-- ENDEREÇO -->
+                    <div style="
+                      background:${theme.colors.background};
+                      border:1px solid ${theme.colors.border || theme.colors.primary};
+                      border-radius:10px;
+                      padding:20px;
+                      margin-bottom:24px;
+                    ">
+
+                      <p style="margin:0 0 12px;color:${theme.colors.primary};font-weight:700;">
+                        Endereço
+                      </p>
+
+                      <p style="margin:0;color:${theme.colors.text};line-height:1.6;">
+                        ${customerData.street}, ${customerData.number}<br/>
+                        ${customerData.neighborhood} - ${customerData.city}/${customerData.state}<br/>
+                        CEP: ${customerData.zipCode}
+                      </p>
+
+                    </div>
+
+                    <!-- CTA -->
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td align="center">
+
+                          <a href="mailto:${customerData.email}"
+                            style="display:inline-block;
+                            background:${theme.colors.primary};
+                            color:${theme.colors.text || '#000'};
+                            text-decoration:none;
+                            padding:12px 28px;
+                            border-radius:8px;
+                            font-weight:700;
+                            margin-right:8px;">
+                            Enviar Email
+                          </a>
+
+                          <a href="tel:${customerData.phone}"
+                            style="display:inline-block;
+                            background:${theme.colors.success || '#10b981'};
+                            color:#fff;
+                            text-decoration:none;
+                            padding:12px 28px;
+                            border-radius:8px;
+                            font-weight:700;">
+                            Ligar
+                          </a>
+
+                        </td>
+                      </tr>
+                    </table>
+
+                  </td>
+                </tr>
+
+                <!-- FOOTER -->
+                ${footer}
+
+              </table>
+
+            </td>
+          </tr>
+        </table>
+
+      </body>
+      </html>
+      `,
+    });
+
+    return true;
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      this.logger.error(`Erro ao enviar email de interesse para ${masterEmail}`, error.stack);
+    } else {
+      this.logger.error(`Erro desconhecido ao enviar email de interesse`, JSON.stringify(error));
     }
+
+    return false;
   }
+}
 }
