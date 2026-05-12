@@ -167,7 +167,7 @@ async function seed() {
 
     // AUTOMAÇÃO
     ['whatsapp',       'WhatsApp',    'Automação', '/admin/automation/whatsapp', 'MessageCircle'],
-    ['whatsapp_crm',   'WhatsApp CRM','Automação', '/admin/whatsapp-crm',        'MessageSquare'],
+    ['whatsapp_crm',   'WhatsApp CRM','Automação', '/admin/whatsapp-crm',        'siwhatsapp'],
     ['disparos',       'Disparos',    'Automação', '/admin/automation/disparos', 'Send'],
     ['ifood',          'iFood',       'Automação', '/admin/automation/ifood',    'ShoppingBag'],
     ['ninetynine_food','99Food',      'Automação', '/admin/automation/99food',   'Bike'],
