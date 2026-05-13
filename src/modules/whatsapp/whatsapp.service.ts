@@ -1027,248 +1027,292 @@ async connect(branchId?: string, partnerId?: string) {
   }
 
   async fetchChats(branchId: string) {
-    const config = await this.getFullConfig(branchId);
-    const getMessageTimestamp = (chat: any): number => {
-      const ts =
-        chat.lastMessage?.messageTimestamp ||
-        chat.lastMsgTimestamp ||
-        chat.conversationTimestamp ||
-        chat.updatedAt ||
-        0;
+  const config = await this.getFullConfig(branchId);
 
-      const numeric = Number(ts);
+  const getMessageTimestamp = (chat: any): number => {
+    const ts =
+      chat.lastMessage?.messageTimestamp ||
+      chat.lastMsgTimestamp ||
+      chat.conversationTimestamp ||
+      chat.updatedAt ||
+      0;
 
-      // unix seconds -> ms
-      return numeric < 1000000000000
-        ? numeric * 1000
-        : numeric;
-    };
+    const numeric = Number(ts);
 
-    const raw = await this.evolutionRequest(
-      'POST',
-      `/chat/findChats/${config.instanceName}`,
-      { where: {} },
-    );
+    // normaliza seconds -> ms
+    return numeric < 1000000000000 ? numeric * 1000 : numeric;
+  };
 
-    const rawChats: any[] = Array.isArray(raw)
-      ? raw
-      : raw?.chats || raw?.data || raw?.records || [];
+  const raw = await this.evolutionRequest(
+    'POST',
+    `/chat/findChats/${config.instanceName}`,
+    { where: {} },
+  );
 
-    const extractJid = (c: any): string => {
-      if (typeof c.remoteJid === 'string' && c.remoteJid.includes('@')) return c.remoteJid;
-      if (typeof c.jid === 'string' && c.jid.includes('@')) return c.jid;
-      if (typeof c.id === 'string' && c.id.includes('@')) return c.id;
-      if (c.key?.remoteJid && c.key.remoteJid.includes('@')) return c.key.remoteJid;
-      if (typeof c.owner === 'string' && c.owner.includes('@')) return c.owner;
-      return '';
-    };
+  const rawChats: any[] = Array.isArray(raw)
+    ? raw
+    : raw?.chats || raw?.data || raw?.records || [];
 
-    const chatsByJid = new Map<string, any>();
-    for (const c of rawChats) {
-      const jid = extractJid(c);
-      if (!jid || !jid.endsWith('@s.whatsapp.net')) continue;
-      chatsByJid.set(jid, { ...c, _jid: jid });
-    }
+  const extractJid = (c: any): string => {
+    if (typeof c.remoteJid === 'string' && c.remoteJid.includes('@')) return c.remoteJid;
+    if (typeof c.jid === 'string' && c.jid.includes('@')) return c.jid;
+    if (typeof c.id === 'string' && c.id.includes('@')) return c.id;
+    if (c.key?.remoteJid && c.key.remoteJid.includes('@')) return c.key.remoteJid;
+    if (typeof c.owner === 'string' && c.owner.includes('@')) return c.owner;
+    return '';
+  };
 
-    for (const c of rawChats) {
-      const jid = extractJid(c);
-      if (!jid || !jid.endsWith('@lid')) continue;
+  const chatsByJid = new Map<string, any>();
 
-      const altJid: string =
-        c.lastMessage?.key?.remoteJidAlt ||
-        c.lastMessage?.key?.participantAlt ||
-        '';
-      if (!altJid.endsWith('@s.whatsapp.net')) continue;
+  for (const c of rawChats) {
+    const jid = extractJid(c);
+    if (!jid || !jid.endsWith('@s.whatsapp.net')) continue;
 
-      const existing = chatsByJid.get(altJid);
-      if (!existing) continue;
+    chatsByJid.set(jid, { ...c, _jid: jid });
+  }
 
-      const lidTs = c.lastMessage?.messageTimestamp || c.updatedAt || 0;
-      const existingTs = existing.lastMessage?.messageTimestamp || existing.lastMsgTimestamp || existing.updatedAt || 0;
+  const individualChats = Array.from(chatsByJid.values());
 
-      if (Number(lidTs) > Number(existingTs)) {
-        existing.lastMessage = c.lastMessage;
-        existing.lastMsgTimestamp = lidTs;
-        existing.updatedAt = c.updatedAt || existing.updatedAt;
-      }
-    }
+  // 🔥 ORDERNA CORRETAMENTE ANTES DE QUALQUER COISA
+  individualChats.sort((a, b) => {
+    return getMessageTimestamp(b) - getMessageTimestamp(a);
+  });
 
-    const individualChats = Array.from(chatsByJid.values());
+  const chatReadStatuses = await prisma.whatsAppChatRead.findMany({
+    where: { branchId },
+  });
 
-    const chatReadStatuses = await prisma.whatsAppChatRead.findMany({
+  const unreadCountMap = new Map<string, number>();
+  for (const status of chatReadStatuses) {
+    unreadCountMap.set(status.jid, status.unreadCount);
+  }
+
+  const [customers, spentByCustomer] = await Promise.all([
+    prisma.customer.findMany({
       where: { branchId },
-    });
-
-    const unreadCountMap = new Map<string, number>();
-    for (const status of chatReadStatuses) {
-      unreadCountMap.set(status.jid, status.unreadCount);
-    }
-
-    const [customers, spentByCustomer] = await Promise.all([
-      prisma.customer.findMany({
-        where: { branchId },
-        select: {
-          id: true,
-          name: true,
-          phone: true,
-          email: true,
-          createdAt: true,
-          orders: {
-            select: {
-              id: true,
-              orderNumber: true,
-              total: true,
-              status: true,
-              createdAt: true,
-              updatedAt: true,
-            },
-            orderBy: { createdAt: 'desc' },
-            take: 5,
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        email: true,
+        createdAt: true,
+        orders: {
+          select: {
+            id: true,
+            orderNumber: true,
+            total: true,
+            status: true,
+            createdAt: true,
+            updatedAt: true,
           },
-          addresses: {
-            where: { isDefault: true },
-            select: {
-              id: true,
-              label: true,
-              street: true,
-              number: true,
-              complement: true,
-              neighborhood: true,
-              city: true,
-              state: true,
-              zipCode: true,
-              reference: true,
-            },
-            take: 1,
-          },
+          orderBy: { createdAt: 'desc' },
+          take: 5,
         },
-      }),
-      prisma.order.groupBy({
-        by: ['customerId'],
-        where: { branchId, customerId: { not: null } },
-        _sum: { total: true },
-      }),
-    ]);
+        addresses: {
+          where: { isDefault: true },
+          select: {
+            id: true,
+            label: true,
+            street: true,
+            number: true,
+            complement: true,
+            neighborhood: true,
+            city: true,
+            state: true,
+            zipCode: true,
+            reference: true,
+          },
+          take: 1,
+        },
+      },
+    }),
+    prisma.order.groupBy({
+      by: ['customerId'],
+      where: { branchId, customerId: { not: null } },
+      _sum: { total: true },
+    }),
+  ]);
 
-    const spentMap = new Map<string, number>(
-      spentByCustomer.map((s) => [s.customerId!, s._sum.total ?? 0]),
-    );
+  const spentMap = new Map<string, number>(
+    spentByCustomer.map((s) => [s.customerId!, s._sum.total ?? 0]),
+  );
 
-    const newOrdersMap = new Map<string, number>();
-    for (const customer of customers) {
-      const newOrdersCount = customer.orders.filter(
-        (o) => ['PENDING', 'CONFIRMED', 'READY'].includes(o.status)
-      ).length;
-      newOrdersMap.set(customer.id, newOrdersCount);
+  const newOrdersMap = new Map<string, number>();
+  for (const customer of customers) {
+    const newOrdersCount = customer.orders.filter((o) =>
+      ['PENDING', 'CONFIRMED', 'READY'].includes(o.status),
+    ).length;
+
+    newOrdersMap.set(customer.id, newOrdersCount);
+  }
+
+  const customerByPhone = new Map<string, typeof customers[number]>();
+  for (const customer of customers) {
+    const normalized = customer.phone.replace(/\D/g, '');
+    customerByPhone.set(normalized, customer);
+  }
+
+  const findCustomer = (jid: string) => {
+    const waPhone = jid.replace('@s.whatsapp.net', '');
+
+    if (customerByPhone.has(waPhone)) {
+      return customerByPhone.get(waPhone)!;
     }
 
-    const customerByPhone = new Map<string, typeof customers[number]>();
-    for (const customer of customers) {
-      const normalized = customer.phone.replace(/\D/g, '');
-      customerByPhone.set(normalized, customer);
-    }
+    const stripCountry = (p: string) =>
+      p.startsWith('55') && p.length >= 12 ? p.slice(2) : p;
 
-    const findCustomer = (jid: string) => {
-      const waPhone = jid.replace('@s.whatsapp.net', '');
-      if (customerByPhone.has(waPhone)) return customerByPhone.get(waPhone)!;
+    const waLocal = stripCountry(waPhone);
 
-      const stripCountry = (p: string) =>
-        p.startsWith('55') && p.length >= 12 ? p.slice(2) : p;
-      const waLocal = stripCountry(waPhone);
+    for (const [phone, customer] of customerByPhone) {
+      const dbLocal = stripCountry(phone);
 
-      for (const [phone, customer] of customerByPhone) {
-        const dbLocal = stripCountry(phone);
-        if (waLocal === dbLocal) return customer;
+      if (waLocal === dbLocal) return customer;
 
-        if (waLocal.length >= 10 && dbLocal.length >= 10) {
-          const waArea = waLocal.slice(0, 2);
-          const dbArea = dbLocal.slice(0, 2);
-          if (waArea === dbArea) {
-            const waNum = waLocal.slice(2);
-            const dbNum = dbLocal.slice(2);
-            if (waNum.length === 8 && dbNum.length === 9 && dbNum.startsWith('9') && dbNum.slice(1) === waNum) {
-              return customer;
-            }
-            if (waNum.length === 9 && dbNum.length === 8 && waNum.startsWith('9') && waNum.slice(1) === dbNum) {
-              return customer;
-            }
+      if (
+        waLocal.length >= 10 &&
+        dbLocal.length >= 10
+      ) {
+        const waArea = waLocal.slice(0, 2);
+        const dbArea = dbLocal.slice(0, 2);
+
+        if (waArea === dbArea) {
+          const waNum = waLocal.slice(2);
+          const dbNum = dbLocal.slice(2);
+
+          if (
+            waNum.length === 9 &&
+            dbNum.length === 8 &&
+            waNum.startsWith('9') &&
+            waNum.slice(1) === dbNum
+          ) {
+            return customer;
+          }
+
+          if (
+            dbNum.length === 9 &&
+            waNum.length === 8 &&
+            dbNum.startsWith('9') &&
+            dbNum.slice(1) === waNum
+          ) {
+            return customer;
           }
         }
       }
-      return null;
-    };
-
-    const lastOrderIds = new Set<string>();
-    for (const c of individualChats) {
-      const customer = findCustomer(c._jid);
-      const lastOrder = customer?.orders[0];
-      if (lastOrder?.id) {
-        lastOrderIds.add(lastOrder.id);
-      }
     }
 
-    const completeOrders = await prisma.order.findMany({
-      where: { id: { in: Array.from(lastOrderIds) } },
-    });
+    return null;
+  };
 
-    const ordersMap = new Map(completeOrders.map(o => [o.id, o]));
-
-    return individualChats.map((c: any) => {
+  // 🔥 AQUI O FIX PRINCIPAL: async map
+  return await Promise.all(
+    individualChats.map(async (c: any) => {
       const customer = findCustomer(c._jid);
       const lastOrder = customer?.orders[0] ?? null;
-      const totalSpent = customer ? (spentMap.get(customer.id) ?? 0) : 0;
-      const defaultAddress = customer?.addresses[0] ?? null;
+      const totalSpent = customer
+        ? (spentMap.get(customer.id) ?? 0)
+        : 0;
 
-      const completeOrder = lastOrder?.id ? ordersMap.get(lastOrder.id) : null;
-      const availableTransitions = completeOrder
-        ? this.orderStateMachine.getAvailableTransitions(completeOrder)
-        : [];
+      const defaultAddress = customer?.addresses[0] ?? null;
 
       const timestamp = getMessageTimestamp(c);
 
+      let lastMessage = this.extractTextFromMessage(c.lastMessage) || '';
+      let lastMessageType = this.detectMediaType(c.lastMessage);
+      let lastMsgTimestamp: number | null = timestamp;
+
+      // 🔥 FALLBACK REAL (resolve chat vazio)
+      if (!lastMessage || !lastMsgTimestamp) {
+        try {
+          const messages = await this.fetchMessages(branchId, {
+            jid: c._jid,
+            count: 1,
+          });
+
+          if (messages.length > 0) {
+            const msg = messages[0];
+
+            lastMessage = msg.text || '';
+            lastMessageType = msg.mediaType || 'text';
+
+            const ts = Number(msg.timestamp);
+            lastMsgTimestamp =
+              ts < 1000000000000 ? ts * 1000 : ts;
+          }
+        } catch (e) {
+          this.logger.warn(
+            `[WhatsApp] fallback failed for ${c._jid}`,
+          );
+        }
+      }
 
       return {
         jid: c._jid,
-        name: customer?.name || c.name || c.pushName || c.verifiedName || this.jidToPhone(c._jid),
+        name:
+          customer?.name ||
+          c.name ||
+          c.pushName ||
+          c.verifiedName ||
+          this.jidToPhone(c._jid),
+
         phone: this.jidToPhone(c._jid),
+
         profilePicUrl: c.profilePicUrl || null,
-        lastMessage: this.extractTextFromMessage(c.lastMessage) || '',
-        lastMessageType: this.detectMediaType(c.lastMessage),
-        lastMsgTimestamp: timestamp,
-        formattedTimestamp: this.formatTimestamp(timestamp),
+
+        lastMessage,
+
+        lastMessageType,
+
+        lastMsgTimestamp,
+
+        formattedTimestamp: lastMsgTimestamp
+          ? this.formatTimestamp(lastMsgTimestamp)
+          : '',
+
         unreadCount: unreadCountMap.get(c._jid) || 0,
+
         customerId: customer?.id ?? null,
-        totalOrders: customer ? (newOrdersMap.get(customer.id) ?? 0) : 0,
+
+        totalOrders: customer
+          ? (newOrdersMap.get(customer.id) ?? 0)
+          : 0,
+
         totalSpent,
+
         lastOrderId: lastOrder?.id ?? null,
         lastOrderNumber: lastOrder?.orderNumber?.toString() ?? null,
         lastOrderTotal: lastOrder?.total ?? null,
         lastOrderStatus: lastOrder?.status ?? null,
         lastOrderDate: lastOrder?.createdAt ?? null,
-        lastOrderAvailableTransitions: availableTransitions,
-        customer: customer ? {
-          id: customer.id,
-          name: customer.name,
-          phone: customer.phone,
-          email: customer.email,
-          createdAt: customer.createdAt,
-          orders: customer.orders,
-          address: defaultAddress ? {
-            id: defaultAddress.id,
-            label: defaultAddress.label,
-            street: defaultAddress.street,
-            number: defaultAddress.number,
-            complement: defaultAddress.complement,
-            neighborhood: defaultAddress.neighborhood,
-            city: defaultAddress.city,
-            state: defaultAddress.state,
-            zipCode: defaultAddress.zipCode,
-            reference: defaultAddress.reference,
-          } : null,
-        } : null,
+
+        customer: customer
+          ? {
+              id: customer.id,
+              name: customer.name,
+              phone: customer.phone,
+              email: customer.email,
+              createdAt: customer.createdAt,
+              orders: customer.orders,
+              address: defaultAddress
+                ? {
+                    id: defaultAddress.id,
+                    label: defaultAddress.label,
+                    street: defaultAddress.street,
+                    number: defaultAddress.number,
+                    complement: defaultAddress.complement,
+                    neighborhood: defaultAddress.neighborhood,
+                    city: defaultAddress.city,
+                    state: defaultAddress.state,
+                    zipCode: defaultAddress.zipCode,
+                    reference: defaultAddress.reference,
+                  }
+                : null,
+            }
+          : null,
       };
-    });
-  }
+    }),
+  );
+}
 
   async fetchMessages(branchId: string, dto: FetchMessagesDto) {
     const config = await prisma.whatsAppConfig.findUnique({
