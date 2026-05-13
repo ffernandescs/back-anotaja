@@ -11,7 +11,7 @@ import {
   SendCrmMessageDto,
 } from './dto/whatsapp.dto';
 import { UploadService } from '../upload/upload.service';
-import { normalizePhone } from 'src/utils/normalizePhone';
+import {  normalizeBrazilPhone } from 'src/utils/normalizePhone';
 import { isGroupJid, safeMessageId } from 'src/utils/reutilizeWhatsapp';
 
 /**
@@ -216,22 +216,53 @@ export class WhatsAppService {
   }
 
   async disconnect(branchId?: string, partnerId?: string) {
-    const where = this.configWhere(branchId, partnerId);
-    const config = await prisma.whatsAppConfig.findFirst({ where });
+  const where = this.configWhere(branchId, partnerId);
+  const config = await prisma.whatsAppConfig.findFirst({ where });
 
-    if (!config) throw new BadRequestException('WhatsApp não configurado.');
+  if (!config) throw new BadRequestException('WhatsApp não configurado.');
 
-    await this.evolutionRequest('DELETE', `/instance/logout/${config.instanceName}`).catch(() => {});
-    await this.evolutionRequest('DELETE', `/instance/delete/${config.instanceName}`).catch(() => {});
+  await this.evolutionRequest('DELETE', `/instance/logout/${config.instanceName}`).catch(() => {});
+  await this.evolutionRequest('DELETE', `/instance/delete/${config.instanceName}`).catch(() => {});
 
-    await prisma.whatsAppChatRead.deleteMany({ where });
-    await prisma.whatsAppConfig.update({
-      where: { id: config.id },
-      data: { status: 'disconnected', qrCode: null, phoneNumber: null, profileName: null, profilePicUrl: null },
-    });
+  // Limpa unreads
+  await prisma.whatsAppChatRead.deleteMany({ where });
 
-    return { status: 'disconnected' };
-  }
+  // Limpa mensagens com @lid e @g.us (lixo do WhatsApp)
+  await prisma.whatsAppMessage.deleteMany({
+    where: {
+      ...(branchId ? { branchId } : {}),
+      ...(partnerId ? { partnerId } : {}),
+      OR: [
+        { remoteJid: { endsWith: '@lid' } },
+        { remoteJid: { endsWith: '@g.us' } },
+      ],
+    },
+  });
+
+  // Limpa lastMessages com @lid e @g.us
+  await prisma.chatLastMessage.deleteMany({
+    where: {
+      ...(branchId ? { branchId } : {}),
+      OR: [
+        { remoteJid: { endsWith: '@lid' } },
+        { remoteJid: { endsWith: '@g.us' } },
+      ],
+    },
+  });
+
+  await prisma.whatsAppConfig.update({
+    where: { id: config.id },
+    data: {
+      status: 'disconnected',
+      qrCode: null,
+      phoneNumber: null,
+      profileName: null,
+      profilePicUrl: null,
+    },
+  });
+
+  return { status: 'disconnected' };
+}
 
   async getStatus(branchId?: string, partnerId?: string) {
     const where = this.configWhere(branchId, partnerId);
@@ -383,15 +414,13 @@ async fetchChats(branchId: string) {
     .catch(() => [] as any[]);
 
   // 2. Remove grupos e ordena por atualização
-  const chats = rawChats
-    .filter((c: any) => !String(c.remoteJid ?? '').endsWith('@g.us'))
-    .sort((a: any, b: any) => {
-      const tA = new Date(a.updatedAt ?? 0).getTime();
-      const tB = new Date(b.updatedAt ?? 0).getTime();
-      return tB - tA;
-    });
-
-  const jids = chats.map((c: any) => c.remoteJid);
+ // 2. Remove grupos, @lid e ordena por atualização
+const chats = rawChats
+  .filter((c: any) => {
+    const jid = String(c.remoteJid ?? '');
+    return !jid.endsWith('@g.us') && !jid.endsWith('@lid');
+  })
+  const jids: string[] = chats.map((c: any) => c.remoteJid as string);
 
   // 3. Últimas mensagens
   const lastMessages = await prisma.chatLastMessage.findMany({
@@ -401,27 +430,38 @@ async fetchChats(branchId: string) {
     },
   });
 
-  const lastMsgByJid = new Map(
-    lastMessages.map((m) => [m.remoteJid, m]),
-  );
+  const lastMsgByJid = new Map(lastMessages.map((m) => [m.remoteJid, m]));
 
-  // 4. Clientes
-  const phones = jids
-    .map((jid) => normalizePhone(jid)[0])
-    .filter(Boolean);
+  // 4. Monta mapa de jid → telefone sem 55 (formato salvo no banco)
+  //    Ex: "5581912345678@s.whatsapp.net" → "81912345678"
+  const jidToPhone = new Map<string, string>();
 
+  for (const jid of jids) {
+    const normalized = normalizeBrazilPhone(jid); // retorna string ou null/undefined
+    if (normalized) {
+      const withoutCountryCode = normalized.replace(/^55/, '');
+      jidToPhone.set(jid, withoutCountryCode);
+    } else {
+      // fallback: tira apenas o sufixo do JID
+      const fallback = jid.replace('@s.whatsapp.net', '').replace(/^55/, '');
+      jidToPhone.set(jid, fallback);
+    }
+  }
+
+  const phonesWithout55 = Array.from(new Set(jidToPhone.values()));
+
+  // 5. Clientes pelo telefone sem 55
   const customers = await prisma.customer.findMany({
     where: {
       branchId,
-      phone: { in: phones },
+      phone: { in: phonesWithout55 },
     },
   });
 
-  const customerByPhone = new Map(
-    customers.map((c) => [c.phone, c]),
-  );
+  // Map: telefone sem 55 → customer
+  const customerByPhone = new Map(customers.map((c) => [c.phone, c]));
 
-  // 5. Pedidos
+  // 6. Pedidos dos clientes encontrados
   const customerIds = customers.map((c) => c.id);
 
   const orders = customerIds.length
@@ -430,20 +470,21 @@ async fetchChats(branchId: string) {
           branchId,
           customerId: { in: customerIds },
         },
+        orderBy: { createdAt: 'desc' },
       })
     : [];
 
-  const ordersByCustomer = new Map<string, any[]>();
+  // Map: customerId → Order[]
+  const ordersByCustomer = new Map<string, typeof orders>();
 
   for (const order of orders) {
     if (!order.customerId) continue;
-
     const list = ordersByCustomer.get(order.customerId) ?? [];
     list.push(order);
     ordersByCustomer.set(order.customerId, list);
   }
 
-  // 6. Unread messages
+  // 7. Mensagens não lidas
   const unreadRows = await prisma.whatsAppChatRead.findMany({
     where: {
       branchId,
@@ -451,26 +492,22 @@ async fetchChats(branchId: string) {
     },
   });
 
-  const unreadByJid = new Map(
-    unreadRows.map((r) => [r.jid, r.unreadCount]),
-  );
+  const unreadByJid = new Map(unreadRows.map((r) => [r.jid, r.unreadCount]));
 
-  // 7. Montagem final
+  // 8. Montagem final
   const result = chats.map((chat: any) => {
-    const jid = chat.remoteJid;
+    const jid: string = chat.remoteJid;
 
-    const phone =
-      normalizePhone(jid)[0] ??
-      jid.replace('@s.whatsapp.net', '');
+    // Telefone sem 55, igual ao formato do banco
+    const phone = jidToPhone.get(jid) ?? jid.replace('@s.whatsapp.net', '');
 
     const customer = customerByPhone.get(phone) ?? null;
 
     const customerOrders = customer
-      ? ordersByCustomer.get(customer.id) ?? []
+      ? (ordersByCustomer.get(customer.id) ?? [])
       : [];
 
     const last = lastMsgByJid.get(jid) ?? null;
-
     const unreadCount = unreadByJid.get(jid) ?? 0;
 
     return {
@@ -486,7 +523,7 @@ async fetchChats(branchId: string) {
         ? {
             id: last.messageId,
             text: last.text ?? '',
-            timestamp: last.timestamp,
+            timestamp: Number(last.timestamp),
             fromMe: last.fromMe,
             pushName: last.pushName ?? null,
           }
@@ -498,7 +535,7 @@ async fetchChats(branchId: string) {
     };
   });
 
-  // 8. Resumo global
+  // 9. Resumo global
   const globalSummary = {
     new: orders.filter((o) => o.status === 'PENDING').length,
     pending: orders.filter((o) =>

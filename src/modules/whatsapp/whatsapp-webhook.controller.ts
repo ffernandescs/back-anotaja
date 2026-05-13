@@ -329,16 +329,17 @@ export class WhatsAppWebhookController {
   // ─────────────────────────────────────────────
 
   // resolve chat (jid do whatsapp)
-  private resolveJid(key: any, data: any): string | null {
-    const jid =
-      key?.remoteJid || data?.remoteJid || key?.participant || data?.participant;
+ private resolveJid(key: any, data: any): string | null {
+  const jid =
+    key?.remoteJid || data?.remoteJid || key?.participant || data?.participant;
 
-    if (!jid) return null;
-    if (jid.endsWith('@g.us')) return null;
-    if (jid === 'status@broadcast') return null;
+  if (!jid) return null;
+  if (jid.endsWith('@g.us')) return null;
+  if (jid.endsWith('@lid')) return null;        // ← adicionar
+  if (jid === 'status@broadcast') return null;
 
-    return jid;
-  }
+  return jid;
+}
 
   // normaliza timestamp (segundos → ms)
   private toMs(ts: any): number {

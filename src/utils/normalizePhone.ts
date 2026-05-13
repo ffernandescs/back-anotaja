@@ -1,32 +1,32 @@
-export const normalizePhone = (remoteJid: string): string[] => {
-    // Remove o sufixo @s.whatsapp.net ou @g.us
-    const number = remoteJid.split('@')[0];
+export function normalizeBrazilPhone(raw: string | null | undefined): string {
+  if (!raw) return '';
 
-    // Só faz sentido buscar cliente para contatos individuais
-    if (remoteJid.endsWith('@g.us')) return [];
+  // pega só números
+  let number = String(raw).replace(/\D/g, '');
 
-    // Remove o 55 do início se houver, para trabalhar com o número limpo
-    const withoutCountry = number.startsWith('55') ? number.slice(2) : number;
+  // valida mínimo aceitável (Brasil: DDD + número = 10 ou 11)
+  if (number.length < 10) return '';
 
-    // DDD + número sem 9
-    const withoutNine =
-      withoutCountry.length === 11
-        ? withoutCountry.slice(0, 2) + withoutCountry.slice(3) // remove o 9
-        : withoutCountry;
+  // remove 55 se vier duplicado
+  if (number.startsWith('55') && number.length > 11) {
+    number = number.slice(2);
+  }
 
-    // DDD + número com 9
-    const withNine =
-      withoutCountry.length === 10
-        ? withoutCountry.slice(0, 2) + '9' + withoutCountry.slice(2)
-        : withoutCountry;
+  // agora temos DDD + número local
+  if (number.length < 10 || number.length > 11) return '';
 
-    // Retorna todas as variações com 55 na frente
-    return [
-      `55${withoutCountry}`,
-      `55${withoutNine}`,
-      `55${withNine}`,
-      withoutCountry,
-      withoutNine,
-      withNine,
-    ];
-  };
+  const ddd = number.slice(0, 2);
+  let local = number.slice(2);
+
+  // remove ou ajusta 9 dígito
+  if (local.length === 9) {
+    // ok
+  } else if (local.length === 8) {
+    // adiciona 9
+    local = '9' + local;
+  } else if (local.length > 9) {
+    return '';
+  }
+
+  return `55${ddd}${local}`;
+}
