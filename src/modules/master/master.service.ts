@@ -93,6 +93,29 @@ export class MasterService {
     return masterUser;
   }
 
+async getProfile(masterUserId: string) {
+
+  const masterUser = await prisma.masterUser.findUnique({
+    where: { id: masterUserId },
+  });
+
+  const systemConfigs = await this.getSystemConfigs();
+
+  if (!masterUser) {
+    throw new NotFoundException('Master user não encontrado');
+  }
+
+  const branding = await this.getBranding(masterUserId);
+
+  return {
+    id: masterUser.id,
+    name: masterUser.name,
+    email: masterUser.email,
+    branding,
+    systemConfigs,
+  };
+}
+
   /**
    * Busca o branding do master (logos, favicon, cores)
    */

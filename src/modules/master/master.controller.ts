@@ -32,6 +32,15 @@ export class MasterController {
     private readonly uploadService: UploadService,
   ) {}
 
+
+  @Public()
+  @Get()
+  @UseGuards(JwtOwnerAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async getProfile(@Request() req) {
+    return this.masterService.getProfile(req.user.userId);
+  }
+
   @Public()
   @Get('branding')
   @UseGuards(JwtOwnerAuthGuard)
@@ -165,7 +174,7 @@ export class MasterController {
   }
 
   @Public()
-  @Post('config')
+  @Post('system-config')
   @UseGuards(JwtOwnerAuthGuard)
   @HttpCode(HttpStatus.OK)
   async setConfig(@Body() dto: SetConfigDto) {
