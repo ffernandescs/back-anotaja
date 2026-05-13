@@ -460,6 +460,11 @@ const chats = rawChats
       branchId,
       phone: { in: phonesWithout55 },
     },
+    include: {
+      addresses: {
+        where: { isDefault: true }
+      }
+    }
   });
 
   // Map: telefone sem 55 → customer
