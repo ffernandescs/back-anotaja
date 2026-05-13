@@ -12,6 +12,7 @@ import {
 } from './dto/whatsapp.dto';
 import { UploadService } from '../upload/upload.service';
 import { normalizePhone } from 'src/utils/normalizePhone';
+import { isGroupJid, safeMessageId } from 'src/utils/reutilizeWhatsapp';
 
 /**
  * Prefixo usado ao criar instâncias na Evolution API.
@@ -458,58 +459,93 @@ export class WhatsAppService {
     return { chats, globalSummary, page, limit, total: sorted.length };
   }
 
-  async fetchMessages(branchId: string, dto: FetchMessagesDto) {
-    const config = await prisma.whatsAppConfig.findUnique({ where: { branchId } });
-    if (!config?.instanceName) return [];
+  
 
-    const count = dto.count ?? 50;
+async fetchMessages(branchId: string, dto: FetchMessagesDto) {
+  const { jid } = dto;
 
-    // Busca mensagens enviadas e recebidas em paralelo
-    const [outgoing, incoming] = await Promise.all([
-      this.evolutionRequest('POST', `/chat/findMessages/${config.instanceName}`, {
-        where: { key: { remoteJid: dto.jid } },
+  // ❌ bloqueia grupo imediatamente
+  if (!jid || isGroupJid(jid)) {
+    return [];
+  }
+
+  const config = await prisma.whatsAppConfig.findUnique({
+    where: { branchId },
+  });
+
+  if (!config?.instanceName) return [];
+
+  const count = dto.count ?? 50;
+
+  const baseRequest = async (where: any) =>
+    this.evolutionRequest(
+      'POST',
+      `/chat/findMessages/${config.instanceName}`,
+      {
+        where,
         limit: count,
-      }).then((r) => this.extractMessages(r)).catch(() => [] as any[]),
+      },
+    )
+      .then((r) => this.extractMessages(r))
+      .catch(() => []);
 
-      this.evolutionRequest('POST', `/chat/findMessages/${config.instanceName}`, {
-        where: { key: { remoteJidAlt: dto.jid } },
-        limit: count,
-      }).then((r) => this.extractMessages(r)).catch(() => [] as any[]),
-    ]);
+  // ✅ 1) tenta padrão principal
+  let messages = await baseRequest({
+    key: { remoteJid: jid },
+  });
 
-    // Deduplica
-    const seen = new Set<string>();
-    const deduped = [...outgoing, ...incoming].filter((msg: any) => {
-      const id = msg.key?.id ?? msg.id ?? String(msg.messageTimestamp);
-      if (seen.has(id)) return false;
-      seen.add(id);
-      return true;
+  // 🔁 2) fallback só se vier muito pouco (ou vazio)
+  if (!messages || messages.length === 0) {
+    const alt = await baseRequest({
+      key: { remoteJidAlt: jid },
     });
 
-    // Ordena descendente
-    deduped.sort((a, b) => {
-      const tA = Number(a.messageTimestamp) || 0;
-      const tB = Number(b.messageTimestamp) || 0;
+    messages = alt;
+  }
+
+  // 🧹 limpeza + segurança total
+  const seen = new Set<string>();
+
+  const cleaned = messages
+    .filter((msg: any) => {
+      if (!msg) return false;
+      if (isGroupJid(msg?.key?.remoteJid)) return false;
+
+      const id = safeMessageId(msg);
+      if (!id) return false;
+
+      if (seen.has(id)) return false;
+      seen.add(id);
+
+      return true;
+    })
+    .sort((a: any, b: any) => {
+      const tA = Number(a?.messageTimestamp ?? 0);
+      const tB = Number(b?.messageTimestamp ?? 0);
       return tB - tA;
     });
 
-    // Cursor de paginação
-    let result = deduped;
-    if (dto.cursor) {
-      result = deduped.filter((msg: any) => Number(msg.messageTimestamp) < dto.cursor!);
-    }
+  // 📌 cursor pagination
+  let result = cleaned;
 
-    return result.slice(0, count).map((msg: any) => ({
-      id: msg.key?.id ?? msg.id ?? String(msg.messageTimestamp),
-      fromMe: msg.key?.fromMe ?? false,
-      text: this.extractText(msg),
-      timestamp: this.toMs(msg.messageTimestamp),
-      status: this.mapStatus(msg.status),
-      mediaType: this.detectMediaType(msg),
-      mediaUrl: this.extractMediaUrl(msg),
-      pushName: msg.pushName ?? null,
-    }));
+  if (dto.cursor) {
+    result = result.filter(
+      (msg: any) => Number(msg?.messageTimestamp ?? 0) < dto.cursor!,
+    );
   }
+
+  // 📦 normalize final
+  return result.slice(0, count).map((msg: any) => ({
+    id: safeMessageId(msg),
+    fromMe: msg?.key?.fromMe ?? false,
+    text: this.extractText(msg) ?? '',
+    timestamp: this.toMs(msg?.messageTimestamp),
+    status: this.mapStatus(msg?.status),
+    mediaType: this.detectMediaType(msg),
+    mediaUrl: this.extractMediaUrl(msg),
+    pushName: msg?.pushName ?? null,
+  }));
+}
 
   async sendCrmMessage(branchId: string, dto: SendCrmMessageDto) {
     const config = await this.requireConnectedConfig(branchId);
