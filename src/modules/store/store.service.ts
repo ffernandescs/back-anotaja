@@ -17,7 +17,6 @@ import { CalculateDeliveryFeeDto } from './dto/calculate-delivery-fee.dto';
 import { CreateCustomerAddressDto } from './dto/create-customer-address.dto';
 import {
   CreateStoreOrderDto,
-  PaymentTypeDto,
 } from './dto/create-store-order.dto';
 import { BranchSchedule, StoreHomepageDto } from './dto/store-homepage.dto';
 import { StoreLoginDto } from './dto/store-login.dto';
@@ -2006,10 +2005,10 @@ async createOrder(
                               const amount = p.amount;
                               const amountGiven =
                                 p.amountGiven ||
-                                (p.type === PaymentTypeDto.CASH ? amount : null);
+                                (p.type === PaymentMethodType.CASH ? amount : null);
 
                               const calculatedChange =
-                                p.type === PaymentTypeDto.CASH &&
+                                p.type === PaymentMethodType.CASH &&
                                 amountGiven &&
                                 amountGiven > amount
                                   ? amountGiven - amount
@@ -3657,12 +3656,12 @@ async updateOrder(
           paymentMethodId: payment.paymentMethodId,
 
           amountGiven:
-            payment.type === PaymentTypeDto.CASH
+            payment.type === PaymentMethodType.CASH
               ? payment.amountGiven ?? payment.amount
               : null,
 
           change:
-            payment.type === PaymentTypeDto.CASH &&
+            payment.type === PaymentMethodType.CASH &&
             payment.amountGiven &&
             payment.amountGiven > payment.amount
               ? payment.amountGiven - payment.amount

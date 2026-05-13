@@ -1,4 +1,4 @@
-import { CustomerType, OrderChannel, OrderStatus, ServiceType } from '@prisma/client';
+import { CustomerType, OrderChannel, OrderStatus, PaymentMethodType, ServiceType } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   IsArray,
@@ -16,20 +16,6 @@ import {
 import { CreateOrderItemDto, DeliveryTypeDto } from 'src/modules/orders/dto/create-order-item.dto';
 
 
-
-export enum PaymentTypeDto {
-  CASH = 'CASH',
-  CREDIT = 'CREDIT',
-  DEBIT = 'DEBIT',
-  PIX = 'PIX',
-  PIX_MANUAL = 'PIX_MANUAL',
-  PIX_AUTOMATIC = 'PIX_AUTOMATIC',
-  BOLETO = 'BOLETO',
-  MEAL_VOUCHER = 'MEAL_VOUCHER',
-  FOOD_VOUCHER = 'FOOD_VOUCHER',
-  OTHER = 'OTHER',
-  ONLINE = 'ONLINE',
-}
 
 // Opção de complemento selecionada
 export class ComplementOptionDto {
@@ -60,8 +46,8 @@ export class OrderItemComplementDto {
 
 // Pagamento
 export class OrderPaymentDto {
-  @IsEnum(PaymentTypeDto)
-  type!: PaymentTypeDto;
+  @IsEnum(PaymentMethodType)
+  type!: PaymentMethodType;
 
   @IsString()
   @IsNotEmpty()
