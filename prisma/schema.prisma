@@ -2253,7 +2253,7 @@ model ChatLastMessage {
 
   messageId   String
   text        String?
-  timestamp   Int
+  timestamp   BigInt
   fromMe      Boolean
   pushName    String?
 
