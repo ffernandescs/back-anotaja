@@ -101,13 +101,12 @@ export class MailService {
 
     if (!masterUser) return defaultEmailTheme;
 
-    const branding = await prisma.masterBranding.findUnique({
-      where: { masterUserId: masterUser.id },
+    const branding = await prisma.masterBrand.findFirst({
+      where: { masterUserId: masterUser.id, isDefault: true },
     });
-
     return {
       appName: branding?.appName || defaultEmailTheme.appName,
-      logoUrl: branding?.logoUrl || null,
+      logoUrl: branding?.logoDarkUrl || null,
       colors: {
         primary: branding?.primaryColor || defaultEmailTheme.colors.primary,
         background: defaultEmailTheme.colors.background,
@@ -144,15 +143,15 @@ export class MailService {
           };
         }
 
- const branding = await prisma.masterBranding.findUnique({
-      where: { masterUserId: masterUser.id },
-    });
+      const branding = await prisma.masterBrand.findFirst({
+         where: { masterUserId: masterUser.id, isDefault: true },
+      });
       const appName = branding?.appName || 'VaiDelli';
 
-      if (branding?.logoUrl) {
+      if (branding?.logoDarkUrl) {
         return `
           <img 
-            src="${branding.logoUrl}" 
+            src="${branding.logoDarkUrl}" 
             alt="${appName}" 
             style="max-height:50px;object-fit:contain;"
           />

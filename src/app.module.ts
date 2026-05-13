@@ -59,6 +59,7 @@ import { PartnerModule } from './modules/partner/partner.module';
 import { FoodDeliveryIntegrationsModule } from './modules/food-delivery-integrations/food-delivery-integrations.module';
 import { BullModule } from '@nestjs/bullmq';
 import { OrderSurveyModule } from './modules/order-survey/order-survey.module';
+import { MasterBrandModule } from './modules/maste-brands/master.brands.module';
 
 @Module({
   imports: [
@@ -127,6 +128,7 @@ import { OrderSurveyModule } from './modules/order-survey/order-survey.module';
     PartnerModule,
     FoodDeliveryIntegrationsModule,
     OrderSurveyModule,
+    MasterBrandModule,
   ],
   providers: [
     {

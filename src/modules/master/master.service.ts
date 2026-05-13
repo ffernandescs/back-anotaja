@@ -96,15 +96,15 @@ export class MasterService {
   /**
    * Busca o branding do master (logos, favicon, cores)
    */
-  async getBranding(masterUserId: string) {
-    const branding = await prisma.masterBranding.findUnique({
-      where: { masterUserId },
+ async getBranding(masterUserId: string) {
+    const branding = await prisma.masterBrand.findFirst({
+      where: { masterUserId, isDefault: true },
     });
 
     if (!branding) {
-      // Retorna branding padrão se não existir
       return {
-        logoUrl: null,
+        logoLightUrl: null,
+        logoDarkUrl: null,
         faviconUrl: null,
         primaryColor: null,
         secondaryColor: null,
@@ -120,24 +120,42 @@ export class MasterService {
    * Atualiza o branding do master
    */
   async updateBranding(masterUserId: string, data: {
-    logoUrl?: string;
-    faviconUrl?: string;
-    primaryColor?: string;
-    secondaryColor?: string;
-    accentColor?: string;
-    appName?: string;
-  }) {
-    const branding = await prisma.masterBranding.upsert({
-      where: { masterUserId },
-      update: data,
-      create: {
-        masterUserId,
-        ...data,
-      },
-    });
+  logoUrl?: string;       // campo legado do controller antigo
+  logoLightUrl?: string;
+  logoDarkUrl?: string;
+  faviconUrl?: string;
+  primaryColor?: string;
+  secondaryColor?: string;
+  accentColor?: string;
+  appName?: string;
+}) {
+  const existing = await prisma.masterBrand.findFirst({
+    where: { masterUserId, isDefault: true },
+  });
 
-    return branding;
+  // Mapeia logoUrl legado para logoLightUrl
+  const { logoUrl, ...rest } = data;
+  const normalized = {
+    ...rest,
+    ...(logoUrl && { logoLightUrl: logoUrl }),
+  };
+
+  if (existing) {
+    return prisma.masterBrand.update({
+      where: { id: existing.id },
+      data: normalized,
+    });
   }
+
+  return prisma.masterBrand.create({
+    data: {
+      masterUserId,
+      name: data.appName ?? 'Padrão',
+      isDefault: true,
+      ...normalized,
+    },
+  });
+}
 
   /**
    * Busca todas as empresas cadastradas no sistema
