@@ -2219,6 +2219,7 @@ model CampaignRecord {
 
 model WhatsAppMessage {
   id                                                                     String           @id @default(cuid())
+ remoteJid   String           // JID do destinatário (ex:
   partnerId                                                              String?
   branchId                                                               String?
   customerId      String?  // ID do cliente (PartnerCustomer ou Company)
@@ -2229,8 +2230,10 @@ model WhatsAppMessage {
   status                                                                 String           @default("sent") // sent, failed
   sentAt                                                                 DateTime         @default(now())
   createdAt                                                              DateTime         @default(now())
-
+  text       String         // Campo para facilitar buscas por texto (ex: versão sem acentos, minúscula)
+  fromMe     Boolean        // Se a mensagem foi enviada pelo restaurante (true) ou recebida do cliente (false)
   partner                                                                Partner?        @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  pushName   String?        // Nome de exibição do remetente no WhatsApp (para mensagens recebidas)
   branch                                                                 Branch?         @relation(fields: [branchId], references: [id], onDelete: Cascade)
   campaign                                                               CampaignRecord? @relation("CampaignMessages", fields: [campaignId], references: [id], onDelete: SetNull)
 
@@ -2240,6 +2243,23 @@ model WhatsAppMessage {
   @@index([customerPhone])
   @@index([customerId])
   @@index([campaignId])
+}
+
+model ChatLastMessage {
+  id          String   @id @default(cuid())
+  branchId    String
+  remoteJid   String   @unique
+
+  messageId   String
+  text        String?
+  timestamp   Int
+  fromMe      Boolean
+  pushName    String?
+
+  updatedAt   DateTime @updatedAt
+
+  @@index([branchId])
+  @@index([remoteJid])
 }
 
 model SurveyToken {

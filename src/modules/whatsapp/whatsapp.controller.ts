@@ -124,8 +124,6 @@ export class WhatsAppController {
       const branchId = req.user?.branchId;
       const partnerId = req.user?.partnerId;
 
-      this.logger.log(`[getStatus] User object:`, JSON.stringify(req.user));
-      this.logger.log(`[getStatus] branchId: ${branchId}, partnerId: ${partnerId}`);
 
       if (!branchId && !partnerId) {
         throw new BadRequestException('branchId ou partnerId é necessário');
@@ -149,11 +147,20 @@ export class WhatsAppController {
 
   // ─── CRM Endpoints ──────────────────────────────────────────────
 
-  @Get('crm/chats')
-  async fetchChats(@Request() req) {
+ @Get('crm/chats')
+  async fetchChats(
+    @Req() req: any,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
     try {
       const branchId = req.user.branchId;
-      return this.whatsappService.fetchChats(branchId);
+
+      return this.whatsappService.fetchChats(
+        branchId,
+        Number(page ?? 1),
+        Number(limit ?? 50),
+      );
     } catch (error) {
       throw new BadRequestException((error as Error).message);
     }
@@ -272,30 +279,24 @@ export class WhatsAppController {
     @Res() res: ExpressResponse,
   ) {
     try {
-      this.logger.log('[media-proxy] Request received:', { messageId, jid, branchId, mediaUrl });
 
       if (!branchId) {
-        this.logger.error('[media-proxy] No branchId provided in request');
         return res.status(400).json({ error: 'branchId é obrigatório' });
       }
 
       const config = await this.whatsappService.getFullConfigPublic(branchId);
 
       if (!config?.instanceName) {
-        this.logger.error('[media-proxy] No instance config found for branchId:', branchId);
         return res.status(404).json({ error: 'Configuração não encontrada' });
       }
 
-      this.logger.log('[media-proxy] Using instance:', config.instanceName);
 
       const evolutionUrl = `${process.env.EVOLUTION_API_URL}/chat/getBase64FromMediaMessage/${config.instanceName}`;
-      this.logger.log('[media-proxy] Calling Evolution API:', evolutionUrl);
 
       const requestBody = {
         message: { key: { id: messageId, remoteJid: jid } },
         convertToMp4: false,
       };
-      this.logger.log('[media-proxy] Request body:', JSON.stringify(requestBody));
 
       const base64Result = await fetch(evolutionUrl, {
         method: 'POST',
@@ -306,25 +307,19 @@ export class WhatsAppController {
         body: JSON.stringify(requestBody),
       });
 
-      this.logger.log('[media-proxy] Evolution API response status:', base64Result.status);
 
       if (!base64Result.ok) {
         const errorText = await base64Result.text();
-        this.logger.error('[media-proxy] Evolution API failed:', {
-          status: base64Result.status,
-          error: errorText,
-        });
+      
         return res.status(502).json({ error: 'Falha ao obter mídia da Evolution API' });
       }
 
       const data = await base64Result.json();
-      this.logger.log('[media-proxy] Evolution API response keys:', Object.keys(data));
 
       const base64 = data?.base64 || data?.data;
       const mimetype = data?.mimetype || 'audio/ogg';
 
       if (!base64) {
-        this.logger.error('[media-proxy] No base64 data in response. Full response:', JSON.stringify(data));
         return res.status(502).json({ error: 'Mídia não encontrada' });
       }
 
@@ -332,11 +327,9 @@ export class WhatsAppController {
       res.setHeader('Content-Type', mimetype);
       res.setHeader('Content-Length', buffer.length);
       res.setHeader('Cache-Control', 'private, max-age=3600');
-      this.logger.log('[media-proxy] Successfully returning media:', { mimetype, size: buffer.length });
       return res.send(buffer);
 
     } catch (err) {
-      this.logger.error('[media-proxy] Erro:', err);
       return res.status(502).json({ error: 'Falha ao obter mídia' });
     }
   }
@@ -422,7 +415,6 @@ export class WhatsAppController {
     try {
       const branchId = req.user?.branchId;
       const partnerId = req.user?.partnerId;
-      this.logger.log(`[getCampaigns] branchId: ${branchId}, partnerId: ${partnerId}`);
       return this.whatsappService.getCampaigns(branchId, partnerId);
     } catch (error) {
       throw new BadRequestException((error as Error).message);
