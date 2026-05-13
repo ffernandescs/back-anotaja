@@ -96,7 +96,7 @@ export class WhatsAppService {
         qrcode: true,
         storeMessages: true,
         storeFullMessages: true,
-        url: webhookUrl
+        webhook: webhookUrl
       });
 
       // Configura webhook (todos os eventos em um único endpoint)
