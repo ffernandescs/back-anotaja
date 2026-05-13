@@ -266,8 +266,9 @@ async function seed() {
     ['notification_settings', 'Sons e Alertas', 'notifications', '/admin/administration/settings/notifications', 2],
 
     // RELATÓRIO
-    ['sales_analysis',        'Vendas',    'relatorio', '/admin/performance/vendas',   1],
-    ['performance_customers', 'Clientes',  'relatorio', '/admin/performance/clientes', 2],
+    ['order-survey',        'Pesquisa de Pedido',    'relatorio', '/admin/performance/order-survey',   1],
+    ['sales_analysis',        'Vendas',    'relatorio', '/admin/performance/vendas',   2],
+    ['performance_customers', 'Clientes',  'relatorio', '/admin/performance/clientes', 3],
   ];
 
   for (const [subKey, featureName, parentKey, href, displayOrder] of subFeatures) {

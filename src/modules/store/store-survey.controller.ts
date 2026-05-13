@@ -1,6 +1,4 @@
 // src/modules/store/store-survey.controller.ts
-// Adicione os endpoints abaixo ao StoreController existente
-// OU registre este controller separado no StoreModule
 
 import {
   Controller,
@@ -18,50 +16,60 @@ import { StoreSurveyService } from './store-survey.service';
 import { CreateSurveyResponseDto } from './dto/create-survey-response.dto';
 import { Public } from '../../common/decorators/public.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { JwtOwnerAuthGuard } from 'src/common/guards/jwt-owner.guard';
 
 interface RequestWithUser extends Request {
   user: { userId: string };
 }
 
-/**
- * StoreSurveyController
- *
- * Rotas:
- *  GET  /store/survey/:token          → valida token e retorna metadados
- *  POST /store/survey/:token          → registra resposta da pesquisa
- *  GET  /store/survey/results         → resumo para admin (protegido)
- *
- * Feature flag: NODE_ENV !== 'production'
- * O serviço lança ForbiddenException automaticamente em production.
- */
 @Controller('store/survey')
 export class StoreSurveyController {
   constructor(private readonly surveySvc: StoreSurveyService) {}
 
   /**
-   * Valida o token e retorna dados para renderizar a tela de pesquisa.
-   * Público — acessado diretamente pelo link do cliente.
+   * Dashboard unificado — todas as métricas em uma única chamada.
+   * Protegido por JWT (uso interno / painel master).
    *
-   * Respostas possíveis:
-   *   200 → token válido, pesquisa pendente
-   *   404 → token não encontrado
-   *   409 → já respondida
-   *   410 → link expirado
-   *   403 → ambiente production
+   * GET /store/survey/dashboard
+   * Query params:
+   *   branchId?  — filtra por filial específica (omitir = todas as filiais)
+   *   startDate? — ISO string (ex: 2024-01-01T00:00:00.000Z)
+   *   endDate?   — ISO string
+   *
+   * Response: SurveyDashboardResponse
    */
+  @Public()
+  @Get('dashboard')
+  @UseGuards(JwtOwnerAuthGuard)
+  async getDashboard(
+    @Query('branchId') branchId?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Req() req?: RequestWithUser,
+  ) {
+    if (!req?.user?.userId) throw new UnauthorizedException('Usuário não autenticado');
+    return this.surveySvc.getDashboard({ branchId, startDate, endDate });
+  }
 
+  /**
+   * Resumo simples por filial (mantido para compatibilidade com a tela anterior).
+   *
+   * GET /store/survey/results?branchId=xxx
+   */
   @Get('results')
   @UseGuards(JwtAuthGuard)
   async getResults(
     @Query('branchId') branchId: string,
     @Req() req: RequestWithUser,
   ) {
-    if (!req.user?.userId) {
-      throw new UnauthorizedException('Usuário não autenticado');
-    }
+    if (!req.user?.userId) throw new UnauthorizedException('Usuário não autenticado');
     return this.surveySvc.getResults(branchId);
   }
 
+  /**
+   * Valida token e retorna metadados para renderizar a tela de pesquisa.
+   * Público — acessado diretamente pelo link do cliente.
+   */
   @Get(':token')
   @Public()
   async validateToken(@Param('token') token: string) {
@@ -69,15 +77,8 @@ export class StoreSurveyController {
   }
 
   /**
-   * Registra a resposta do cliente.
-   * Público — o cliente acessa via link, sem autenticação.
-   *
-   * Respostas possíveis:
-   *   201 → resposta salva com sucesso
-   *   404 → token inválido
-   *   409 → já respondida
-   *   410 → link expirado
-   *   403 → ambiente production
+   * Registra resposta do cliente.
+   * Público — acesso via link sem autenticação.
    */
   @Post(':token')
   @Public()
@@ -87,12 +88,4 @@ export class StoreSurveyController {
   ) {
     return this.surveySvc.submitResponse(token, dto);
   }
-
-  /**
-   * Retorna resumo agregado das respostas para análise.
-   * Protegido — apenas usuários autenticados (admin/staff).
-   *
-   * Query: ?branchId=xxx
-   */
- 
 }

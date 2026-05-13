@@ -6,6 +6,7 @@ import {
   Param,
   UseGuards,
   Req,
+  Query,
 } from '@nestjs/common';
 import { OrderSurveyService } from './order-survey.service';
 import { CreateOrderSurveyDto } from './dto/create-order-survey.dto';
@@ -54,6 +55,19 @@ export class OrderSurveyController {
   @Get('order/:orderId')
   getTokenByOrder(@Param('orderId') orderId: string) {
     return this.orderSurveyService.getTokenByOrder(orderId);
+  }
+
+  @Get('branch/dashboard')
+  getDashboard(
+    @Req() req: RequestWithUser,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    return this.orderSurveyService.getDashboard(
+      req.user.userId,
+      startDate,
+      endDate,
+    );
   }
 
   // GET /order-survey/branch/responses → lista respostas da filial do usuário logado

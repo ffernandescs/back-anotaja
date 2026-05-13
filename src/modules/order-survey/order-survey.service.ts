@@ -22,6 +22,238 @@ const generateSubdomainUrl = (subdomain: string): string => {
 @Injectable()
 export class OrderSurveyService {
 
+  async getDashboard(
+  branchId: string,
+  startDate?: string,
+  endDate?: string,
+) {
+  const where: any = {
+    branchId,
+  };
+
+  if (startDate || endDate) {
+    where.createdAt = {};
+
+    if (startDate) {
+      where.createdAt.gte = new Date(startDate);
+    }
+
+    if (endDate) {
+      where.createdAt.lte = new Date(endDate);
+    }
+  }
+
+  // ─────────────────────────────────────────────
+  // TOTAL RESPOSTAS
+  // ─────────────────────────────────────────────
+
+  const totalResponses = await prisma.orderSurveyResponse.count({
+    where,
+  });
+
+  // ─────────────────────────────────────────────
+  // TOTAL TOKENS
+  // ─────────────────────────────────────────────
+
+  const tokenWhere: any = {
+    branchId,
+  };
+
+  if (where.createdAt) {
+    tokenWhere.createdAt = where.createdAt;
+  }
+
+  const totalTokensGenerated = await prisma.orderSurveyToken.count({
+    where: tokenWhere,
+  });
+
+  // ─────────────────────────────────────────────
+  // MÉDIAS
+  // ─────────────────────────────────────────────
+
+  const averagesAgg = await prisma.orderSurveyResponse.aggregate({
+    where,
+    _avg: {
+      productQuality: true,
+      deliveryTime: true,
+      attendantRating: true,
+      packagingRating: true,
+    },
+  });
+
+  // ─────────────────────────────────────────────
+  // RECOMENDARIAM
+  // ─────────────────────────────────────────────
+
+  const wouldRecommendCount = await prisma.orderSurveyResponse.count({
+    where: {
+      ...where,
+      wouldRecommend: true,
+    },
+  });
+
+  // ─────────────────────────────────────────────
+  // DISTRIBUIÇÃO DE NOTAS
+  // ─────────────────────────────────────────────
+
+  const responses = await prisma.orderSurveyResponse.findMany({
+    where,
+    select: {
+      productQuality: true,
+      deliveryTime: true,
+      attendantRating: true,
+      packagingRating: true,
+      createdAt: true,
+      wouldRecommend: true,
+      comment: true,
+      branchId: true,
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+  });
+
+  const ratingDistribution = [1, 2, 3, 4, 5].map((rating) => ({
+    rating,
+    count: 0,
+  }));
+
+  for (const r of responses) {
+    const avg =
+      (
+        r.productQuality +
+        r.deliveryTime +
+        r.attendantRating +
+        r.packagingRating
+      ) / 4;
+
+    const rounded = Math.round(avg);
+
+    const item = ratingDistribution.find((x) => x.rating === rounded);
+
+    if (item) {
+      item.count += 1;
+    }
+  }
+
+  // ─────────────────────────────────────────────
+  // TIMESERIES
+  // ─────────────────────────────────────────────
+
+  const groupedMap = new Map<
+    string,
+    {
+      total: number;
+      count: number;
+    }
+  >();
+
+  for (const r of responses) {
+    const date = new Date(r.createdAt);
+
+    const period = date.toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+    });
+
+    const avg =
+      (
+        r.productQuality +
+        r.deliveryTime +
+        r.attendantRating +
+        r.packagingRating
+      ) / 4;
+
+    const existing = groupedMap.get(period);
+
+    if (existing) {
+      existing.total += avg;
+      existing.count += 1;
+    } else {
+      groupedMap.set(period, {
+        total: avg,
+        count: 1,
+      });
+    }
+  }
+
+  const timeSeries = Array.from(groupedMap.entries()).map(
+    ([period, value]) => ({
+      period,
+      avgRating: Number((value.total / value.count).toFixed(2)),
+      count: value.count,
+    }),
+  );
+
+  // ─────────────────────────────────────────────
+  // RESPOSTAS RECENTES
+  // ─────────────────────────────────────────────
+
+  const recentResponses = responses.slice(0, 20).map((r) => ({
+    productQuality: r.productQuality,
+    deliveryTime: r.deliveryTime,
+    attendantRating: r.attendantRating,
+    packagingRating: r.packagingRating,
+    wouldRecommend: r.wouldRecommend,
+    comment: r.comment,
+    createdAt: r.createdAt,
+  }));
+
+  // ─────────────────────────────────────────────
+  // RESPONSE RATE
+  // ─────────────────────────────────────────────
+
+  const responseRate =
+    totalTokensGenerated > 0
+      ? Number(
+          (
+            (totalResponses / totalTokensGenerated) *
+            100
+          ).toFixed(1),
+        )
+      : 0;
+
+  // ─────────────────────────────────────────────
+  // RETURN
+  // ─────────────────────────────────────────────
+
+  return {
+    totalResponses,
+    totalTokensGenerated,
+    responseRate,
+
+    averages: totalResponses
+      ? {
+          productQuality: Number(
+            averagesAgg._avg.productQuality?.toFixed(2) ?? 0,
+          ),
+          deliveryTime: Number(
+            averagesAgg._avg.deliveryTime?.toFixed(2) ?? 0,
+          ),
+          attendantRating: Number(
+            averagesAgg._avg.attendantRating?.toFixed(2) ?? 0,
+          ),
+          packagingRating: Number(
+            averagesAgg._avg.packagingRating?.toFixed(2) ?? 0,
+          ),
+        }
+      : null,
+
+    wouldRecommendPct:
+      totalResponses > 0
+        ? Math.round(
+            (wouldRecommendCount / totalResponses) * 100,
+          )
+        : null,
+
+    ratingDistribution,
+
+    timeSeries,
+
+    recentResponses,
+  };
+}
+
   // ─── Gerar token (chamado quando Order.status → COMPLETED) ─────────────────
   async generateToken(orderId: string): Promise<string | null> {
     const order = await prisma.order.findUnique({

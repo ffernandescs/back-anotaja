@@ -306,6 +306,7 @@ export class OwnerService {
             products: true,
           },
         },
+        branches:true,
         subscription: {
           include: {
             plan: true,
