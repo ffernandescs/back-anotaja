@@ -1036,7 +1036,12 @@ async connect(branchId?: string, partnerId?: string) {
         chat.updatedAt ||
         0;
 
-      return Number(ts);
+      const numeric = Number(ts);
+
+      // unix seconds -> ms
+      return numeric < 1000000000000
+        ? numeric * 1000
+        : numeric;
     };
 
     const raw = await this.evolutionRequest(
@@ -1608,30 +1613,54 @@ async connect(branchId?: string, partnerId?: string) {
   }
 
   private formatTimestamp(timestamp: number | string | Date): string {
-    if (!timestamp) return '';
-    
-    const ts = typeof timestamp === 'string' ? new Date(timestamp) : new Date(timestamp);
-    if (isNaN(ts.getTime())) return '';
-    
-    const now = new Date();
-    const diffMs = now.getTime() - ts.getTime();
-    const diffHours = diffMs / (1000 * 60 * 60);
-    
-    if (diffHours < 24) {
-      const hours = ts.getHours().toString().padStart(2, '0');
-      const minutes = ts.getMinutes().toString().padStart(2, '0');
-      return `${hours}:${minutes}`;
-    }
-    
-    if (diffHours < 48) {
-      return 'ontem';
-    }
-    
-    const day = ts.getDate().toString().padStart(2, '0');
-    const month = (ts.getMonth() + 1).toString().padStart(2, '0');
-    const year = ts.getFullYear();
-    return `${day}/${month}/${year}`;
+  if (!timestamp) return '';
+
+  let date: Date;
+
+  // Date já pronto
+  if (timestamp instanceof Date) {
+    date = timestamp;
+
+  // string ISO
+  } else if (typeof timestamp === 'string') {
+    date = new Date(timestamp);
+
+  // unix timestamp
+  } else {
+    // se vier em segundos converte para ms
+    const normalized =
+      timestamp < 1000000000000
+        ? timestamp * 1000
+        : timestamp;
+
+    date = new Date(normalized);
   }
+
+  if (isNaN(date.getTime())) {
+    return '';
+  }
+
+  const now = new Date();
+
+  const isToday =
+    now.toDateString() === date.toDateString();
+
+  if (isToday) {
+    return date.toLocaleTimeString('pt-BR', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+
+  const yesterday = new Date();
+  yesterday.setDate(now.getDate() - 1);
+
+  if (yesterday.toDateString() === date.toDateString()) {
+    return 'ontem';
+  }
+
+  return date.toLocaleDateString('pt-BR');
+}
 
   private detectMediaType(msg: any): string {
     if (!msg?.message) return 'text';
