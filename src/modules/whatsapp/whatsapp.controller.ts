@@ -158,8 +158,6 @@ export class WhatsAppController {
 
       return this.whatsappService.fetchChats(
         branchId,
-        Number(page ?? 1),
-        Number(limit ?? 50),
       );
     } catch (error) {
       throw new BadRequestException((error as Error).message);

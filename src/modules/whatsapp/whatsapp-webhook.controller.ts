@@ -29,9 +29,15 @@ export class WhatsAppWebhookController {
 
   // ─── Entry point único (webhook_by_events: false) ────────────────────────────
 
+  
   @Public()
   @Post()
   async handleWebhook(@Body() body: any) {
+
+    const msg = body.data;
+
+    console.log('Nova mensagem:', msg);
+
     const event: string = body?.event ?? '';
     const instanceName: string = body?.instance ?? '';
     const data = body?.data;

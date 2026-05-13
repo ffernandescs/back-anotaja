@@ -90,32 +90,40 @@ export class WhatsAppService {
       // Cria instância
       const webhookUrl = process.env.EVOLUTION_WEBHOOK_URL;
 
+      const instanceName = `${INSTANCE_PREFIX}${branchId}`;
+
+      const exists = await this.evolutionRequest(
+        'GET',
+        `/instance/fetchInstances`
+      ).catch(() => []);
+
+      const alreadyExists = Array.isArray(exists)
+        ? exists.some(i => i.instance?.instanceName === instanceName)
+        : false;
+
+     if (!alreadyExists) {
       await this.evolutionRequest('POST', '/instance/create', {
         instanceName,
         integration: 'WHATSAPP-BAILEYS',
         qrcode: true,
         storeMessages: true,
         storeFullMessages: true,
-        webhook: webhookUrl
-      });
-
-      // Configura webhook (todos os eventos em um único endpoint)
-      if (webhookUrl) {
-        await this.evolutionRequest('POST', `/webhook/set/${instanceName}`, {
-          url: webhookUrl,
-          webhook_by_events: false, // usa endpoint único com campo "event"
+        webhook: {
+          url:webhookUrl,
+          byEvents: false,
+          base64: false,
           events: [
             'MESSAGES_UPSERT',
             'MESSAGES_UPDATE',
             'SEND_MESSAGE',
-            'CONTACTS_UPDATE',
-            'CHATS_UPDATE',
             'CHATS_UPSERT',
-            'PRESENCE_UPDATE',
-          ],
-        }).catch((e) => this.logger.warn('[Setup] Webhook config falhou:', e));
-      }
+            'CONNECTION_UPDATE'
+          ]
+        }
+      });
+    }
 
+      
       // Solicita QR code
       const connectRes = await this.evolutionRequest('GET', `/instance/connect/${instanceName}`);
       const qrCode = connectRes?.base64 ?? connectRes?.qrcode?.base64 ?? null;
@@ -362,105 +370,154 @@ export class WhatsAppService {
    *
    * Paginação: feita localmente após filtrar grupos.
    */
-  async fetchChats(branchId: string, page = 1, limit = 50) {
-    const config = await this.requireFullConfig(branchId);
+async fetchChats(branchId: string) {
+  const config = await this.requireFullConfig(branchId);
 
-    // 1. Busca lista de chats na Evolution API
-    const rawChats = await this.evolutionRequest('POST', `/chat/findChats/${config.instanceName}`, { where: {} })
-      .then((r) => (Array.isArray(r) ? r : r?.data ?? []))
-      .catch(() => [] as any[]);
+  // 1. Busca todos os chats na Evolution API
+  const rawChats = await this.evolutionRequest(
+    'POST',
+    `/chat/findChats/${config.instanceName}`,
+    { where: {} },
+  )
+    .then((r) => (Array.isArray(r) ? r : r?.data ?? []))
+    .catch(() => [] as any[]);
 
-    // 2. Filtra grupos e ordena por data de atualização
-    const sorted = rawChats
-      .filter((c: any) => !String(c.remoteJid ?? '').endsWith('@g.us'))
-      .sort((a: any, b: any) => {
-        const tA = new Date(a.updatedAt ?? 0).getTime();
-        const tB = new Date(b.updatedAt ?? 0).getTime();
-        return tB - tA;
-      });
-
-    // 3. Paginação
-    const start = (page - 1) * limit;
-    const paginated: any[] = sorted.slice(start, start + limit);
-    const jids: string[] = paginated.map((c: any) => c.remoteJid);
-
-    // 4. Últimas mensagens (banco local — populado pelo webhook)
-    const lastMessages = await prisma.chatLastMessage.findMany({
-      where: { branchId, remoteJid: { in: jids } },
+  // 2. Remove grupos e ordena por atualização
+  const chats = rawChats
+    .filter((c: any) => !String(c.remoteJid ?? '').endsWith('@g.us'))
+    .sort((a: any, b: any) => {
+      const tA = new Date(a.updatedAt ?? 0).getTime();
+      const tB = new Date(b.updatedAt ?? 0).getTime();
+      return tB - tA;
     });
-    const lastMsgByJid = new Map(lastMessages.map((m) => [m.remoteJid, m]));
 
-    // 5. Clientes — normaliza telefones para matching
-    const phones = jids.map((jid) => normalizePhone(jid)[0]).filter(Boolean);
-    const customers = await prisma.customer.findMany({
-      where: { branchId, phone: { in: phones } },
-    });
-    const customerByPhone = new Map(customers.map((c) => [c.phone, c]));
+  const jids = chats.map((c: any) => c.remoteJid);
 
-    // 6. Pedidos de todos os clientes em uma query
-    const customerIds = customers.map((c) => c.id);
-    const orders = customerIds.length
-      ? await prisma.order.findMany({ where: { branchId, customerId: { in: customerIds } } })
+  // 3. Últimas mensagens
+  const lastMessages = await prisma.chatLastMessage.findMany({
+    where: {
+      branchId,
+      remoteJid: { in: jids },
+    },
+  });
+
+  const lastMsgByJid = new Map(
+    lastMessages.map((m) => [m.remoteJid, m]),
+  );
+
+  // 4. Clientes
+  const phones = jids
+    .map((jid) => normalizePhone(jid)[0])
+    .filter(Boolean);
+
+  const customers = await prisma.customer.findMany({
+    where: {
+      branchId,
+      phone: { in: phones },
+    },
+  });
+
+  const customerByPhone = new Map(
+    customers.map((c) => [c.phone, c]),
+  );
+
+  // 5. Pedidos
+  const customerIds = customers.map((c) => c.id);
+
+  const orders = customerIds.length
+    ? await prisma.order.findMany({
+        where: {
+          branchId,
+          customerId: { in: customerIds },
+        },
+      })
+    : [];
+
+  const ordersByCustomer = new Map<string, any[]>();
+
+  for (const order of orders) {
+    if (!order.customerId) continue;
+
+    const list = ordersByCustomer.get(order.customerId) ?? [];
+    list.push(order);
+    ordersByCustomer.set(order.customerId, list);
+  }
+
+  // 6. Unread messages
+  const unreadRows = await prisma.whatsAppChatRead.findMany({
+    where: {
+      branchId,
+      jid: { in: jids },
+    },
+  });
+
+  const unreadByJid = new Map(
+    unreadRows.map((r) => [r.jid, r.unreadCount]),
+  );
+
+  // 7. Montagem final
+  const result = chats.map((chat: any) => {
+    const jid = chat.remoteJid;
+
+    const phone =
+      normalizePhone(jid)[0] ??
+      jid.replace('@s.whatsapp.net', '');
+
+    const customer = customerByPhone.get(phone) ?? null;
+
+    const customerOrders = customer
+      ? ordersByCustomer.get(customer.id) ?? []
       : [];
 
-    const ordersByCustomer = new Map<string, typeof orders>();
-    for (const order of orders) {
-      if (!order.customerId) continue;
-      const list = ordersByCustomer.get(order.customerId) ?? [];
-      list.push(order);
-      ordersByCustomer.set(order.customerId, list);
-    }
+    const last = lastMsgByJid.get(jid) ?? null;
 
-    // 7. Não-lidos
-    const unreadRows = await prisma.whatsAppChatRead.findMany({
-      where: { branchId, jid: { in: jids } },
-    });
-    const unreadByJid = new Map(unreadRows.map((r) => [r.jid, r.unreadCount]));
+    const unreadCount = unreadByJid.get(jid) ?? 0;
 
-    // 8. Monta resposta
-    const chats = paginated.map((chat: any) => {
-      const jid: string = chat.remoteJid;
-      const phone = normalizePhone(jid)[0] ?? jid.replace('@s.whatsapp.net', '');
-      const customer = customerByPhone.get(phone) ?? null;
-      const customerOrders = customer ? (ordersByCustomer.get(customer.id) ?? []) : [];
-      const last = lastMsgByJid.get(jid) ?? null;
-      const unreadCount = unreadByJid.get(jid) ?? 0;
+    return {
+      id: jid,
+      remoteJid: jid,
+      phone,
+      pushName: chat.pushName ?? null,
+      profilePicUrl: chat.profilePicUrl ?? null,
+      updatedAt: chat.updatedAt ?? null,
+      unreadCount,
 
-      return {
-        id: jid,
-        remoteJid: jid,
-        phone,
-        pushName: chat.pushName ?? null,
-        profilePicUrl: chat.profilePicUrl ?? null,
-        updatedAt: chat.updatedAt ?? null,
-        unreadCount,
+      lastMessage: last
+        ? {
+            id: last.messageId,
+            text: last.text ?? '',
+            timestamp: last.timestamp,
+            fromMe: last.fromMe,
+            pushName: last.pushName ?? null,
+          }
+        : null,
 
-        lastMessage: last
-          ? {
-              id: last.messageId,
-              text: last.text ?? '',
-              timestamp: last.timestamp, // ms
-              fromMe: last.fromMe,
-              pushName: last.pushName ?? null,
-            }
-          : null,
-
-        customer,
-        ordersSummary: this.summarizeOrders(customerOrders),
-        totalOrders: customerOrders.length,
-      };
-    });
-
-    // 9. Resumo global de pedidos (todos os pedidos da filial, não só paginados)
-    const globalSummary = {
-      new: orders.filter((o) => o.status === 'PENDING').length,
-      pending: orders.filter((o) => o.status === 'CONFIRMED' || o.status === 'IN_PROGRESS').length,
-      outForDelivery: orders.filter((o) => o.status === 'READY' || o.status === 'DELIVERING').length,
-      completed: orders.filter((o) => o.status === 'DELIVERED' || o.status === 'COMPLETED').length,
+      customer,
+      ordersSummary: this.summarizeOrders(customerOrders),
+      totalOrders: customerOrders.length,
     };
+  });
 
-    return { chats, globalSummary, page, limit, total: sorted.length };
-  }
+  // 8. Resumo global
+  const globalSummary = {
+    new: orders.filter((o) => o.status === 'PENDING').length,
+    pending: orders.filter((o) =>
+      ['CONFIRMED', 'IN_PROGRESS'].includes(o.status),
+    ).length,
+    outForDelivery: orders.filter((o) =>
+      ['READY', 'DELIVERING'].includes(o.status),
+    ).length,
+    completed: orders.filter((o) =>
+      ['DELIVERED', 'COMPLETED'].includes(o.status),
+    ).length,
+  };
+
+  return {
+    chats: result,
+    globalSummary,
+    total: chats.length,
+  };
+}
 
   
 
@@ -472,41 +529,29 @@ async fetchMessages(branchId: string, dto: FetchMessagesDto) {
     return [];
   }
 
+  // 🔧 config
   const config = await prisma.whatsAppConfig.findUnique({
     where: { branchId },
   });
 
   if (!config?.instanceName) return [];
 
-  const count = dto.count ?? 50;
-
-  const baseRequest = async (where: any) =>
-    this.evolutionRequest(
-      'POST',
-      `/chat/findMessages/${config.instanceName}`,
-      {
-        where,
-        limit: count,
+  // 📡 busca mensagens diretamente (SEM limit, SEM cursor)
+  const raw = await this.evolutionRequest(
+    'POST',
+    `/chat/findMessages/${config.instanceName}`,
+    {
+      where: {
+        key: {
+          remoteJid: jid,
+        },
       },
-    )
-      .then((r) => this.extractMessages(r))
-      .catch(() => []);
+    },
+  );
 
-  // ✅ 1) tenta padrão principal
-  let messages = await baseRequest({
-    key: { remoteJid: jid },
-  });
+  const messages = this.extractMessages(raw);
 
-  // 🔁 2) fallback só se vier muito pouco (ou vazio)
-  if (!messages || messages.length === 0) {
-    const alt = await baseRequest({
-      key: { remoteJidAlt: jid },
-    });
-
-    messages = alt;
-  }
-
-  // 🧹 limpeza + segurança total
+  // 🧹 limpeza + deduplicação
   const seen = new Set<string>();
 
   const cleaned = messages
@@ -523,22 +568,12 @@ async fetchMessages(branchId: string, dto: FetchMessagesDto) {
       return true;
     })
     .sort((a: any, b: any) => {
-      const tA = Number(a?.messageTimestamp ?? 0);
-      const tB = Number(b?.messageTimestamp ?? 0);
-      return tB - tA;
+      return Number(b?.messageTimestamp ?? 0) -
+             Number(a?.messageTimestamp ?? 0);
     });
 
-  // 📌 cursor pagination
-  let result = cleaned;
-
-  if (dto.cursor) {
-    result = result.filter(
-      (msg: any) => Number(msg?.messageTimestamp ?? 0) < dto.cursor!,
-    );
-  }
-
   // 📦 normalize final
-  return result.slice(0, count).map((msg: any) => ({
+  return cleaned.map((msg: any) => ({
     id: safeMessageId(msg),
     fromMe: msg?.key?.fromMe ?? false,
     text: this.extractText(msg) ?? '',
