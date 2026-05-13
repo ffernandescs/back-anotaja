@@ -22,6 +22,7 @@ export class WhatsAppWebhookController {
   @Public()
   @Post()
   async handleWebhook(@Body() body: any) {
+      this.logger.log('[Webhook] body recebido: ' + JSON.stringify(body)); // ← adiciona isso
     const event = body?.event; // tipo do evento
     const data = body?.data; // payload do evento
     const instanceName = body?.instance; // instância do WhatsApp
