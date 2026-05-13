@@ -214,8 +214,7 @@ export class WhatsAppService {
 
     return { status, qrCode };
   }
-
-  async disconnect(branchId?: string, partnerId?: string) {
+async disconnect(branchId?: string, partnerId?: string) {
   const where = this.configWhere(branchId, partnerId);
   const config = await prisma.whatsAppConfig.findFirst({ where });
 
@@ -239,10 +238,10 @@ export class WhatsAppService {
     },
   });
 
-  // Limpa lastMessages com @lid e @g.us
+  // Busca os JIDs sujos das mensagens que sobraram
+  // e limpa o chatLastMessage por remoteJid (não tem branchId)
   await prisma.chatLastMessage.deleteMany({
     where: {
-      ...(branchId ? { branchId } : {}),
       OR: [
         { remoteJid: { endsWith: '@lid' } },
         { remoteJid: { endsWith: '@g.us' } },
@@ -263,7 +262,6 @@ export class WhatsAppService {
 
   return { status: 'disconnected' };
 }
-
   async getStatus(branchId?: string, partnerId?: string) {
     const where = this.configWhere(branchId, partnerId);
     const config = await prisma.whatsAppConfig.findFirst({ where });
