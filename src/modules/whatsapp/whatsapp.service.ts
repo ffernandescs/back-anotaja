@@ -214,54 +214,60 @@ export class WhatsAppService {
 
     return { status, qrCode };
   }
-async disconnect(branchId?: string, partnerId?: string) {
-  const where = this.configWhere(branchId, partnerId);
-  const config = await prisma.whatsAppConfig.findFirst({ where });
+  
+  async disconnect(branchId?: string, partnerId?: string) {
+    const where = this.configWhere(branchId, partnerId);
+    const config = await prisma.whatsAppConfig.findFirst({ where });
 
-  if (!config) throw new BadRequestException('WhatsApp não configurado.');
+    if (!config) throw new BadRequestException('WhatsApp não configurado.');
 
-  await this.evolutionRequest('DELETE', `/instance/logout/${config.instanceName}`).catch(() => {});
-  await this.evolutionRequest('DELETE', `/instance/delete/${config.instanceName}`).catch(() => {});
+    await this.evolutionRequest('DELETE', `/instance/logout/${config.instanceName}`).catch(() => {});
+    await this.evolutionRequest('DELETE', `/instance/delete/${config.instanceName}`).catch(() => {});
 
-  // Limpa unreads
-  await prisma.whatsAppChatRead.deleteMany({ where });
+    // ← Limpa a sessão do Baileys via Evolution API
+    await this.evolutionRequest('DELETE', `/instance/logout/${config.instanceName}`).catch(() => {});
+    
+    // Pede para a Evolution limpar o cache da instância
+    await this.evolutionRequest('POST', `/instance/restart/${config.instanceName}`).catch(() => {});
 
-  // Limpa mensagens com @lid e @g.us (lixo do WhatsApp)
-  await prisma.whatsAppMessage.deleteMany({
-    where: {
-      ...(branchId ? { branchId } : {}),
-      ...(partnerId ? { partnerId } : {}),
-      OR: [
-        { remoteJid: { endsWith: '@lid' } },
-        { remoteJid: { endsWith: '@g.us' } },
-      ],
-    },
-  });
+    // Limpa unreads
+    await prisma.whatsAppChatRead.deleteMany({ where });
 
-  // Busca os JIDs sujos das mensagens que sobraram
-  // e limpa o chatLastMessage por remoteJid (não tem branchId)
-  await prisma.chatLastMessage.deleteMany({
-    where: {
-      OR: [
-        { remoteJid: { endsWith: '@lid' } },
-        { remoteJid: { endsWith: '@g.us' } },
-      ],
-    },
-  });
+    // Limpa mensagens @lid e @g.us
+    await prisma.whatsAppMessage.deleteMany({
+      where: {
+        ...(branchId ? { branchId } : {}),
+        ...(partnerId ? { partnerId } : {}),
+        OR: [
+          { remoteJid: { endsWith: '@lid' } },
+          { remoteJid: { endsWith: '@g.us' } },
+        ],
+      },
+    });
 
-  await prisma.whatsAppConfig.update({
-    where: { id: config.id },
-    data: {
-      status: 'disconnected',
-      qrCode: null,
-      phoneNumber: null,
-      profileName: null,
-      profilePicUrl: null,
-    },
-  });
+    await prisma.chatLastMessage.deleteMany({
+      where: {
+        OR: [
+          { remoteJid: { endsWith: '@lid' } },
+          { remoteJid: { endsWith: '@g.us' } },
+        ],
+      },
+    });
 
-  return { status: 'disconnected' };
-}
+    await prisma.whatsAppConfig.update({
+      where: { id: config.id },
+      data: {
+        status: 'disconnected',
+        qrCode: null,
+        phoneNumber: null,
+        profileName: null,
+        profilePicUrl: null,
+      },
+    });
+
+    return { status: 'disconnected' };
+  }
+
   async getStatus(branchId?: string, partnerId?: string) {
     const where = this.configWhere(branchId, partnerId);
     const config = await prisma.whatsAppConfig.findFirst({ where });
