@@ -1028,6 +1028,16 @@ async connect(branchId?: string, partnerId?: string) {
 
   async fetchChats(branchId: string) {
     const config = await this.getFullConfig(branchId);
+    const getMessageTimestamp = (chat: any): number => {
+      const ts =
+        chat.lastMessage?.messageTimestamp ||
+        chat.lastMsgTimestamp ||
+        chat.conversationTimestamp ||
+        chat.updatedAt ||
+        0;
+
+      return Number(ts);
+    };
 
     const raw = await this.evolutionRequest(
       'POST',
@@ -1209,6 +1219,9 @@ async connect(branchId?: string, partnerId?: string) {
         ? this.orderStateMachine.getAvailableTransitions(completeOrder)
         : [];
 
+      const timestamp = getMessageTimestamp(c);
+
+
       return {
         jid: c._jid,
         name: customer?.name || c.name || c.pushName || c.verifiedName || this.jidToPhone(c._jid),
@@ -1216,8 +1229,8 @@ async connect(branchId?: string, partnerId?: string) {
         profilePicUrl: c.profilePicUrl || null,
         lastMessage: this.extractTextFromMessage(c.lastMessage) || '',
         lastMessageType: this.detectMediaType(c.lastMessage),
-        lastMsgTimestamp: c.lastMsgTimestamp || c.updatedAt || 0,
-        formattedTimestamp: this.formatTimestamp(c.lastMsgTimestamp || c.updatedAt || 0),
+        lastMsgTimestamp: timestamp,
+        formattedTimestamp: this.formatTimestamp(timestamp),
         unreadCount: unreadCountMap.get(c._jid) || 0,
         customerId: customer?.id ?? null,
         totalOrders: customer ? (newOrdersMap.get(customer.id) ?? 0) : 0,
