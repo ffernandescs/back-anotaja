@@ -258,35 +258,48 @@ async moveOrder(orderId: string, action: OrderAction, note?: string, deliveryPer
 
   // ─── WhatsApp Notifications ─────────────────────────────────────
   // Notify customer about status change
-  if (order.status !== updatedOrder.status && updatedOrder.branchId) {
- 
-    // ── DELIVERED: gera token de pesquisa + envia mensagem com link ───────────
-    if ((updatedOrder.status === OrderStatus.DELIVERED || updatedOrder.status === OrderStatus.COMPLETED) && updatedOrder.channel === OrderChannel.ONLINE) {
- 
-      // Gerar token (idempotente — não duplica se chamar 2x)
-      const surveyToken = await this.orderSurveyService.generateToken(updatedOrder.id);
-      const subDomain = await prisma.branch.findUnique({ where: { id: updatedOrder.branchId }, select: { subdomain: true } }).then(branch => branch?.subdomain || ''); // Obter subdomínio da filial  
-      const domain = generateSubdomainUrl(subDomain)
-      // URL vinda do env do backend (mesmo domínio do cardápio do cliente)
-      const surveyUrl = surveyToken
-        ? `${domain}pesquisa-pedido/${surveyToken}`
-        : null;
+if (order.status !== updatedOrder.status && updatedOrder.branchId) {
 
-        console.log('Generated survey URL:', surveyUrl);
- 
-      // Notificar cliente com template "delivered" + variável {surveyUrl}
-      await this.notifyCustomer(
-        updatedOrder.branchId,
-        updatedOrder,
-        updatedOrder.status,
-        surveyUrl ?? undefined,
-      );
- 
-    } else {
-      // Demais status: notificação normal sem surveyUrl
-      await this.notifyCustomer(updatedOrder.branchId, updatedOrder, updatedOrder.status);
-    }
+  const isOnlineOrder = updatedOrder.channel === OrderChannel.ONLINE;
+  const isDelivery = updatedOrder.deliveryType === DeliveryType.DELIVERY;
+  const isPickupOrDineIn = updatedOrder.deliveryType === DeliveryType.PICKUP || updatedOrder.deliveryType === DeliveryType.DINE_IN;
+
+  // Status terminal que dispara a pesquisa por tipo de pedido:
+  // - DELIVERY → DELIVERED
+  // - PICKUP / DINE_IN → READY ou COMPLETED
+  const isSurveyTriggerStatus =
+    (isDelivery && updatedOrder.status === OrderStatus.DELIVERED) ||
+    (isPickupOrDineIn && (
+      updatedOrder.status === OrderStatus.READY ||
+      updatedOrder.status === OrderStatus.COMPLETED
+    ));
+
+  if (isOnlineOrder && isSurveyTriggerStatus) {
+    // Gera token de pesquisa (idempotente — não duplica se chamar 2x)
+    const surveyToken = await this.orderSurveyService.generateToken(updatedOrder.id);
+    const subDomain = await prisma.branch.findUnique({
+      where: { id: updatedOrder.branchId },
+      select: { subdomain: true },
+    }).then(branch => branch?.subdomain || '');
+    const domain = generateSubdomainUrl(subDomain);
+    const surveyUrl = surveyToken
+      ? `${domain}pesquisa-pedido/${surveyToken}`
+      : null;
+
+    console.log('Generated survey URL:', surveyUrl);
+
+    await this.notifyCustomer(
+      updatedOrder.branchId,
+      updatedOrder,
+      updatedOrder.status,
+      surveyUrl ?? undefined,
+    );
+
+  } else {
+    // Demais status: notificação normal sem surveyUrl
+    await this.notifyCustomer(updatedOrder.branchId, updatedOrder, updatedOrder.status);
   }
+}
 
   // Notify delivery person when status changes to DELIVERING
   if (action === "ASSIGN_DRIVER" || (action === "START_DELIVERY" && updatedOrder.status === OrderStatus.DELIVERING)) {

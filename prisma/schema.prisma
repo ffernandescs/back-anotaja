@@ -1070,6 +1070,7 @@ model Order {
   billSplitPersons                                                        BillSplitPerson[]
   surveyToken   SurveyToken?
   orderSurveyTokens    OrderSurveyToken[]
+  surveyResponses OrderSurveyResponse[]
   @@unique([orderNumber, branchId]) // Número único por filial
 }
 
@@ -2309,18 +2310,26 @@ model OrderSurveyResponse {
   tokenId          String   @unique
   branchId         String
   orderId          String
+
   productQuality   Int
   deliveryTime     Int
   attendantRating  Int
   packagingRating  Int
+
   wouldRecommend   Boolean
   comment          String?
+
   createdAt        DateTime @default(now())
 
-  token  OrderSurveyToken @relation(fields: [tokenId], references: [id], onDelete: Cascade)
-  branch Branch           @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  token            OrderSurveyToken @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+
+  branch           Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  order            Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([branchId])
+  @@index([orderId])
   @@index([createdAt])
+
   @@map("order_survey_responses")
 }

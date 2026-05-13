@@ -19,6 +19,7 @@ interface RequestWithUser extends Request {
     userId: string;
     email?: string;
     role?: string;
+    branchId: string;
   };
 }
 
@@ -64,7 +65,7 @@ export class OrderSurveyController {
     @Query('endDate') endDate?: string,
   ) {
     return this.orderSurveyService.getDashboard(
-      req.user.userId,
+      req.user.branchId,
       startDate,
       endDate,
     );
