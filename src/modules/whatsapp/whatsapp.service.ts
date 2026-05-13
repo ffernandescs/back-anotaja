@@ -88,16 +88,18 @@ export class WhatsAppService {
 
     try {
       // Cria instância
+      const webhookUrl = process.env.EVOLUTION_WEBHOOK_URL;
+
       await this.evolutionRequest('POST', '/instance/create', {
         instanceName,
         integration: 'WHATSAPP-BAILEYS',
         qrcode: true,
         storeMessages: true,
         storeFullMessages: true,
+        url: webhookUrl
       });
 
       // Configura webhook (todos os eventos em um único endpoint)
-      const webhookUrl = process.env.EVOLUTION_WEBHOOK_URL;
       if (webhookUrl) {
         await this.evolutionRequest('POST', `/webhook/set/${instanceName}`, {
           url: webhookUrl,
@@ -151,15 +153,16 @@ export class WhatsAppService {
     await this.evolutionRequest('DELETE', `/instance/delete/${instanceName}`).catch(() => {});
 
     try {
+      const webhookUrl = process.env.EVOLUTION_WEBHOOK_URL;
       await this.evolutionRequest('POST', '/instance/create', {
         instanceName,
         integration: 'WHATSAPP-BAILEYS',
         qrcode: true,
         storeMessages: true,
         storeFullMessages: true,
+        url: webhookUrl,
       });
 
-      const webhookUrl = process.env.EVOLUTION_WEBHOOK_URL;
       if (webhookUrl) {
         await this.evolutionRequest('POST', `/webhook/set/${instanceName}`, {
           url: webhookUrl,
