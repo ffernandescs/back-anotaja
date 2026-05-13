@@ -2219,19 +2219,20 @@ model CampaignRecord {
 
 model WhatsAppMessage {
   id                                                                     String           @id @default(cuid())
- remoteJid   String           // JID do destinatário (ex:
+ remoteJid   String      @default("")     // JID do destinatário (ex:
   partnerId                                                              String?
   branchId                                                               String?
   customerId      String?  // ID do cliente (PartnerCustomer ou Company)
   customerPhone   String    // Telefone do cliente para rastreamento
   customerName    String?   // Nome do cliente no momento do envio
   message         String    // Conteúdo da mensagem enviada
+  remote_jid      String?   @default("")
   campaignId      String?   // Referência opcional à campanha
   status                                                                 String           @default("sent") // sent, failed
   sentAt                                                                 DateTime         @default(now())
   createdAt                                                              DateTime         @default(now())
-  text       String         // Campo para facilitar buscas por texto (ex: versão sem acentos, minúscula)
-  fromMe     Boolean        // Se a mensagem foi enviada pelo restaurante (true) ou recebida do cliente (false)
+  text       String    @default("")     // Campo para facilitar buscas por texto (ex: versão sem acentos, minúscula)
+  fromMe     Boolean    @default(false)    // Se a mensagem foi enviada pelo restaurante (true) ou recebida do cliente (false)
   partner                                                                Partner?        @relation(fields: [partnerId], references: [id], onDelete: Cascade)
   pushName   String?        // Nome de exibição do remetente no WhatsApp (para mensagens recebidas)
   branch                                                                 Branch?         @relation(fields: [branchId], references: [id], onDelete: Cascade)
