@@ -975,10 +975,28 @@ export class OrdersWebSocketGateway
         payload,
       );
 
+      const responseKey = result.key as { id?: string; remoteJid?: string } | undefined;
+      let remoteForWs = payload.jid;
+      let lidFromSend: string | undefined;
+
+      if (responseKey?.remoteJid && typeof responseKey.remoteJid === 'string') {
+        if (responseKey.remoteJid.endsWith('@s.whatsapp.net')) {
+          remoteForWs = responseKey.remoteJid;
+        }
+        if (responseKey.remoteJid.endsWith('@lid')) {
+          lidFromSend = responseKey.remoteJid;
+        }
+      }
+
+      const phoneDigits =
+        typeof remoteForWs === 'string' && remoteForWs.endsWith('@s.whatsapp.net')
+          ? remoteForWs.replace('@s.whatsapp.net', '').replace(/^55/, '')
+          : '';
+
       // Emit confirmation back to sender
       client.emit('crm:message:sent', {
         messageId: result.messageId,
-        jid: payload.jid,
+        jid: remoteForWs,
         text: payload.text,
         status: 'sent',
       });
@@ -993,12 +1011,14 @@ export class OrdersWebSocketGateway
         branchId: client.user.branchId,
         instanceName: config?.instanceName,
         id: result.messageId,
-        remoteJid: payload.jid,
+        remoteJid: remoteForWs,
+        lidJid: lidFromSend,
         fromMe: true,
         text: payload.text,
         timestamp: Math.floor(Date.now() / 1000),
         status: 'sent',
         mediaType: 'text',
+        phone: phoneDigits,
       });
     } catch (error) {
       this.logger.error('Error sending CRM message via WebSocket:', error);

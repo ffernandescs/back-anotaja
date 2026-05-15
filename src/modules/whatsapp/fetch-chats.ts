@@ -13,7 +13,7 @@ import {
   isInstanceDisplayName,
 } from 'src/utils/whatsapp-jid.util';
 import { buildLidMapFromEvolutionData, normalizeEvolutionList } from 'src/utils/whatsapp-lid-map';
-import { pickPhoneFromLidMessages } from 'src/utils/whatsapp-lid-resolve';
+import { pickPhoneForLidDeepScan } from 'src/utils/whatsapp-lid-resolve';
 import type { Prisma } from '@prisma/client';
 
 interface AggregatedChat {
@@ -323,50 +323,112 @@ function pickBetterPushName(
   return a ?? b ?? null;
 }
 
-const LID_PHONE_MERGE_WINDOW_MS = 5 * 60 * 1000;
+/** Janela para associar última atividade @lid vs @s.whatsapp.net no mesmo contato (Prisma ChatLastMessage). */
+const INFER_LID_LASTMSG_WINDOW_MS = 6 * 60 * 60 * 1000;
+/** Segundo melhor candidato deve ficar pelo menos este Δt atrás do melhor (evita colidir dois clientes no mesmo período). */
+const INFER_LID_AMBIGUITY_GAP_MS = 12 * 60 * 1000;
 
-/** Aprende pares @lid ↔ telefone a partir de ChatLastMessage com atividade próxima.
- * Usa greedy 1–1 ordenado pelo menor Δt para não “roubar” o mesmo telefone
- * quando há vários chats @lid ativos pouco tempo depois da mesma msg (ex.: LID diferente pegando pedido/outro cliente).
+/**
+ * Aprende LID ↔ telefone quando o webhook grava duas linhas em ChatLastMessage
+ * (app oficial costuma usar @lid; API/pedido usa @s.whatsapp.net) e o mapa Evolution ainda não ligou.
  */
 function inferLidPairsFromChatLastRows(
   rows: Array<{ remoteJid: string; timestamp: bigint | number }>,
   lidMap: Map<string, string>,
   instancePhone: string | null,
+  instanceName: string,
+  rememberLidPair: FetchChatsDeps['rememberLidPair'],
 ): void {
-  const lids = rows.filter((r) => isLidJid(r.remoteJid));
+  const lids = rows.filter(
+    (r) => isLidJid(r.remoteJid) && !isInstancePhone(r.remoteJid, instancePhone),
+  );
   const phones = rows.filter(
     (r) => isPhoneJid(r.remoteJid) && !isInstancePhone(r.remoteJid, instancePhone),
   );
   if (!lids.length || !phones.length) return;
 
-  type Cand = { lid: string; phone: string; diff: number };
-  const cands: Cand[] = [];
+  type Pick = { lid: string; phone: string; diff: number };
+  const picks: Pick[] = [];
 
   for (const lidRow of lids) {
+    const mapped = lidMap.get(lidRow.remoteJid);
+    if (mapped && isPhoneJid(mapped)) continue;
+
     const lidTs = Number(lidRow.timestamp);
+    const ranked: { phone: string; diff: number }[] = [];
     for (const phoneRow of phones) {
       const diff = Math.abs(lidTs - Number(phoneRow.timestamp));
-      if (diff <= LID_PHONE_MERGE_WINDOW_MS) {
-        cands.push({
-          lid: lidRow.remoteJid,
-          phone: phoneRow.remoteJid,
-          diff,
-        });
+      if (diff <= INFER_LID_LASTMSG_WINDOW_MS) {
+        ranked.push({ phone: phoneRow.remoteJid, diff });
       }
     }
+    ranked.sort((a, b) => a.diff - b.diff);
+    if (!ranked.length) continue;
+
+    const best = ranked[0];
+    const second = ranked[1];
+    if (second && second.diff - best.diff < INFER_LID_AMBIGUITY_GAP_MS) continue;
+
+    picks.push({ lid: lidRow.remoteJid, phone: best.phone, diff: best.diff });
   }
 
-  cands.sort((a, b) => a.diff - b.diff);
+  picks.sort((a, b) => a.diff - b.diff);
 
   const lidsUsed = new Set<string>();
   const phonesUsed = new Set<string>();
 
-  for (const c of cands) {
+  for (const c of picks) {
     if (lidsUsed.has(c.lid) || phonesUsed.has(c.phone)) continue;
     lidsUsed.add(c.lid);
     phonesUsed.add(c.phone);
     registerLidPair(lidMap, c.lid, c.phone);
+    rememberLidPair(instanceName, c.lid, c.phone, instancePhone);
+  }
+}
+
+function collectDistinctLids(params: {
+  localLastRows: Array<{ remoteJid: string }>;
+  rawChats: any[];
+  recentMessages: any[];
+}): Set<string> {
+  const lids = new Set<string>();
+  const tryAdd = (j?: string | null) => {
+    if (!j || typeof j !== 'string') return;
+    if (isLidJid(j)) lids.add(j);
+  };
+
+  for (const r of params.localLastRows) tryAdd(r.remoteJid);
+
+  for (const c of params.rawChats) {
+    tryAdd(c.remoteJid ?? c.id ?? c.jid);
+    tryAdd(c.remoteJidAlt ?? c.lid);
+  }
+
+  for (const m of params.recentMessages) {
+    tryAdd(m?.key?.remoteJid ?? m?.remoteJid);
+    tryAdd(m?.remoteJidAlt ?? m?.key?.remoteJidAlt);
+  }
+
+  return lids;
+}
+
+function enrichLidMapFromMessageDeepScan(
+  lidMap: Map<string, string>,
+  recentMessages: any[],
+  lids: Set<string>,
+  instanceName: string,
+  instancePhone: string | null,
+  rememberLidPair: FetchChatsDeps['rememberLidPair'],
+): void {
+  for (const lid of lids) {
+    const mapped = lidMap.get(lid);
+    if (mapped && isPhoneJid(mapped) && !isInstancePhone(mapped, instancePhone)) continue;
+
+    const phone = pickPhoneForLidDeepScan(recentMessages, lid, instancePhone);
+    if (phone && isPhoneJid(phone) && !isInstancePhone(phone, instancePhone)) {
+      registerLidPair(lidMap, lid, phone);
+      rememberLidPair(instanceName, lid, phone, instancePhone);
+    }
   }
 }
 
@@ -453,6 +515,37 @@ function mergeKeysIntoCanonical(
   aggregated.set(phoneKey, merged);
 }
 
+/**
+ * Une entradas órfãs @lid com a conversa @s.whatsapp.net quando o mapa LID já resolve o par
+ * (persistência, inferência por ChatLastMessage ou varredura nas mensagens).
+ */
+function mergeLidMappedOrphans(
+  aggregated: Map<string, AggregatedChat>,
+  lidMap: Map<string, string>,
+  instanceName: string,
+  instancePhone: string | null,
+  rememberLidPair: FetchChatsDeps['rememberLidPair'],
+  instanceProfileName?: string | null,
+): void {
+  for (const key of [...aggregated.keys()]) {
+    const mappedPhone = lidMap.get(key);
+    if (!mappedPhone || !isPhoneJid(mappedPhone)) continue;
+    if (isInstancePhone(mappedPhone, instancePhone)) continue;
+    if (key === mappedPhone) continue;
+    if (!aggregated.has(key) || !aggregated.has(mappedPhone)) continue;
+
+    mergeKeysIntoCanonical(
+      aggregated,
+      [key, mappedPhone],
+      lidMap,
+      instanceName,
+      instancePhone,
+      rememberLidPair,
+      instanceProfileName,
+    );
+  }
+}
+
 /** Une conversas duplicadas (@lid + @s.whatsapp.net) no mesmo contato. */
 function mergeAggregatedChats(
   aggregated: Map<string, AggregatedChat>,
@@ -486,74 +579,14 @@ function mergeAggregatedChats(
     );
   }
 
-  type Entry = { key: string; chat: AggregatedChat };
-  const lidEntries: Entry[] = [...aggregated.entries()]
-    .filter(
-      ([k, c]) => c.lidOnly || isLidJid(k) || (c.lidJid && isLidJid(c.lidJid)),
-    )
-    .map(([key, chat]) => ({ key, chat }));
-
-  const phoneEntries: Entry[] = [...aggregated.entries()]
-    .filter(([k, c]) => !c.lidOnly && isPhoneJid(k) && isPhoneJid(c.remoteJid))
-    .map(([key, chat]) => ({ key, chat }));
-
-  if (!lidEntries.length || !phoneEntries.length) return;
-
-  const pairs: { lidKey: string; phoneKey: string; diff: number }[] = [];
-
-  for (const le of lidEntries) {
-    for (const pe of phoneEntries) {
-      const diff = Math.abs(le.chat.updatedAtMs - pe.chat.updatedAtMs);
-      if (diff <= LID_PHONE_MERGE_WINDOW_MS) {
-        pairs.push({ lidKey: le.key, phoneKey: pe.key, diff });
-      }
-    }
-  }
-
-  pairs.sort((a, b) => a.diff - b.diff);
-
-  const usedLid = new Set<string>();
-  const usedPhone = new Set<string>();
-
-  /** Só une @lid ao telefone se o mapa já conhecer o par (webhook/Evolution/Persistência). Proximidade só no tempo causava dois LIDs diferentes colidirem no mesmo número. */
-  const lidAlreadyLinkedToPhone = (lidKey: string, phoneKey: string): boolean =>
-    lidMap.get(lidKey) === phoneKey || lidMap.get(phoneKey) === lidKey;
-
-  for (const p of pairs) {
-    if (usedLid.has(p.lidKey) || usedPhone.has(p.phoneKey)) continue;
-    if (!aggregated.has(p.lidKey) || !aggregated.has(p.phoneKey)) continue;
-    if (!lidAlreadyLinkedToPhone(p.lidKey, p.phoneKey)) continue;
-
-    usedLid.add(p.lidKey);
-    usedPhone.add(p.phoneKey);
-
-    const lidChat = aggregated.get(p.lidKey)!;
-    const phoneChat = aggregated.get(p.phoneKey)!;
-    const lidJid = isLidJid(p.lidKey)
-      ? p.lidKey
-      : lidChat.lidJid ?? (isLidJid(lidChat.remoteJid) ? lidChat.remoteJid : undefined);
-
-    if (lidJid) {
-      registerLidPair(lidMap, lidJid, p.phoneKey);
-      rememberLidPair(instanceName, lidJid, p.phoneKey, instancePhone);
-    }
-
-    const merged = pickNewerChat(
-      {
-        ...phoneChat,
-        remoteJid: p.phoneKey,
-        lidJid: phoneChat.lidJid ?? lidJid,
-        lidOnly: false,
-      },
-      { ...lidChat, remoteJid: p.phoneKey, lidOnly: false },
-      instanceProfileName,
-      instancePhone,
-    );
-
-    aggregated.set(p.phoneKey, merged);
-    aggregated.delete(p.lidKey);
-    if (lidJid && lidJid !== p.lidKey) aggregated.delete(lidJid);
-  }
+  mergeLidMappedOrphans(
+    aggregated,
+    lidMap,
+    instanceName,
+    instancePhone,
+    rememberLidPair,
+    instanceProfileName,
+  );
 }
 
 function pickNewerChat(
@@ -603,7 +636,6 @@ export async function fetchChatsForBranch(deps: FetchChatsDeps): Promise<FetchCh
 
     .then((r) => normalizeEvolutionList(r))
     .catch(() => [] as any[]);
-  console.log(rawChats, "dsadsadsa22")
 
   const contacts = await evolutionRequest('POST', `/chat/findContacts/${instanceName}`, {
     where: {},
@@ -629,6 +661,21 @@ export async function fetchChatsForBranch(deps: FetchChatsDeps): Promise<FetchCh
     where: { branchId },
     orderBy: { timestamp: 'desc' },
   });
+
+  const lidsToEnrich = collectDistinctLids({
+    localLastRows,
+    rawChats,
+    recentMessages,
+  });
+  enrichLidMapFromMessageDeepScan(
+    lidMap,
+    recentMessages,
+    lidsToEnrich,
+    instanceName,
+    instancePhone,
+    rememberLidPair,
+  );
+  inferLidPairsFromChatLastRows(localLastRows, lidMap, instancePhone, instanceName, rememberLidPair);
 
   const pushNamePhoneIndex = buildPushNamePhoneIndex(
     contacts,
@@ -861,7 +908,7 @@ export async function fetchChatsForBranch(deps: FetchChatsDeps): Promise<FetchCh
       if (local) return local;
     }
 
-    const fromMessages = pickPhoneFromLidMessages(recentMessages, lid, instancePhone);
+    const fromMessages = pickPhoneForLidDeepScan(recentMessages, lid, instancePhone);
     if (fromMessages) {
       const local = jidToLocalPhone(fromMessages);
       if (local) {

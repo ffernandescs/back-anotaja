@@ -24,7 +24,7 @@ import {
   resolveJidWithMap,
 } from 'src/utils/whatsapp-jid.util';
 import { buildLidMapFromEvolutionData, normalizeEvolutionList } from 'src/utils/whatsapp-lid-map';
-import { pickPhoneFromMessage } from 'src/utils/whatsapp-lid-resolve';
+import { pickPhoneForLidDeepScan } from 'src/utils/whatsapp-lid-resolve';
 import { fetchChatsForBranch } from './fetch-chats';
 import { loadPersistedLidPairs, persistLidPair } from './whatsapp-lid-pair.store';
 
@@ -109,16 +109,8 @@ export class WhatsAppService {
 
     const messages = this.extractMessages(raw);
 
-    for (const m of messages) {
-      if (m.key?.fromMe) continue;
-      const jid = pickPhoneFromMessage(m, instancePhone);
-      if (jid) return jid;
-    }
-
-    for (const m of messages) {
-      const jid = pickPhoneFromMessage(m, instancePhone);
-      if (jid) return jid;
-    }
+    const fromDeep = pickPhoneForLidDeepScan(messages, lidJid, instancePhone);
+    if (fromDeep) return fromDeep;
 
     return null;
   }
@@ -785,7 +777,11 @@ export class WhatsAppService {
       { number: dto.jid, text: dto.text },
     );
 
-    return { success: true, messageId: result?.key?.id ?? null };
+    return {
+      success: true,
+      messageId: result?.key?.id ?? null,
+      key: result?.key as { id?: string; remoteJid?: string; fromMe?: boolean } | undefined,
+    };
   }
 
   async sendCrmMedia(branchId: string, jid: string, file: Express.Multer.File, caption?: string) {
@@ -844,15 +840,47 @@ export class WhatsAppService {
         });
       }
 
-      await this.evolutionRequest(
-        'POST',
-        `/chat/markMessageAsRead/${config.instanceName}`,
-        { readMessages: [{ remoteJid: jid, fromMe: false }] },
-      ).catch(() =>
-        this.evolutionRequest('POST', `/chat/readMessages/${config.instanceName}`, {
-          readMessages: [{ remoteJid: jid }],
-        }),
-      );
+      const markReadViaEvolution = async (): Promise<void> => {
+        const readAll = await this.evolutionRequest(
+          'POST',
+          `/chat/readMessages/${config.instanceName}`,
+          { number: jid, readMessages: true },
+        ).catch(() => null);
+        if (readAll !== null && readAll !== undefined) return;
+
+        const lastRows = await prisma.chatLastMessage.findMany({
+          where: {
+            branchId,
+            remoteJid: { in: syncJids },
+          },
+          orderBy: { timestamp: 'desc' },
+          take: 8,
+        });
+        const toMark =
+          lastRows.find((r) => !r.fromMe && r.messageId) ?? lastRows.find((r) => r.messageId);
+        if (!toMark?.messageId) return;
+
+        const remoteForMark =
+          isPhoneJid(jid)
+            ? jid
+            : isPhoneJid(toMark.remoteJid)
+              ? toMark.remoteJid
+              : `${toMark.remoteJid}`.includes('@')
+                ? toMark.remoteJid
+                : jid;
+
+        await this.evolutionRequest('POST', `/chat/markMessageAsRead/${config.instanceName}`, {
+          readMessages: [
+            {
+              remoteJid: remoteForMark,
+              fromMe: !!toMark.fromMe,
+              id: toMark.messageId,
+            },
+          ],
+        }).catch(() => null);
+      };
+
+      await markReadViaEvolution();
     } catch (err) {
       this.logger.warn('[markChatAsRead] Falhou silenciosamente:', err);
     }

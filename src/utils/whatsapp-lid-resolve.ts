@@ -52,6 +52,36 @@ export function pickPhoneFromMessage(
   return deep[0] ?? null;
 }
 
+/** Indica se o envelope da mensagem Evolution referencia o chat @lid (incl. alt/participant). */
+export function messageReferencesLid(m: any, lidJid: string): boolean {
+  if (!lidJid || !m) return false;
+  const jid = m?.key?.remoteJid ?? m?.remoteJid;
+  if (jid === lidJid) return true;
+  if (m?.remoteJidAlt === lidJid || m?.key?.remoteJidAlt === lidJid) return true;
+  if (m?.participant === lidJid || m?.key?.participant === lidJid) return true;
+  return false;
+}
+
+/**
+ * Mesma ideia que pickPhoneFromLidMessages, mas varre qualquer mensagem que
+ * reference o LID (útil quando remoteJid do chat é @lid e só há fromMe).
+ */
+export function pickPhoneForLidDeepScan(
+  messages: any[],
+  lidJid: string,
+  instancePhone?: string | null,
+): string | null {
+  const quick = pickPhoneFromLidMessages(messages, lidJid, instancePhone);
+  if (quick) return quick;
+
+  for (const m of messages) {
+    if (!messageReferencesLid(m, lidJid)) continue;
+    const phone = pickPhoneFromMessage(m, instancePhone);
+    if (phone) return phone;
+  }
+  return null;
+}
+
 /** Prioriza telefone do cliente em chat @lid (ignora fromMe). */
 export function pickPhoneFromLidMessages(
   messages: any[],
