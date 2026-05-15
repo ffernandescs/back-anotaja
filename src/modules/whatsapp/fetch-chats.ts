@@ -14,6 +14,7 @@ import {
 } from 'src/utils/whatsapp-jid.util';
 import { buildLidMapFromEvolutionData, normalizeEvolutionList } from 'src/utils/whatsapp-lid-map';
 import { pickPhoneFromLidMessages } from 'src/utils/whatsapp-lid-resolve';
+import type { Prisma } from '@prisma/client';
 
 interface AggregatedChat {
   remoteJid: string;
@@ -22,6 +23,71 @@ interface AggregatedChat {
   pushName: string | null;
   profilePicUrl: string | null;
   updatedAtMs: number;
+}
+
+/** OR no Prisma: pushName do WhatsApp costuma ser só o primeiro nome; cadastro pode ser "Nome Sobrenome". */
+function buildCustomerBranchWhereByPushNames(names: string[]): Prisma.CustomerWhereInput[] {
+  const parts: Prisma.CustomerWhereInput[] = [];
+  const seen = new Set<string>();
+  for (const raw of names) {
+    const n = raw.trim();
+    if (n.length < 2 || seen.has(n.toLowerCase())) continue;
+    seen.add(n.toLowerCase());
+    parts.push({ name: { equals: n, mode: 'insensitive' } });
+    if (n.length >= 3) {
+      parts.push({ name: { startsWith: `${n} `, mode: 'insensitive' } });
+      parts.push({ name: { endsWith: ` ${n}`, mode: 'insensitive' } });
+      parts.push({ name: { contains: ` ${n} `, mode: 'insensitive' } });
+    }
+  }
+  return parts;
+}
+
+type MinimalCustomer = { name: string; phone: string };
+
+function localPhoneDigitsFromCustomerRow(phone: string): string {
+  const d = phone.replace(/\D/g, '').replace(/^55/, '');
+  return isPlausibleLocalPhone(d) ? d : '';
+}
+
+/** Empata pushName com cliente quando nome cadastrado inclui o push (ex.: cadastro "Adayas Silva", push "Adayas"). */
+function matchCustomerByWhatsPushName(
+  push: string | null | undefined,
+  pool: MinimalCustomer[],
+): MinimalCustomer | null {
+  const key = push?.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!key || key.length < 2) return null;
+
+  const ok = pool.filter((c) => !!localPhoneDigitsFromCustomerRow(c.phone));
+  if (!ok.length) return null;
+
+  const exact = ok.filter((c) => c.name.trim().toLowerCase() === key);
+  if (exact.length === 1) return exact[0];
+
+  const firstName = ok.filter((c) => {
+    const nm = c.name.trim().toLowerCase();
+    return nm.startsWith(key + ' ');
+  });
+  if (firstName.length === 1) return firstName[0];
+
+  const firstTok = ok.filter((c) => {
+    const tok = c.name.trim().toLowerCase().split(/\s+/)[0] ?? '';
+    return tok === key;
+  });
+  if (firstTok.length === 1) return firstTok[0];
+
+  if (key.length >= 3) {
+    const anyTok = ok.filter((c) =>
+      c.name
+        .trim()
+        .toLowerCase()
+        .split(/\s+/)
+        .some((t) => t === key),
+    );
+    if (anyTok.length === 1) return anyTok[0];
+  }
+
+  return null;
 }
 
 export interface FetchChatsResult {
@@ -564,8 +630,6 @@ export async function fetchChatsForBranch(deps: FetchChatsDeps): Promise<FetchCh
     orderBy: { timestamp: 'desc' },
   });
 
-  logger?.log(`[fetchChats] evolution=${rawChats.length} lidPairs=${lidMap.size / 2}`);
-
   const pushNamePhoneIndex = buildPushNamePhoneIndex(
     contacts,
     rawChats,
@@ -723,8 +787,6 @@ export async function fetchChatsForBranch(deps: FetchChatsDeps): Promise<FetchCh
     }
   }
 
-  logger?.log(`[fetchChats] conversas únicas=${chatList.length}`);
-
   if (!chatList.length) {
     const orders = await prisma.order.findMany({
       where: { branchId, status: { in: ['PENDING', 'CONFIRMED', 'IN_PROGRESS', 'READY', 'DELIVERING', 'DELIVERED', 'COMPLETED'] } },
@@ -777,25 +839,17 @@ export async function fetchChatsForBranch(deps: FetchChatsDeps): Promise<FetchCh
     ),
   ];
 
+  const nameOrParts = buildCustomerBranchWhereByPushNames(namesForLookup);
+
   const customersByName =
-    namesForLookup.length > 0
+    nameOrParts.length > 0
       ? await prisma.customer.findMany({
           where: {
             branchId,
-            OR: namesForLookup.map((name) => ({
-              name: { equals: name, mode: 'insensitive' as const },
-            })),
+            OR: nameOrParts,
           },
         })
       : [];
-
-  const customerPhoneByName = new Map<string, string>();
-  for (const cust of customersByName) {
-    const key = cust.name.trim().toLowerCase();
-    if (cust.phone && isPlausibleLocalPhone(cust.phone)) {
-      customerPhoneByName.set(key, cust.phone.replace(/\D/g, '').replace(/^55/, ''));
-    }
-  }
 
   const resolveLidLocalPhone = (chat: AggregatedChat): string => {
     const lid = chat.lidJid ?? (isLidJid(chat.remoteJid) ? chat.remoteJid : undefined);
@@ -817,21 +871,73 @@ export async function fetchChatsForBranch(deps: FetchChatsDeps): Promise<FetchCh
       }
     }
 
-    const pushKey = chat.pushName?.trim().toLowerCase();
-    if (pushKey) {
-      const fromContact = pushNamePhoneIndex.get(pushKey);
+    const pushNorm = chat.pushName?.trim().toLowerCase();
+    if (pushNorm) {
+      const fromContact = pushNamePhoneIndex.get(pushNorm);
       if (fromContact) return fromContact;
-      const fromCustomer = customerPhoneByName.get(pushKey);
-      if (fromCustomer) return fromCustomer;
+      const cust = matchCustomerByWhatsPushName(chat.pushName, customersByName);
+      if (cust) {
+        const digits = localPhoneDigitsFromCustomerRow(cust.phone);
+        if (digits) return digits;
+      }
     }
 
     return '';
   };
 
+  /** Última tentativa: mensagens CRM salvas com customerPhone mesmo quando remoteJid ainda era @lid. */
+  const prismaLocalPhoneByLid = new Map<string, string>();
+
+  async function loadPrismaLocalPhoneForLid(lidJid: string): Promise<void> {
+    if (prismaLocalPhoneByLid.has(lidJid)) return;
+    prismaLocalPhoneByLid.set(lidJid, '');
+    try {
+      const row = await prisma.whatsAppMessage.findFirst({
+        where: {
+          branchId,
+          remoteJid: lidJid,
+          customerPhone: { not: '' },
+        },
+        orderBy: { sentAt: 'desc' },
+        select: { customerPhone: true },
+      });
+      const raw = row?.customerPhone?.trim() ?? '';
+      const digits = raw.replace(/\D/g, '');
+      if (digits.length < 10 || digitsLookLikeLidId(digits)) return;
+      const local = digits.startsWith('55') ? digits.slice(2) : digits;
+      if (isPlausibleLocalPhone(local)) prismaLocalPhoneByLid.set(lidJid, local);
+    } catch {
+      // ignore
+    }
+  }
+
+  const lidFetchedPhoneViaApi = new Set<string>();
+
   for (const c of chatList) {
-    let local = c.lidOnly || isLidJid(c.remoteJid)
-      ? resolveLidLocalPhone(c)
-      : jidToLocalPhone(c.remoteJid);
+    let local =
+      c.lidOnly || isLidJid(c.remoteJid)
+        ? resolveLidLocalPhone(c)
+        : jidToLocalPhone(c.remoteJid);
+
+    const isLidChat = c.lidOnly || isLidJid(c.remoteJid);
+    const lid = c.lidJid ?? (isLidJid(c.remoteJid) ? c.remoteJid : undefined);
+
+    if (isLidChat && lid && (!local || digitsLookLikeLidId(local))) {
+      if (!lidFetchedPhoneViaApi.has(lid)) {
+        lidFetchedPhoneViaApi.add(lid);
+        const phoneJid = await resolveLidViaMessages(instanceName, lid, instancePhone);
+        if (phoneJid && isPhoneJid(phoneJid) && !isInstancePhone(phoneJid, instancePhone)) {
+          rememberLidPair(instanceName, lid, phoneJid, instancePhone);
+          registerLidPair(lidMap, lid, phoneJid);
+        }
+      }
+      local = resolveLidLocalPhone(c);
+      if (!local || digitsLookLikeLidId(local)) {
+        await loadPrismaLocalPhoneForLid(lid);
+        const fromPrisma = prismaLocalPhoneByLid.get(lid) ?? '';
+        if (fromPrisma) local = fromPrisma;
+      }
+    }
 
     if (local && digitsLookLikeLidId(local)) local = '';
 

@@ -18,12 +18,13 @@ import {
   isLidJid,
   isPhoneJid,
   phoneFromJid,
+  phonesMatch,
   pickContactJids,
   registerLidPair,
   resolveJidWithMap,
 } from 'src/utils/whatsapp-jid.util';
 import { buildLidMapFromEvolutionData, normalizeEvolutionList } from 'src/utils/whatsapp-lid-map';
-import { pickPhoneFromLidMessages } from 'src/utils/whatsapp-lid-resolve';
+import { pickPhoneFromMessage } from 'src/utils/whatsapp-lid-resolve';
 import { fetchChatsForBranch } from './fetch-chats';
 import { loadPersistedLidPairs, persistLidPair } from './whatsapp-lid-pair.store';
 
@@ -98,7 +99,10 @@ export class WhatsAppService {
     const raw = await this.evolutionRequest(
       'POST',
       `/chat/findMessages/${instanceName}`,
-      { where: { key: { remoteJid: lidJid } } },
+      {
+        where: { key: { remoteJid: lidJid } },
+        limit: 120,
+      },
     ).catch(() => null);
 
     if (!raw) return null;
@@ -107,21 +111,13 @@ export class WhatsAppService {
 
     for (const m of messages) {
       if (m.key?.fromMe) continue;
-      const candidate =
-        m.senderPn ||
-        m.remoteJidAlt ||
-        m.participant ||
-        m.key?.participant;
-      if (candidate && isPhoneJid(candidate) && !isInstancePhone(candidate, instancePhone)) {
-        return candidate;
-      }
+      const jid = pickPhoneFromMessage(m, instancePhone);
+      if (jid) return jid;
     }
 
     for (const m of messages) {
-      const candidate = m.senderPn || m.remoteJidAlt || m.key?.participant;
-      if (candidate && isPhoneJid(candidate) && !isInstancePhone(candidate, instancePhone)) {
-        return candidate;
-      }
+      const jid = pickPhoneFromMessage(m, instancePhone);
+      if (jid) return jid;
     }
 
     return null;
@@ -645,6 +641,28 @@ export class WhatsAppService {
     return [...set];
   }
 
+  /** Variações @s.whatsapp.net (com/sem dígito 9) porque a Evolution costuma indexar só um formato. */
+  private expandBrazilPhoneJids(jid: string): string[] {
+    if (!isPhoneJid(jid)) return [jid];
+    const raw = phoneFromJid(jid).replace(/\D/g, '');
+    const out = new Set<string>([jid]);
+    const norm = normalizeBrazilPhone(raw.startsWith('55') ? raw : `55${raw}`);
+    if (norm) out.add(`${norm}@s.whatsapp.net`);
+
+    if (raw.startsWith('55') && raw.length >= 12) {
+      const ddd = raw.slice(2, 4);
+      const local = raw.slice(4);
+      if (ddd.length === 2 && local.length === 9 && local[0] === '9') {
+        out.add(`55${ddd}${local.slice(1)}@s.whatsapp.net`);
+      }
+      if (ddd.length === 2 && local.length === 8) {
+        out.add(`55${ddd}9${local}@s.whatsapp.net`);
+      }
+    }
+
+    return [...out];
+  }
+
   // ─── CRM ─────────────────────────────────────────────────────────────────────
 
   async fetchChats(branchId: string) {
@@ -667,104 +685,96 @@ export class WhatsAppService {
     });
   }
 
-  
+  async fetchMessages(branchId: string, dto: FetchMessagesDto) {
+    const { jid, count } = dto;
 
-async fetchMessages(branchId: string, dto: FetchMessagesDto) {
-  const { jid } = dto;
+    if (!jid || isGroupJid(jid)) {
+      return [];
+    }
 
-  // ❌ bloqueia grupo imediatamente
-  if (!jid || isGroupJid(jid)) {
-    return [];
-  }
-
-  // 🔧 config
-  const config = await prisma.whatsAppConfig.findUnique({
-    where: { branchId },
-  });
-
-  if (!config?.instanceName) {
-    return [];
-  }
-
-  const jidsToFetch = await this.relatedJids(
-    config.instanceName,
-    jid,
-    config.phoneNumber,
-  );
-
-  // 📡 busca mensagens em todos os JIDs equivalentes (telefone + @lid)
-  const allRaw: any[] = [];
-  for (const targetJid of jidsToFetch) {
-    const raw = await this.evolutionRequest(
-      'POST',
-      `/chat/findMessages/${config.instanceName}`,
-      {
-        where: {
-          key: {
-            remoteJid: targetJid,
-          },
-        },
-      },
-    ).catch(() => null);
-    if (raw) allRaw.push(...this.extractMessages(raw));
-  }
-
-  // Mensagens salvas localmente pelo webhook (inclui as que a Evolution não indexou ainda)
-  const localRows = await prisma.whatsAppMessage.findMany({
-    where: {
-      branchId,
-      remoteJid: { in: jidsToFetch },
-    },
-    orderBy: { sentAt: 'desc' },
-    take: 200,
-  });
-
-  const messages = [
-    ...allRaw,
-    ...localRows.map((row) => ({
-      key: { id: row.id, remoteJid: row.remoteJid, fromMe: row.fromMe },
-      message: { conversation: row.text || row.message },
-      messageTimestamp: Math.floor(row.sentAt.getTime() / 1000),
-      pushName: row.pushName,
-      status: row.status,
-    })),
-  ];
-
-  // 🧹 limpeza + deduplicação
-  const seen = new Set<string>();
-
-  const cleaned = messages
-    .filter((msg: any) => {
-      if (!msg) return false;
-      if (isGroupJid(msg?.key?.remoteJid)) return false;
-
-      const id = safeMessageId(msg);
-      if (!id) return false;
-
-      if (seen.has(id)) return false;
-      seen.add(id);
-
-      return true;
-    })
-    .sort((a: any, b: any) => {
-      return Number(b?.messageTimestamp ?? 0) -
-             Number(a?.messageTimestamp ?? 0);
+    const config = await prisma.whatsAppConfig.findUnique({
+      where: { branchId },
     });
 
-  // 📦 normalize final
-  const normalized = cleaned.map((msg: any) => ({
-    id: safeMessageId(msg),
-    fromMe: msg?.key?.fromMe ?? false,
-    text: this.extractText(msg) ?? '',
-    timestamp: this.toMs(msg?.messageTimestamp),
-    status: this.mapStatus(msg?.status),
-    mediaType: this.detectMediaType(msg),
-    mediaUrl: this.extractMediaUrl(msg),
-    pushName: msg?.pushName ?? null,
-  }));
+    if (!config?.instanceName) {
+      return [];
+    }
 
-  return normalized;
-}
+    const desiredCount = Math.min(Math.max(Number(count) || 100, 1), 5000);
+    const fetchLimit = Math.min(Math.max(desiredCount + 20, 100), 5000);
+
+    const baseJids = await this.relatedJids(config.instanceName, jid, config.phoneNumber);
+    const jidsToFetch = [...new Set(baseJids.flatMap((j) => this.expandBrazilPhoneJids(j)))];
+    const allowedConversationJids = new Set(jidsToFetch);
+
+    const allRaw: any[] = [];
+    for (const targetJid of jidsToFetch) {
+      const raw = await this.evolutionRequest(
+        'POST',
+        `/chat/findMessages/${config.instanceName}`,
+        {
+          where: {
+            key: {
+              remoteJid: targetJid,
+            },
+          },
+          limit: fetchLimit,
+          offset: 0,
+        },
+      ).catch(() => null);
+      if (!raw) continue;
+      const extracted = this.extractMessages(raw).filter((m: any) =>
+        this.messageBelongsToConversation(m, allowedConversationJids),
+      );
+      allRaw.push(...extracted);
+    }
+
+    const localRows = await prisma.whatsAppMessage.findMany({
+      where: {
+        branchId,
+        remoteJid: { in: jidsToFetch },
+      },
+      orderBy: { sentAt: 'desc' },
+      take: Math.min(desiredCount * 4, 500),
+    });
+
+    const messages = [
+      ...allRaw,
+      ...localRows.map((row) => ({
+        key: { id: row.id, remoteJid: row.remoteJid, fromMe: row.fromMe },
+        message: { conversation: row.text || row.message },
+        messageTimestamp: Math.floor(row.sentAt.getTime() / 1000),
+        pushName: row.pushName,
+        status: row.status,
+      })),
+    ].filter((m: any) => this.messageBelongsToConversation(m, allowedConversationJids));
+
+    const seen = new Set<string>();
+    const cleaned = messages
+      .filter((msg: any) => {
+        if (!msg) return false;
+        if (isGroupJid(msg?.key?.remoteJid)) return false;
+        const id = safeMessageId(msg);
+        if (!id) return false;
+        if (seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      })
+      .sort((a: any, b: any) => Number(b?.messageTimestamp ?? 0) - Number(a?.messageTimestamp ?? 0));
+
+    const normalized = cleaned.map((msg: any) => ({
+      id: safeMessageId(msg),
+      fromMe: msg?.key?.fromMe ?? false,
+      text: this.extractText(msg) ?? '',
+      timestamp: this.toMs(msg?.messageTimestamp),
+      status: this.mapStatus(msg?.status),
+      mediaType: this.detectMediaType(msg),
+      mediaUrl: this.extractMediaUrl(msg),
+      pushName: msg?.pushName ?? null,
+    }));
+
+    return normalized.slice(0, desiredCount);
+  }
 
   async sendCrmMessage(branchId: string, dto: SendCrmMessageDto) {
     const config = await this.requireConnectedConfig(branchId);
@@ -1130,12 +1140,58 @@ async fetchMessages(branchId: string, dto: FetchMessagesDto) {
     };
   }
 
-  private extractMessages(result: any): any[] {
-    if (Array.isArray(result)) return result;
-    if (Array.isArray(result?.messages)) return result.messages;
-    if (Array.isArray(result?.messages?.records)) return result.messages.records;
-    if (Array.isArray(result?.records)) return result.records;
-    if (Array.isArray(result?.data)) return result.data;
+  /**
+   * Mesma heurística que o Evo CRM usa: a Evolution nem sempre respeita o filtro e o payload varia (v2.3, paginação, etc.).
+   */
+  private messageBelongsToConversation(msg: unknown, conversationJids: Set<string>): boolean {
+    const m = msg as { key?: { remoteJid?: string }; remoteJid?: string };
+    if (!m) return false;
+    const msgJid = m.key?.remoteJid || m.remoteJid;
+    if (!msgJid || typeof msgJid !== 'string') return false;
+    if (isGroupJid(msgJid)) return false;
+    if (conversationJids.has(msgJid)) return true;
+    if (isPhoneJid(msgJid)) {
+      const msgPhone = phoneFromJid(msgJid);
+      for (const j of conversationJids) {
+        if (isPhoneJid(j) && phonesMatch(msgPhone, phoneFromJid(j))) return true;
+      }
+    }
+    return false;
+  }
+
+  private extractMessages(result: unknown): any[] {
+    if (result == null) return [];
+    const data = result as any;
+
+    if (Array.isArray(data)) return data;
+
+    if (data && typeof data === 'object' && 'messages' in data) {
+      const raw = data.messages;
+      if (Array.isArray(raw)) return raw;
+      if (raw && typeof raw === 'object') {
+        const o = raw as Record<string, unknown>;
+        if (Array.isArray(o.records)) return o.records as any[];
+        if (Array.isArray(o.data)) return o.data as any[];
+        if (Array.isArray(o.messages)) return o.messages as any[];
+        if (Array.isArray(o.rows)) return o.rows as any[];
+        const values = Object.values(o);
+        if (
+          values.length > 0 &&
+          values.every(
+            (v) =>
+              v &&
+              typeof v === 'object' &&
+              ('key' in (v as object) || 'message' in (v as object)),
+          )
+        ) {
+          return values as any[];
+        }
+      }
+    }
+
+    if (data && typeof data === 'object' && Array.isArray(data.data)) return data.data;
+    if (data && typeof data === 'object' && Array.isArray(data.records)) return data.records;
+
     return [];
   }
 
