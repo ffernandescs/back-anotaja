@@ -4172,7 +4172,7 @@ export async function main() {
             document: generateRandomDocument(14),
             email: `teste${userCounter}@vaidelli.com`,
             phone: generateUniquePhone(),
-            onboardingStep: 'SCHEDULE',
+            onboardingStep: "COMPLETED",
             active: true,
           },
         });

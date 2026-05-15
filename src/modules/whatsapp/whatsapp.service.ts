@@ -408,7 +408,6 @@ export class WhatsAppService {
 async fetchChats(branchId: string) {
   const config = await this.requireFullConfig(branchId);
 
-  // 1. Busca todos os chats na Evolution API
   const rawChats = await this.evolutionRequest(
     'POST',
     `/chat/findChats/${config.instanceName}`,
@@ -417,75 +416,111 @@ async fetchChats(branchId: string) {
     .then((r) => (Array.isArray(r) ? r : r?.data ?? []))
     .catch(() => [] as any[]);
 
-  // 2. Remove grupos e ordena por atualização
- // 2. Remove grupos, @lid e ordena por atualização
-const chats = rawChats
-  .filter((c: any) => {
-    const jid = String(c.remoteJid ?? '');
-    return !jid.endsWith('@g.us') && !jid.endsWith('@lid');
-  })
-  const jids: string[] = chats.map((c: any) => c.remoteJid as string);
+  this.logger.log(`[fetchChats] rawChats total: ${rawChats.length}`);
+  this.logger.log(`[fetchChats] rawChats JIDs sample: ${rawChats.slice(0, 5).map((c: any) => c.remoteJid)}`);
 
-  // 3. Últimas mensagens
-  const lastMessages = await prisma.chatLastMessage.findMany({
-    where: {
-      branchId,
-      remoteJid: { in: jids },
-    },
+  const chats = rawChats.filter((c: any) => {
+    const jid = String(c.remoteJid ?? '');
+    const keep = !jid.endsWith('@g.us') && !jid.endsWith('@lid');
+    if (!keep) this.logger.debug(`[fetchChats] filtrado: ${jid}`);
+    return keep;
   });
 
+  this.logger.log(`[fetchChats] chats após filtro: ${chats.length}`);
+
+  const jids: string[] = chats.map((c: any) => c.remoteJid as string);
+
+  // ── Últimas mensagens ──────────────────────────────────────────
+  const lastMessages = await prisma.chatLastMessage.findMany({
+    where: { branchId, remoteJid: { in: jids } },
+  });
   const lastMsgByJid = new Map(lastMessages.map((m) => [m.remoteJid, m]));
 
-  // 4. Monta mapa de jid → telefone sem 55 (formato salvo no banco)
-  //    Ex: "5581912345678@s.whatsapp.net" → "81912345678"
+  // ── JID → telefone sem 55 ──────────────────────────────────────
   const jidToPhone = new Map<string, string>();
 
   for (const jid of jids) {
-    const normalized = normalizeBrazilPhone(jid); // retorna string ou null/undefined
+    const rawNumber = jid.split('@')[0];
+    const normalized = normalizeBrazilPhone(rawNumber);
+
     if (normalized) {
-      const withoutCountryCode = normalized.replace(/^55/, '');
-      jidToPhone.set(jid, withoutCountryCode);
+      jidToPhone.set(jid, normalized.slice(2));
     } else {
-      // fallback: tira apenas o sufixo do JID
-      const fallback = jid.replace('@s.whatsapp.net', '').replace(/^55/, '');
+      const fallback = rawNumber.startsWith('55') ? rawNumber.slice(2) : rawNumber;
       jidToPhone.set(jid, fallback);
+    }
+
+    // DEBUG: loga o número investigado
+    const phone = jidToPhone.get(jid)!;
+    if (rawNumber.includes('997895854') || phone.includes('997895854')) {
+      this.logger.log(`[fetchChats][DEBUG] JID: ${jid} | rawNumber: ${rawNumber} | normalized: ${normalized} | phone: ${phone}`);
     }
   }
 
-  const phonesWithout55 = Array.from(new Set(jidToPhone.values()));
+  // ── Variantes com/sem dígito 9 ─────────────────────────────────
+  const phoneVariants = (phone: string): string[] => {
+    const variants = [phone];
+    if (phone.length < 2) return variants;
+    const ddd = phone.slice(0, 2);
+    const local = phone.slice(2);
 
-  // 5. Clientes pelo telefone sem 55
+    if (local.length === 9 && local[0] === '9') {
+      variants.push(ddd + local.slice(1));
+    } else if (local.length === 8) {
+      variants.push(ddd + '9' + local);
+    }
+    return variants;
+  };
+
+  const allPhoneVariants = new Set<string>();
+  for (const phone of jidToPhone.values()) {
+    for (const v of phoneVariants(phone)) {
+      allPhoneVariants.add(v);
+    }
+  }
+
+  this.logger.log(`[fetchChats] allPhoneVariants 997895854: ${JSON.stringify([...allPhoneVariants].filter(p => p.includes('997895854')))}`);
+
+  // ── Clientes ───────────────────────────────────────────────────
   const customers = await prisma.customer.findMany({
     where: {
       branchId,
-      phone: { in: phonesWithout55 },
+      phone: { in: Array.from(allPhoneVariants) },
     },
     include: {
-      addresses: {
-        where: { isDefault: true }
-      }
-    }
+      addresses: { where: { isDefault: true } },
+    },
   });
 
-  // Map: telefone sem 55 → customer
-  const customerByPhone = new Map(customers.map((c) => [c.phone, c]));
+  this.logger.log(`[fetchChats] customers encontrados: ${customers.length}`);
+  this.logger.log(`[fetchChats] customers 997895854: ${JSON.stringify(customers.filter(c => c.phone.includes('997895854')).map(c => c.phone))}`);
 
-  // 6. Pedidos dos clientes encontrados
+  const customerByPhone = new Map<string, typeof customers[0]>();
+  for (const c of customers) {
+    for (const v of phoneVariants(c.phone)) {
+      customerByPhone.set(v, c);
+    }
+  }
+
+  const resolveCustomer = (phone: string) => {
+    for (const v of phoneVariants(phone)) {
+      const found = customerByPhone.get(v);
+      if (found) return found;
+    }
+    return null;
+  };
+
+  // ── Pedidos ────────────────────────────────────────────────────
   const customerIds = customers.map((c) => c.id);
 
   const orders = customerIds.length
     ? await prisma.order.findMany({
-        where: {
-          branchId,
-          customerId: { in: customerIds },
-        },
+        where: { branchId, customerId: { in: customerIds } },
         orderBy: { createdAt: 'desc' },
       })
     : [];
 
-  // Map: customerId → Order[]
   const ordersByCustomer = new Map<string, typeof orders>();
-
   for (const order of orders) {
     if (!order.customerId) continue;
     const list = ordersByCustomer.get(order.customerId) ?? [];
@@ -493,31 +528,25 @@ const chats = rawChats
     ordersByCustomer.set(order.customerId, list);
   }
 
-  // 7. Mensagens não lidas
+  // ── Mensagens não lidas ────────────────────────────────────────
   const unreadRows = await prisma.whatsAppChatRead.findMany({
-    where: {
-      branchId,
-      jid: { in: jids },
-    },
+    where: { branchId, jid: { in: jids } },
   });
-
   const unreadByJid = new Map(unreadRows.map((r) => [r.jid, r.unreadCount]));
 
-  // 8. Montagem final
+  // ── Montagem final ─────────────────────────────────────────────
   const result = chats.map((chat: any) => {
     const jid: string = chat.remoteJid;
-
-    // Telefone sem 55, igual ao formato do banco
-    const phone = jidToPhone.get(jid) ?? jid.replace('@s.whatsapp.net', '');
-
-    const customer = customerByPhone.get(phone) ?? null;
-
-    const customerOrders = customer
-      ? (ordersByCustomer.get(customer.id) ?? [])
-      : [];
-
+    const phone = jidToPhone.get(jid) ?? jid.split('@')[0].replace(/^55/, '');
+    const customer = resolveCustomer(phone);
+    const customerOrders = customer ? (ordersByCustomer.get(customer.id) ?? []) : [];
     const last = lastMsgByJid.get(jid) ?? null;
     const unreadCount = unreadByJid.get(jid) ?? 0;
+
+    // DEBUG: loga o chat investigado
+    if (jid.includes('997895854') || phone.includes('997895854')) {
+      this.logger.log(`[fetchChats][DEBUG] chat montado → jid: ${jid} | phone: ${phone} | customer: ${customer?.id ?? 'null'}`);
+    }
 
     return {
       id: jid,
@@ -527,7 +556,6 @@ const chats = rawChats
       profilePicUrl: chat.profilePicUrl ?? null,
       updatedAt: chat.updatedAt ?? null,
       unreadCount,
-
       lastMessage: last
         ? {
             id: last.messageId,
@@ -537,32 +565,24 @@ const chats = rawChats
             pushName: last.pushName ?? null,
           }
         : null,
-
       customer,
       ordersSummary: this.summarizeOrders(customerOrders),
       totalOrders: customerOrders.length,
     };
   });
 
-  // 9. Resumo global
+  this.logger.log(`[fetchChats] result total: ${result.length}`);
+  this.logger.log(`[fetchChats] result 997895854: ${JSON.stringify(result.find(r => r.phone.includes('997895854') || r.remoteJid.includes('997895854')))}`);
+
+  // ── Resumo global ──────────────────────────────────────────────
   const globalSummary = {
     new: orders.filter((o) => o.status === 'PENDING').length,
-    pending: orders.filter((o) =>
-      ['CONFIRMED', 'IN_PROGRESS'].includes(o.status),
-    ).length,
-    outForDelivery: orders.filter((o) =>
-      ['READY', 'DELIVERING'].includes(o.status),
-    ).length,
-    completed: orders.filter((o) =>
-      ['DELIVERED', 'COMPLETED'].includes(o.status),
-    ).length,
+    pending: orders.filter((o) => ['CONFIRMED', 'IN_PROGRESS'].includes(o.status)).length,
+    outForDelivery: orders.filter((o) => ['READY', 'DELIVERING'].includes(o.status)).length,
+    completed: orders.filter((o) => ['DELIVERED', 'COMPLETED'].includes(o.status)).length,
   };
 
-  return {
-    chats: result,
-    globalSummary,
-    total: chats.length,
-  };
+  return { chats: result, globalSummary, total: chats.length };
 }
 
   

@@ -87,19 +87,26 @@ export class OrdersWebSocketGateway
         return;
       }
 
-      let payload: JwtPayload;
-      const primarySecret = this.configService.get<string>('JWT_SECRET');
-      const storeSecret = this.configService.get<string>('STORE_JWT_SECRET');
+      const rawSecrets = [
+        this.configService.get<string>('JWT_SECRET'),
+        this.configService.get<string>('STORE_JWT_SECRET'),
+        this.configService.get<string>('JWT_CUSTOMER_SECRET'),
+      ].filter((s): s is string => !!s);
 
-      try {
-        payload = this.jwtService.verify(token, { secret: primarySecret });
-      } catch (err) {
-        // Fallback para token da loja (store_token) em ambiente multi-tenant
-        if (storeSecret) {
-          payload = this.jwtService.verify(token, { secret: storeSecret });
-        } else {
-          throw err;
+      const jwtSecrets = [...new Set(rawSecrets)];
+
+      let payload: JwtPayload | undefined;
+      for (const secret of jwtSecrets) {
+        try {
+          payload = this.jwtService.verify<JwtPayload>(token, { secret });
+          break;
+        } catch {
+          // tenta próximo segredo (admin → loja → cliente final)
         }
+      }
+
+      if (!payload) {
+        throw new Error('JWT inválido para todas as chaves configuradas');
       }
 
       const deliveryPersonId = payload.deliveryPersonId as string | undefined;
@@ -315,10 +322,49 @@ export class OrdersWebSocketGateway
   }
 
   @SubscribeMessage('join')
-  handleJoin(client: AuthenticatedSocket, room: string) {
+  async handleJoin(client: AuthenticatedSocket, room: string) {
     if (!client.user) {
       client.emit('error', { message: 'Not authenticated' });
       return;
+    }
+
+    const branchId = client.user.branchId;
+    if (!branchId) {
+      this.logger.warn(
+        `join denied: user ${client.user.userId} has no branchId, cannot join ${room}`,
+      );
+      client.emit('error', { message: 'No branch on session' });
+      return;
+    }
+
+    // Só permite sala da própria filial (evita receber order:update de outras lojas)
+    const branchRoomMatch = /^branch:([^:]+)$/.exec(room);
+    if (branchRoomMatch) {
+      const requested = branchRoomMatch[1];
+      if (requested !== branchId) {
+        this.logger.warn(
+          `join denied: user ${client.user.userId} tried ${room} but session branch is ${branchId}`,
+        );
+        client.emit('error', { message: 'Cannot join another branch room' });
+        return;
+      }
+    }
+
+    // Sala de pedido: só se o pedido pertencer à mesma filial
+    const orderRoomMatch = /^order:([^:]+)$/.exec(room);
+    if (orderRoomMatch) {
+      const orderId = orderRoomMatch[1];
+      const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        select: { branchId: true },
+      });
+      if (!order || order.branchId !== branchId) {
+        this.logger.warn(
+          `join denied: user ${client.user.userId} cannot join order room ${room}`,
+        );
+        client.emit('error', { message: 'Cannot join this order room' });
+        return;
+      }
     }
 
     client.join(room);
