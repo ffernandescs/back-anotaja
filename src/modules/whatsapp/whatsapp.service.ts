@@ -23,6 +23,7 @@ import {
   resolveJidWithMap,
 } from 'src/utils/whatsapp-jid.util';
 import { buildLidMapFromEvolutionData, normalizeEvolutionList } from 'src/utils/whatsapp-lid-map';
+import { fetchChatsForBranch } from './fetch-chats';
 
 /**
  * Prefixo usado ao criar instâncias na Evolution API.
@@ -608,277 +609,23 @@ export class WhatsAppService {
 
   // ─── CRM ─────────────────────────────────────────────────────────────────────
 
-  /**
-   * Lista conversas paginadas com última mensagem, cliente e resumo de pedidos.
-   *
-   * Fonte de dados:
-   *   - Chats:        Evolution API (lista de conversas ativas)
-   *   - LastMessage:  ChatLastMessage (banco local, populado pelo webhook)
-   *   - Customer:     Customer (banco local)
-   *   - Orders:       Order (banco local)
-   *
-   * Paginação: feita localmente após filtrar grupos.
-   */
-async fetchChats(branchId: string) {
-  const config = await this.requireFullConfig(branchId);
+  async fetchChats(branchId: string) {
+    const config = await this.requireFullConfig(branchId);
 
-  const rawChats = await this.evolutionRequest(
-    'POST',
-    `/chat/findChats/${config.instanceName}`,
-    { where: {} },
-  )
-    .then((r) => normalizeEvolutionList(r))
-    .catch(() => [] as any[]);
-
-  const lidMap = await this.buildLidMap(
-    config.instanceName!,
-    rawChats,
-    config.phoneNumber,
-  );
-
-  this.logger.log(`[fetchChats] rawChats total: ${rawChats.length}`);
-  this.logger.log(`[fetchChats] rawChats JIDs sample: ${rawChats.slice(0, 5).map((c: any) => c.remoteJid)}`);
-
-  // Normaliza @lid → telefone; remove apenas grupos; deduplica por JID canônico
-  const chatByCanonical = new Map<string, any>();
-
-  for (const c of rawChats) {
-    const rawJid = String(c.remoteJid ?? c.id ?? '');
-    if (!rawJid || isGroupJid(rawJid)) {
-      if (rawJid) this.logger.debug(`[fetchChats] filtrado grupo: ${rawJid}`);
-      continue;
-    }
-
-    const altFromChat = c.remoteJidAlt || c.lid;
-    if (altFromChat) {
-      registerLidPair(lidMap, rawJid, altFromChat);
-    }
-
-    const canonical = resolveJidWithMap(rawJid, lidMap);
-    const lidAlias = isLidJid(rawJid) ? rawJid : lidMap.get(canonical);
-
-    const existing = chatByCanonical.get(canonical);
-    const ts = Number(c.updatedAt ?? c.messageTimestamp ?? 0);
-    const existingTs = Number(existing?.updatedAt ?? existing?.messageTimestamp ?? 0);
-
-    if (!existing || ts >= existingTs) {
-      chatByCanonical.set(canonical, {
-        ...c,
-        remoteJid: canonical,
-        _lidJid: lidAlias && isLidJid(lidAlias) ? lidAlias : isLidJid(rawJid) ? rawJid : undefined,
-      });
-    }
-  }
-
-  // Chats que existem só no banco (webhook), mas não na Evolution
-  const localLastMessages = await prisma.chatLastMessage.findMany({
-    where: { branchId },
-    orderBy: { timestamp: 'desc' },
-  });
-
-  for (const lm of localLastMessages) {
-    const jid = lm.remoteJid;
-    if (!jid || isGroupJid(jid)) continue;
-
-    const canonical = resolveJidWithMap(jid, lidMap);
-    if (chatByCanonical.has(canonical)) continue;
-
-    chatByCanonical.set(canonical, {
-      remoteJid: canonical,
-      pushName: lm.pushName,
-      updatedAt: new Date(Number(lm.timestamp)).toISOString(),
-      _lidJid: isLidJid(jid) ? jid : lidMap.get(canonical),
+    return fetchChatsForBranch({
+      instanceName: config.instanceName!,
+      instancePhone: config.phoneNumber,
+      branchId,
+      configId: config.id,
+      evolutionRequest: (method, path, body) => this.evolutionRequest(method, path, body),
+      resolveLidViaMessages: (inst, lid, phone) =>
+        this.resolveLidViaMessages(inst, lid, phone),
+      rememberLidPair: (inst, lid, phoneJid, phone) =>
+        this.rememberLidPair(inst, lid, phoneJid, phone),
+      summarizeOrders: (orders) => this.summarizeOrders(orders),
+      logger: this.logger,
     });
   }
-
-  // Remove @lid órfão quando já existe chat de telefone mapeado
-  for (const jid of [...chatByCanonical.keys()]) {
-    if (!isLidJid(jid)) continue;
-    const phone = lidMap.get(jid);
-    if (phone && chatByCanonical.has(phone)) {
-      chatByCanonical.delete(jid);
-    }
-  }
-
-  const chats = [...chatByCanonical.values()];
-  this.logger.log(`[fetchChats] chats após normalização LID: ${chats.length}`);
-
-  const jids: string[] = [];
-  for (const c of chats) {
-    jids.push(c.remoteJid);
-    if (c._lidJid) jids.push(c._lidJid);
-  }
-  for (const lm of localLastMessages) {
-    if (lm.remoteJid) jids.push(lm.remoteJid);
-  }
-
-  // ── Últimas mensagens ──────────────────────────────────────────
-  const lastMessages = await prisma.chatLastMessage.findMany({
-    where: { branchId, remoteJid: { in: [...new Set(jids)] } },
-  });
-  const lastMsgByJid = new Map(lastMessages.map((m) => [m.remoteJid, m]));
-
-  // ── JID → telefone sem 55 (apenas chats canônicos @s.whatsapp.net) ──
-  const jidToPhone = new Map<string, string>();
-
-  for (const chat of chats) {
-    const jid = chat.remoteJid as string;
-    if (!isPhoneJid(jid)) continue;
-
-    const rawNumber = phoneFromJid(jid);
-    const normalized = normalizeBrazilPhone(rawNumber);
-
-    if (normalized) {
-      jidToPhone.set(jid, normalized.slice(2));
-    } else {
-      const fallback = rawNumber.startsWith('55') ? rawNumber.slice(2) : rawNumber;
-      jidToPhone.set(jid, fallback);
-    }
-  }
-
-  const pickLastMessage = (canonicalJid: string, lidJid?: string) => {
-    const a = lastMsgByJid.get(canonicalJid);
-    const b = lidJid ? lastMsgByJid.get(lidJid) : undefined;
-    if (!a) return b ?? null;
-    if (!b) return a;
-    return Number(a.timestamp) >= Number(b.timestamp) ? a : b;
-  };
-
-  // ── Variantes com/sem dígito 9 ─────────────────────────────────
-  const phoneVariants = (phone: string): string[] => {
-    const variants = [phone];
-    if (phone.length < 2) return variants;
-    const ddd = phone.slice(0, 2);
-    const local = phone.slice(2);
-
-    if (local.length === 9 && local[0] === '9') {
-      variants.push(ddd + local.slice(1));
-    } else if (local.length === 8) {
-      variants.push(ddd + '9' + local);
-    }
-    return variants;
-  };
-
-  const allPhoneVariants = new Set<string>();
-  for (const phone of jidToPhone.values()) {
-    for (const v of phoneVariants(phone)) {
-      allPhoneVariants.add(v);
-    }
-  }
-
-  this.logger.log(`[fetchChats] allPhoneVariants 997895854: ${JSON.stringify([...allPhoneVariants].filter(p => p.includes('997895854')))}`);
-
-  // ── Clientes ───────────────────────────────────────────────────
-  const customers = await prisma.customer.findMany({
-    where: {
-      branchId,
-      phone: { in: Array.from(allPhoneVariants) },
-    },
-    include: {
-      addresses: { where: { isDefault: true } },
-    },
-  });
-
-  this.logger.log(`[fetchChats] customers encontrados: ${customers.length}`);
-  this.logger.log(`[fetchChats] customers 997895854: ${JSON.stringify(customers.filter(c => c.phone.includes('997895854')).map(c => c.phone))}`);
-
-  const customerByPhone = new Map<string, typeof customers[0]>();
-  for (const c of customers) {
-    for (const v of phoneVariants(c.phone)) {
-      customerByPhone.set(v, c);
-    }
-  }
-
-  const resolveCustomer = (phone: string) => {
-    for (const v of phoneVariants(phone)) {
-      const found = customerByPhone.get(v);
-      if (found) return found;
-    }
-    return null;
-  };
-
-  // ── Pedidos ────────────────────────────────────────────────────
-  const customerIds = customers.map((c) => c.id);
-
-  const orders = customerIds.length
-    ? await prisma.order.findMany({
-        where: { branchId, customerId: { in: customerIds } },
-        orderBy: { createdAt: 'desc' },
-      })
-    : [];
-
-  const ordersByCustomer = new Map<string, typeof orders>();
-  for (const order of orders) {
-    if (!order.customerId) continue;
-    const list = ordersByCustomer.get(order.customerId) ?? [];
-    list.push(order);
-    ordersByCustomer.set(order.customerId, list);
-  }
-
-  // ── Mensagens não lidas (branchId = WhatsAppConfig.id) ─────────
-  const unreadRows = await prisma.whatsAppChatRead.findMany({
-    where: { branchId: config.id, jid: { in: jids } },
-  });
-  const unreadByJid = new Map(unreadRows.map((r) => [r.jid, r.unreadCount]));
-
-  // ── Montagem final ─────────────────────────────────────────────
-  const result = chats.map((chat: any) => {
-    const jid: string = chat.remoteJid;
-    const lidJid: string | undefined = chat._lidJid;
-    const phone = jidToPhone.get(jid) ?? (isPhoneJid(jid) ? jid.split('@')[0].replace(/^55/, '') : '');
-    const customer = phone ? resolveCustomer(phone) : null;
-    const customerOrders = customer ? (ordersByCustomer.get(customer.id) ?? []) : [];
-    const last = pickLastMessage(jid, lidJid);
-    const unreadCount =
-      (unreadByJid.get(jid) ?? 0) + (lidJid ? unreadByJid.get(lidJid) ?? 0 : 0);
-
-    // DEBUG: loga o chat investigado
-    if (jid.includes('997895854') || phone.includes('997895854')) {
-      this.logger.log(`[fetchChats][DEBUG] chat montado → jid: ${jid} | phone: ${phone} | customer: ${customer?.id ?? 'null'}`);
-    }
-
-    return {
-      id: jid,
-      remoteJid: jid,
-      phone,
-      pushName: chat.pushName ?? null,
-      profilePicUrl: chat.profilePicUrl ?? null,
-      updatedAt: chat.updatedAt ?? null,
-      unreadCount,
-      lastMessage: last
-        ? {
-            id: last.messageId,
-            text: last.text ?? '',
-            timestamp: Number(last.timestamp),
-            fromMe: last.fromMe,
-            pushName: last.pushName ?? null,
-          }
-        : null,
-      customer,
-      ordersSummary: this.summarizeOrders(customerOrders),
-      totalOrders: customerOrders.length,
-    };
-  });
-
-  this.logger.log(`[fetchChats] result total: ${result.length}`);
-
-  // Ordena por última mensagem (mais recente primeiro)
-  result.sort((a, b) => {
-    const ta = a.lastMessage?.timestamp ?? 0;
-    const tb = b.lastMessage?.timestamp ?? 0;
-    return tb - ta;
-  });
-
-  // ── Resumo global ──────────────────────────────────────────────
-  const globalSummary = {
-    new: orders.filter((o) => o.status === 'PENDING').length,
-    pending: orders.filter((o) => ['CONFIRMED', 'IN_PROGRESS'].includes(o.status)).length,
-    outForDelivery: orders.filter((o) => ['READY', 'DELIVERING'].includes(o.status)).length,
-    completed: orders.filter((o) => ['DELIVERED', 'COMPLETED'].includes(o.status)).length,
-  };
-
-  return { chats: result, globalSummary, total: chats.length };
-}
 
   
 
