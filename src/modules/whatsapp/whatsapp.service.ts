@@ -21,7 +21,7 @@ import {
   registerLidPair,
   resolveJidWithMap,
 } from 'src/utils/whatsapp-jid.util';
-import { buildLidMapFromEvolutionData } from 'src/utils/whatsapp-lid-map';
+import { buildLidMapFromEvolutionData, normalizeEvolutionList } from 'src/utils/whatsapp-lid-map';
 
 /**
  * Prefixo usado ao criar instâncias na Evolution API.
@@ -33,7 +33,20 @@ const INSTANCE_PREFIX = 'anotaja_';
 export class WhatsAppService {
   private readonly logger = new Logger(WhatsAppService.name);
 
+  /** Cache em memória LID ↔ telefone aprendido via webhook (por instância). */
+  private readonly lidMapCache = new Map<string, Map<string, string>>();
+
   constructor(private readonly uploadService: UploadService) {}
+
+  rememberLidPair(instanceName: string, lidJid: string, phoneJid: string): void {
+    if (!isLidJid(lidJid) || !isPhoneJid(phoneJid)) return;
+    let map = this.lidMapCache.get(instanceName);
+    if (!map) {
+      map = new Map();
+      this.lidMapCache.set(instanceName, map);
+    }
+    registerLidPair(map, lidJid, phoneJid);
+  }
 
   // ─── Env helpers ─────────────────────────────────────────────────────────────
 
@@ -406,13 +419,13 @@ export class WhatsAppService {
   /**
    * Mapa bidirecional @lid ↔ @s.whatsapp.net (contatos + mensagens recentes).
    */
-  async buildLidMap(instanceName: string): Promise<Map<string, string>> {
+  async buildLidMap(instanceName: string, rawChats: any[] = []): Promise<Map<string, string>> {
     const contacts = await this.evolutionRequest(
       'POST',
       `/chat/findContacts/${instanceName}`,
       { where: {}, limit: 2000 },
     )
-      .then((r) => (Array.isArray(r) ? r : r?.records ?? r?.data ?? []))
+      .then((r) => normalizeEvolutionList(r))
       .catch(() => [] as any[]);
 
     const messages = await this.evolutionRequest(
@@ -423,7 +436,13 @@ export class WhatsAppService {
       .then((r) => this.extractMessages(r))
       .catch(() => [] as any[]);
 
-    const map = buildLidMapFromEvolutionData(contacts, messages);
+    const map = buildLidMapFromEvolutionData(contacts, messages, rawChats);
+
+    const cached = this.lidMapCache.get(instanceName);
+    if (cached) {
+      for (const [k, v] of cached) map.set(k, v);
+    }
+
     this.logger.debug(`[buildLidMap] ${map.size / 2} pares LID mapeados`);
     return map;
   }
@@ -439,6 +458,11 @@ export class WhatsAppService {
   ): Promise<string | null> {
     const { phoneJid, lidJid, rawJid } = pickContactJids(key, data, extraCandidates);
     if (!rawJid || rawJid === 'status@broadcast' || isGroupJid(rawJid)) return null;
+
+    if (phoneJid && lidJid) {
+      this.rememberLidPair(instanceName, lidJid, phoneJid);
+      return phoneJid;
+    }
 
     if (phoneJid) return phoneJid;
 
@@ -476,15 +500,16 @@ export class WhatsAppService {
    */
 async fetchChats(branchId: string) {
   const config = await this.requireFullConfig(branchId);
-  const lidMap = await this.buildLidMap(config.instanceName!);
 
   const rawChats = await this.evolutionRequest(
     'POST',
     `/chat/findChats/${config.instanceName}`,
     { where: {} },
   )
-    .then((r) => (Array.isArray(r) ? r : r?.data ?? []))
+    .then((r) => normalizeEvolutionList(r))
     .catch(() => [] as any[]);
+
+  const lidMap = await this.buildLidMap(config.instanceName!, rawChats);
 
   this.logger.log(`[fetchChats] rawChats total: ${rawChats.length}`);
   this.logger.log(`[fetchChats] rawChats JIDs sample: ${rawChats.slice(0, 5).map((c: any) => c.remoteJid)}`);
@@ -520,6 +545,36 @@ async fetchChats(branchId: string) {
     }
   }
 
+  // Chats que existem só no banco (webhook), mas não na Evolution
+  const localLastMessages = await prisma.chatLastMessage.findMany({
+    where: { branchId },
+    orderBy: { timestamp: 'desc' },
+  });
+
+  for (const lm of localLastMessages) {
+    const jid = lm.remoteJid;
+    if (!jid || isGroupJid(jid)) continue;
+
+    const canonical = resolveJidWithMap(jid, lidMap);
+    if (chatByCanonical.has(canonical)) continue;
+
+    chatByCanonical.set(canonical, {
+      remoteJid: canonical,
+      pushName: lm.pushName,
+      updatedAt: new Date(Number(lm.timestamp)).toISOString(),
+      _lidJid: isLidJid(jid) ? jid : lidMap.get(canonical),
+    });
+  }
+
+  // Remove @lid órfão quando já existe chat de telefone mapeado
+  for (const jid of [...chatByCanonical.keys()]) {
+    if (!isLidJid(jid)) continue;
+    const phone = lidMap.get(jid);
+    if (phone && chatByCanonical.has(phone)) {
+      chatByCanonical.delete(jid);
+    }
+  }
+
   const chats = [...chatByCanonical.values()];
   this.logger.log(`[fetchChats] chats após normalização LID: ${chats.length}`);
 
@@ -528,10 +583,13 @@ async fetchChats(branchId: string) {
     jids.push(c.remoteJid);
     if (c._lidJid) jids.push(c._lidJid);
   }
+  for (const lm of localLastMessages) {
+    if (lm.remoteJid) jids.push(lm.remoteJid);
+  }
 
   // ── Últimas mensagens ──────────────────────────────────────────
   const lastMessages = await prisma.chatLastMessage.findMany({
-    where: { branchId, remoteJid: { in: jids } },
+    where: { branchId, remoteJid: { in: [...new Set(jids)] } },
   });
   const lastMsgByJid = new Map(lastMessages.map((m) => [m.remoteJid, m]));
 
@@ -678,7 +736,13 @@ async fetchChats(branchId: string) {
   });
 
   this.logger.log(`[fetchChats] result total: ${result.length}`);
-  this.logger.log(`[fetchChats] result 997895854: ${JSON.stringify(result.find(r => r.phone.includes('997895854') || r.remoteJid.includes('997895854')))}`);
+
+  // Ordena por última mensagem (mais recente primeiro)
+  result.sort((a, b) => {
+    const ta = a.lastMessage?.timestamp ?? 0;
+    const tb = b.lastMessage?.timestamp ?? 0;
+    return tb - ta;
+  });
 
   // ── Resumo global ──────────────────────────────────────────────
   const globalSummary = {

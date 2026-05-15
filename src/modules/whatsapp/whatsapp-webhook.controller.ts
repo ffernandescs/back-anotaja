@@ -98,12 +98,22 @@ export class WhatsAppWebhookController {
 
     const config = await prisma.whatsAppConfig.findUnique({
       where: { branchId },
-      select: { id: true, instanceName: true },
+      select: { id: true, instanceName: true, phoneNumber: true },
     });
 
     const extraJids: string[] = [];
-    if (!fromMe && webhookBody?.sender && String(webhookBody.sender).includes('@s.whatsapp.net')) {
-      extraJids.push(webhookBody.sender);
+    const webhookSender = webhookBody?.sender ? String(webhookBody.sender) : '';
+    const instanceDigits = (config?.phoneNumber ?? '').replace(/\D/g, '');
+    const senderDigits = webhookSender.replace(/\D/g, '').split('@')[0];
+
+    // sender do webhook = telefone de quem enviou (não confundir com o número da instância)
+    if (
+      !fromMe &&
+      webhookSender.includes('@s.whatsapp.net') &&
+      senderDigits &&
+      senderDigits !== instanceDigits
+    ) {
+      extraJids.push(webhookSender);
     }
 
     // identifica chat (jid do WhatsApp) — resolve @lid → telefone quando possível
