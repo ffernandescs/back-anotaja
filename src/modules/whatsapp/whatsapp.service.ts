@@ -11,8 +11,17 @@ import {
   SendCrmMessageDto,
 } from './dto/whatsapp.dto';
 import { UploadService } from '../upload/upload.service';
-import {  normalizeBrazilPhone } from 'src/utils/normalizePhone';
+import { normalizeBrazilPhone } from 'src/utils/normalizePhone';
 import { isGroupJid, safeMessageId } from 'src/utils/reutilizeWhatsapp';
+import {
+  isLidJid,
+  isPhoneJid,
+  phoneFromJid,
+  pickContactJids,
+  registerLidPair,
+  resolveJidWithMap,
+} from 'src/utils/whatsapp-jid.util';
+import { buildLidMapFromEvolutionData } from 'src/utils/whatsapp-lid-map';
 
 /**
  * Prefixo usado ao criar instâncias na Evolution API.
@@ -392,6 +401,66 @@ export class WhatsAppService {
     return results;
   }
 
+  // ─── LID resolution ───────────────────────────────────────────────────────────
+
+  /**
+   * Mapa bidirecional @lid ↔ @s.whatsapp.net (contatos + mensagens recentes).
+   */
+  async buildLidMap(instanceName: string): Promise<Map<string, string>> {
+    const contacts = await this.evolutionRequest(
+      'POST',
+      `/chat/findContacts/${instanceName}`,
+      { where: {}, limit: 2000 },
+    )
+      .then((r) => (Array.isArray(r) ? r : r?.records ?? r?.data ?? []))
+      .catch(() => [] as any[]);
+
+    const messages = await this.evolutionRequest(
+      'POST',
+      `/chat/findMessages/${instanceName}`,
+      { where: {}, limit: 200 },
+    )
+      .then((r) => this.extractMessages(r))
+      .catch(() => [] as any[]);
+
+    const map = buildLidMapFromEvolutionData(contacts, messages);
+    this.logger.debug(`[buildLidMap] ${map.size / 2} pares LID mapeados`);
+    return map;
+  }
+
+  /**
+   * Resolve JID de contato a partir do webhook (campos diretos + mapa Evolution).
+   */
+  async resolveContactJid(
+    instanceName: string,
+    key: any,
+    data: any,
+    extraCandidates: string[] = [],
+  ): Promise<string | null> {
+    const { phoneJid, lidJid, rawJid } = pickContactJids(key, data, extraCandidates);
+    if (!rawJid || rawJid === 'status@broadcast' || isGroupJid(rawJid)) return null;
+
+    if (phoneJid) return phoneJid;
+
+    if (lidJid) {
+      const map = await this.buildLidMap(instanceName);
+      const resolved = resolveJidWithMap(lidJid, map);
+      if (isPhoneJid(resolved)) return resolved;
+      return lidJid;
+    }
+
+    return rawJid;
+  }
+
+  /** Todos os JIDs equivalentes (telefone + @lid) para buscar mensagens. */
+  async relatedJids(instanceName: string, jid: string): Promise<string[]> {
+    const set = new Set<string>([jid]);
+    const map = await this.buildLidMap(instanceName);
+    const alt = map.get(jid);
+    if (alt) set.add(alt);
+    return [...set];
+  }
+
   // ─── CRM ─────────────────────────────────────────────────────────────────────
 
   /**
@@ -407,6 +476,7 @@ export class WhatsAppService {
    */
 async fetchChats(branchId: string) {
   const config = await this.requireFullConfig(branchId);
+  const lidMap = await this.buildLidMap(config.instanceName!);
 
   const rawChats = await this.evolutionRequest(
     'POST',
@@ -419,16 +489,45 @@ async fetchChats(branchId: string) {
   this.logger.log(`[fetchChats] rawChats total: ${rawChats.length}`);
   this.logger.log(`[fetchChats] rawChats JIDs sample: ${rawChats.slice(0, 5).map((c: any) => c.remoteJid)}`);
 
-  const chats = rawChats.filter((c: any) => {
-    const jid = String(c.remoteJid ?? '');
-    const keep = !jid.endsWith('@g.us') && !jid.endsWith('@lid');
-    if (!keep) this.logger.debug(`[fetchChats] filtrado: ${jid}`);
-    return keep;
-  });
+  // Normaliza @lid → telefone; remove apenas grupos; deduplica por JID canônico
+  const chatByCanonical = new Map<string, any>();
 
-  this.logger.log(`[fetchChats] chats após filtro: ${chats.length}`);
+  for (const c of rawChats) {
+    const rawJid = String(c.remoteJid ?? c.id ?? '');
+    if (!rawJid || isGroupJid(rawJid)) {
+      if (rawJid) this.logger.debug(`[fetchChats] filtrado grupo: ${rawJid}`);
+      continue;
+    }
 
-  const jids: string[] = chats.map((c: any) => c.remoteJid as string);
+    const altFromChat = c.remoteJidAlt || c.lid;
+    if (altFromChat) {
+      registerLidPair(lidMap, rawJid, altFromChat);
+    }
+
+    const canonical = resolveJidWithMap(rawJid, lidMap);
+    const lidAlias = isLidJid(rawJid) ? rawJid : lidMap.get(canonical);
+
+    const existing = chatByCanonical.get(canonical);
+    const ts = Number(c.updatedAt ?? c.messageTimestamp ?? 0);
+    const existingTs = Number(existing?.updatedAt ?? existing?.messageTimestamp ?? 0);
+
+    if (!existing || ts >= existingTs) {
+      chatByCanonical.set(canonical, {
+        ...c,
+        remoteJid: canonical,
+        _lidJid: lidAlias && isLidJid(lidAlias) ? lidAlias : isLidJid(rawJid) ? rawJid : undefined,
+      });
+    }
+  }
+
+  const chats = [...chatByCanonical.values()];
+  this.logger.log(`[fetchChats] chats após normalização LID: ${chats.length}`);
+
+  const jids: string[] = [];
+  for (const c of chats) {
+    jids.push(c.remoteJid);
+    if (c._lidJid) jids.push(c._lidJid);
+  }
 
   // ── Últimas mensagens ──────────────────────────────────────────
   const lastMessages = await prisma.chatLastMessage.findMany({
@@ -436,11 +535,14 @@ async fetchChats(branchId: string) {
   });
   const lastMsgByJid = new Map(lastMessages.map((m) => [m.remoteJid, m]));
 
-  // ── JID → telefone sem 55 ──────────────────────────────────────
+  // ── JID → telefone sem 55 (apenas chats canônicos @s.whatsapp.net) ──
   const jidToPhone = new Map<string, string>();
 
-  for (const jid of jids) {
-    const rawNumber = jid.split('@')[0];
+  for (const chat of chats) {
+    const jid = chat.remoteJid as string;
+    if (!isPhoneJid(jid)) continue;
+
+    const rawNumber = phoneFromJid(jid);
     const normalized = normalizeBrazilPhone(rawNumber);
 
     if (normalized) {
@@ -449,13 +551,15 @@ async fetchChats(branchId: string) {
       const fallback = rawNumber.startsWith('55') ? rawNumber.slice(2) : rawNumber;
       jidToPhone.set(jid, fallback);
     }
-
-    // DEBUG: loga o número investigado
-    const phone = jidToPhone.get(jid)!;
-    if (rawNumber.includes('997895854') || phone.includes('997895854')) {
-      this.logger.log(`[fetchChats][DEBUG] JID: ${jid} | rawNumber: ${rawNumber} | normalized: ${normalized} | phone: ${phone}`);
-    }
   }
+
+  const pickLastMessage = (canonicalJid: string, lidJid?: string) => {
+    const a = lastMsgByJid.get(canonicalJid);
+    const b = lidJid ? lastMsgByJid.get(lidJid) : undefined;
+    if (!a) return b ?? null;
+    if (!b) return a;
+    return Number(a.timestamp) >= Number(b.timestamp) ? a : b;
+  };
 
   // ── Variantes com/sem dígito 9 ─────────────────────────────────
   const phoneVariants = (phone: string): string[] => {
@@ -537,11 +641,13 @@ async fetchChats(branchId: string) {
   // ── Montagem final ─────────────────────────────────────────────
   const result = chats.map((chat: any) => {
     const jid: string = chat.remoteJid;
-    const phone = jidToPhone.get(jid) ?? jid.split('@')[0].replace(/^55/, '');
-    const customer = resolveCustomer(phone);
+    const lidJid: string | undefined = chat._lidJid;
+    const phone = jidToPhone.get(jid) ?? (isPhoneJid(jid) ? jid.split('@')[0].replace(/^55/, '') : '');
+    const customer = phone ? resolveCustomer(phone) : null;
     const customerOrders = customer ? (ordersByCustomer.get(customer.id) ?? []) : [];
-    const last = lastMsgByJid.get(jid) ?? null;
-    const unreadCount = unreadByJid.get(jid) ?? 0;
+    const last = pickLastMessage(jid, lidJid);
+    const unreadCount =
+      (unreadByJid.get(jid) ?? 0) + (lidJid ? unreadByJid.get(lidJid) ?? 0 : 0);
 
     // DEBUG: loga o chat investigado
     if (jid.includes('997895854') || phone.includes('997895854')) {
@@ -602,20 +708,45 @@ async fetchMessages(branchId: string, dto: FetchMessagesDto) {
 
   if (!config?.instanceName) return [];
 
-  // 📡 busca mensagens diretamente (SEM limit, SEM cursor)
-  const raw = await this.evolutionRequest(
-    'POST',
-    `/chat/findMessages/${config.instanceName}`,
-    {
-      where: {
-        key: {
-          remoteJid: jid,
+  const jidsToFetch = await this.relatedJids(config.instanceName, jid);
+
+  // 📡 busca mensagens em todos os JIDs equivalentes (telefone + @lid)
+  const allRaw: any[] = [];
+  for (const targetJid of jidsToFetch) {
+    const raw = await this.evolutionRequest(
+      'POST',
+      `/chat/findMessages/${config.instanceName}`,
+      {
+        where: {
+          key: {
+            remoteJid: targetJid,
+          },
         },
       },
-    },
-  );
+    ).catch(() => null);
+    if (raw) allRaw.push(...this.extractMessages(raw));
+  }
 
-  const messages = this.extractMessages(raw);
+  // Mensagens salvas localmente pelo webhook (inclui as que a Evolution não indexou ainda)
+  const localRows = await prisma.whatsAppMessage.findMany({
+    where: {
+      branchId,
+      remoteJid: { in: jidsToFetch },
+    },
+    orderBy: { sentAt: 'desc' },
+    take: 200,
+  });
+
+  const messages = [
+    ...allRaw,
+    ...localRows.map((row) => ({
+      key: { id: row.id, remoteJid: row.remoteJid, fromMe: row.fromMe },
+      message: { conversation: row.text || row.message },
+      messageTimestamp: Math.floor(row.sentAt.getTime() / 1000),
+      pushName: row.pushName,
+      status: row.status,
+    })),
+  ];
 
   // 🧹 limpeza + deduplicação
   const seen = new Set<string>();

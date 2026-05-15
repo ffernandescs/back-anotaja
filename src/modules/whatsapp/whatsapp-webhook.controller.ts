@@ -2,12 +2,17 @@ import { Controller, Post, Body, Logger } from '@nestjs/common';
 import { Public } from '../../common/decorators/public.decorator';
 import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
 import { prisma } from '../../../lib/prisma';
+import { WhatsAppService } from './whatsapp.service';
+import { isGroupJid, phoneFromJid } from 'src/utils/whatsapp-jid.util';
 
 @Controller('whatsapp/webhook')
 export class WhatsAppWebhookController {
   private readonly logger = new Logger(WhatsAppWebhookController.name);
 
-  constructor(private readonly wsGateway: OrdersWebSocketGateway) {}
+  constructor(
+    private readonly wsGateway: OrdersWebSocketGateway,
+    private readonly whatsappService: WhatsAppService,
+  ) {}
 
   // ─────────────────────────────────────────────
   // ENTRYPOINT PRINCIPAL DO WEBHOOK
@@ -44,7 +49,7 @@ export class WhatsAppWebhookController {
         case 'messages.upsert':
         case 'send.message':
         case 'SEND_MESSAGE':
-          await this.handleMessage(branchId, data);
+          await this.handleMessage(branchId, data, body);
           break;
 
         /**
@@ -82,19 +87,33 @@ export class WhatsAppWebhookController {
    * - unread count (se necessário)
    * - websocket em tempo real
    */
-  private async handleMessage(branchId: string, data: any) {
+  private async handleMessage(branchId: string, data: any, webhookBody?: any) {
     const msg = data?.message ?? data; // mensagem normalizada
     const key = msg?.key ?? data?.key; // metadata da mensagem
 
     // se não tiver ID, ignora
     if (!key?.id) return;
 
-    // identifica chat (jid do WhatsApp)
-    const remoteJid = this.resolveJid(key, data);
+    const fromMe = !!key.fromMe;
+
+    const config = await prisma.whatsAppConfig.findUnique({
+      where: { branchId },
+      select: { instanceName: true },
+    });
+
+    const extraJids: string[] = [];
+    if (!fromMe && webhookBody?.sender && String(webhookBody.sender).includes('@s.whatsapp.net')) {
+      extraJids.push(webhookBody.sender);
+    }
+
+    // identifica chat (jid do WhatsApp) — resolve @lid → telefone quando possível
+    const remoteJid = config?.instanceName
+      ? await this.whatsappService.resolveContactJid(config.instanceName, key, data, extraJids)
+      : this.resolveJidFallback(key, data);
+
     if (!remoteJid) return; // ignora grupo/status
 
     const messageId = key.id; // id único da mensagem
-    const fromMe = !!key.fromMe; // true = enviado por você
 
     // converte timestamp (segundos/ms → ms padrão)
     const timestampMs = this.toMs(
@@ -107,8 +126,8 @@ export class WhatsAppWebhookController {
     // nome do contato (se existir)
     const pushName = msg.pushName ?? data.pushName ?? '';
 
-    // telefone limpo
-    const phone = remoteJid.replace('@s.whatsapp.net', '');
+    // telefone limpo (válido apenas para @s.whatsapp.net)
+    const phone = phoneFromJid(remoteJid).replace(/^55/, '');
 
     // ─────────────────────────────────────────
     // 1. SALVA HISTÓRICO DA MENSAGEM
@@ -191,7 +210,15 @@ export class WhatsAppWebhookController {
       const key = upd?.key;
       if (!key?.id) continue;
 
-      const remoteJid = this.resolveJid(key, upd);
+      const config = await prisma.whatsAppConfig.findUnique({
+        where: { branchId },
+        select: { instanceName: true },
+      });
+
+      const remoteJid = config?.instanceName
+        ? await this.whatsappService.resolveContactJid(config.instanceName, key, upd)
+        : this.resolveJidFallback(key, upd);
+
       if (!remoteJid) continue;
 
       const status = this.mapStatus(upd.status ?? upd.update?.status);
@@ -329,18 +356,22 @@ export class WhatsAppWebhookController {
   // HELPERS
   // ─────────────────────────────────────────────
 
-  // resolve chat (jid do whatsapp)
- private resolveJid(key: any, data: any): string | null {
-  const jid =
-    key?.remoteJid || data?.remoteJid || key?.participant || data?.participant;
+  /** Fallback síncrono quando não há instância Evolution configurada. */
+  private resolveJidFallback(key: any, data: any): string | null {
+    const jid =
+      data?.remoteJidAlt ||
+      data?.senderPn ||
+      key?.participant ||
+      data?.participant ||
+      key?.remoteJid ||
+      data?.remoteJid;
 
-  if (!jid) return null;
-  if (jid.endsWith('@g.us')) return null;
-  if (jid.endsWith('@lid')) return null;        // ← adicionar
-  if (jid === 'status@broadcast') return null;
+    if (!jid) return null;
+    if (isGroupJid(jid)) return null;
+    if (jid === 'status@broadcast') return null;
 
-  return jid;
-}
+    return jid;
+  }
 
   // normaliza timestamp (segundos → ms)
   private toMs(ts: any): number {
