@@ -984,7 +984,14 @@ export class OrdersWebSocketGateway
       });
 
       // Also broadcast to branch room for other users
+      const config = await prisma.whatsAppConfig.findUnique({
+        where: { branchId: client.user.branchId },
+        select: { instanceName: true, branchId: true },
+      });
+
       this.emitCRMEvent(`branch:${client.user.branchId}`, 'crm:message', {
+        branchId: client.user.branchId,
+        instanceName: config?.instanceName,
         id: result.messageId,
         remoteJid: payload.jid,
         fromMe: true,

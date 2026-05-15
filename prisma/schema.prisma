@@ -2182,6 +2182,20 @@ model WhatsAppChatRead {
   @@unique([branchId,                                                             jid])
 }
 
+/// Mapeamento persistente @lid ↔ @s.whatsapp.net (aprendido via webhook/Evolution).
+model WhatsAppLidPair {
+  id           String   @id @default(cuid())
+  instanceName String
+  lidJid       String
+  phoneJid     String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([instanceName, lidJid])
+  @@index([instanceName, phoneJid])
+  @@map("whatsapp_lid_pairs")
+}
+
 model MessageTemplate {
   id        String    @id @default(cuid())
   branchId  String?

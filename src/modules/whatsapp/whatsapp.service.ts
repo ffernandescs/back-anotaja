@@ -23,7 +23,9 @@ import {
   resolveJidWithMap,
 } from 'src/utils/whatsapp-jid.util';
 import { buildLidMapFromEvolutionData, normalizeEvolutionList } from 'src/utils/whatsapp-lid-map';
+import { pickPhoneFromLidMessages } from 'src/utils/whatsapp-lid-resolve';
 import { fetchChatsForBranch } from './fetch-chats';
+import { loadPersistedLidPairs, persistLidPair } from './whatsapp-lid-pair.store';
 
 /**
  * Prefixo usado ao criar instâncias na Evolution API.
@@ -55,6 +57,25 @@ export class WhatsAppService {
       this.lidMapCache.set(instanceName, map);
     }
     registerLidPair(map, lidJid, phoneJid);
+
+    void persistLidPair(instanceName, lidJid, phoneJid).catch((err) =>
+      this.logger.warn(`[rememberLidPair] falha ao persistir ${lidJid}: ${err?.message}`),
+    );
+  }
+
+  /** Carrega pares LID persistidos (DB + cache em memória). */
+  async loadPersistedLidMap(instanceName: string): Promise<Map<string, string>> {
+    const map = new Map<string, string>();
+
+    const cached = this.lidMapCache.get(instanceName);
+    if (cached) {
+      for (const [k, v] of cached) map.set(k, v);
+    }
+
+    const fromDb = await loadPersistedLidPairs(instanceName);
+    for (const [k, v] of fromDb) map.set(k, v);
+
+    return map;
   }
 
   /** Remove do mapa pares LID → telefone que apontam para o número da própria instância. */
@@ -373,7 +394,14 @@ export class WhatsAppService {
         status = 'disconnected';
       }
 
-      return { status, phoneNumber: config.phoneNumber, profileName: config.profileName, profilePicUrl: config.profilePicUrl };
+      return {
+        status,
+        phoneNumber: config.phoneNumber,
+        profileName: config.profileName,
+        profilePicUrl: config.profilePicUrl,
+        instanceName: config.instanceName,
+        branchId: config.branchId,
+      };
     } catch {
       return { status: config.status ?? 'disconnected' };
     }
@@ -500,10 +528,8 @@ export class WhatsAppService {
 
     const map = buildLidMapFromEvolutionData(contacts, messages, rawChats);
 
-    const cached = this.lidMapCache.get(instanceName);
-    if (cached) {
-      for (const [k, v] of cached) map.set(k, v);
-    }
+    const persisted = await this.loadPersistedLidMap(instanceName);
+    for (const [k, v] of persisted) map.set(k, v);
 
     this.purgeInstanceFromLidMap(map, instancePhone);
 
@@ -534,9 +560,14 @@ export class WhatsAppService {
     if (safePhone) return safePhone;
 
     if (lidJid) {
-      const cached = this.lidMapCache.get(instanceName)?.get(lidJid);
-      if (cached && isPhoneJid(cached) && !isInstancePhone(cached, instancePhone)) {
-        return cached;
+      const persisted = await this.loadPersistedLidMap(instanceName);
+      const fromPersisted = persisted.get(lidJid);
+      if (
+        fromPersisted &&
+        isPhoneJid(fromPersisted) &&
+        !isInstancePhone(fromPersisted, instancePhone)
+      ) {
+        return fromPersisted;
       }
 
       const map = await this.buildLidMap(instanceName, [], instancePhone);
@@ -604,6 +635,13 @@ export class WhatsAppService {
     const map = await this.buildLidMap(instanceName, [], instancePhone);
     const alt = map.get(jid);
     if (alt) set.add(alt);
+    if (isLidJid(jid)) {
+      const phone = map.get(jid);
+      if (phone && isPhoneJid(phone)) set.add(phone);
+    } else if (isPhoneJid(jid)) {
+      const lid = map.get(jid);
+      if (lid && isLidJid(lid)) set.add(lid);
+    }
     return [...set];
   }
 
@@ -615,9 +653,11 @@ export class WhatsAppService {
     return fetchChatsForBranch({
       instanceName: config.instanceName!,
       instancePhone: config.phoneNumber,
+      instanceProfileName: config.profileName,
       branchId,
       configId: config.id,
       evolutionRequest: (method, path, body) => this.evolutionRequest(method, path, body),
+      loadPersistedLidMap: (inst) => this.loadPersistedLidMap(inst),
       resolveLidViaMessages: (inst, lid, phone) =>
         this.resolveLidViaMessages(inst, lid, phone),
       rememberLidPair: (inst, lid, phoneJid, phone) =>

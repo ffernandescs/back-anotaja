@@ -76,11 +76,50 @@ export function resolveJidWithMap(jid: string, lidMap: Map<string, string>): str
 /** Extrai dígitos do telefone a partir de um JID @s.whatsapp.net. */
 export function phoneFromJid(jid: string): string {
   if (isPhoneJid(jid)) return jid.replace('@s.whatsapp.net', '');
+  if (isLidJid(jid)) return '';
   return jid.split('@')[0];
+}
+
+/** Dígitos longos demais para ser telefone BR (ex.: id interno @lid). */
+export function digitsLookLikeLidId(digits: string): boolean {
+  const d = digitsOnly(digits);
+  return d.length >= 13;
+}
+
+/** Telefone local BR plausível (DDD + 8/9 dígitos). */
+export function isPlausibleLocalPhone(digits: string): boolean {
+  const d = digitsOnly(digits);
+  if (!d || digitsLookLikeLidId(d)) return false;
+  const local = d.startsWith('55') && d.length > 11 ? d.slice(2) : d;
+  return local.length >= 10 && local.length <= 11;
 }
 
 export function digitsOnly(value: string): string {
   return String(value).replace(/\D/g, '');
+}
+
+/**
+ * Nome exibido é da instância conectada (loja), não do cliente destino.
+ * Usado para não sobrescrever pushName em mensagens enviadas (fromMe).
+ */
+export function isInstanceDisplayName(
+  name: string | null | undefined,
+  instanceProfileName?: string | null,
+  instancePhone?: string | null,
+): boolean {
+  const n = String(name ?? '').trim().toLowerCase();
+  if (!n) return true;
+
+  const profile = String(instanceProfileName ?? '').trim().toLowerCase();
+  if (profile && n === profile) return true;
+
+  if (instancePhone) {
+    const phoneDigits = digitsOnly(instancePhone);
+    const nameDigits = digitsOnly(n);
+    if (phoneDigits && nameDigits && phonesMatch(phoneDigits, nameDigits)) return true;
+  }
+
+  return false;
 }
 
 /**

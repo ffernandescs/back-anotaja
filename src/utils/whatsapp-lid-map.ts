@@ -1,4 +1,4 @@
-import { registerLidPair } from './whatsapp-jid.util';
+import { isLidJid, registerLidPair } from './whatsapp-jid.util';
 
 /** Normaliza respostas da Evolution (array, records, data ou objeto). */
 export function normalizeEvolutionList(data: unknown): any[] {
@@ -45,14 +45,16 @@ export function buildLidMapFromEvolutionData(
     registerLidPair(map, jid, m.senderPn);
     registerLidPair(map, jid, m.participant);
     registerLidPair(map, jid, m.key?.participant);
+    registerLidPair(map, jid, m.key?.remoteJidAlt);
 
     // Aprendizado: mensagens recebidas em @lid costumam trazer o telefone real
-    if (jid.includes('@lid') && !m.key?.fromMe) {
+    if (isLidJid(jid)) {
       const phoneJid =
         m.senderPn ||
         m.remoteJidAlt ||
         m.participant ||
-        m.key?.participant;
+        m.key?.participant ||
+        m.key?.remoteJidAlt;
       registerLidPair(map, jid, phoneJid);
     }
   }

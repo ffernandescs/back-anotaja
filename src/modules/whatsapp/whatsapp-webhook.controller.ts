@@ -3,7 +3,13 @@ import { Public } from '../../common/decorators/public.decorator';
 import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
 import { prisma } from '../../../lib/prisma';
 import { WhatsAppService } from './whatsapp.service';
-import { isGroupJid, isLidJid, isPhoneJid, phoneFromJid } from 'src/utils/whatsapp-jid.util';
+import {
+  isGroupJid,
+  isInstanceDisplayName,
+  isLidJid,
+  isPhoneJid,
+  phoneFromJid,
+} from 'src/utils/whatsapp-jid.util';
 
 @Controller('whatsapp/webhook')
 export class WhatsAppWebhookController {
@@ -104,7 +110,7 @@ export class WhatsAppWebhookController {
 
     const config = await prisma.whatsAppConfig.findUnique({
       where: { branchId },
-      select: { id: true, instanceName: true, phoneNumber: true },
+      select: { id: true, instanceName: true, phoneNumber: true, profileName: true },
     });
 
     // O campo "sender" no root do webhook é a INSTÂNCIA Evolution (seu 95821711),
@@ -157,11 +163,19 @@ export class WhatsAppWebhookController {
     // extrai texto da mensagem (texto, imagem caption etc)
     const text = this.extractText(msg);
 
-    // nome do contato (se existir)
-    const pushName = msg.pushName ?? data.pushName ?? '';
+    const rawPushName = msg.pushName ?? data.pushName ?? '';
+    const contactPushName = await this.resolveContactPushName(
+      syncJids,
+      fromMe,
+      rawPushName,
+      config?.profileName,
+      config?.phoneNumber,
+    );
 
-    // telefone limpo (válido apenas para @s.whatsapp.net)
-    const phone = phoneFromJid(remoteJid).replace(/^55/, '');
+    // telefone limpo — nunca usar dígitos do @lid como telefone
+    const phone = isPhoneJid(remoteJid)
+      ? phoneFromJid(remoteJid).replace(/^55/, '')
+      : '';
 
     // ─────────────────────────────────────────
     // 1. SALVA HISTÓRICO DA MENSAGEM
@@ -172,7 +186,7 @@ export class WhatsAppWebhookController {
       remoteJid,
       fromMe,
       text,
-      pushName,
+      pushName: contactPushName || rawPushName,
       phone,
       timestampMs,
     });
@@ -186,7 +200,7 @@ export class WhatsAppWebhookController {
       text,
       timestampMs,
       fromMe,
-      pushName,
+      pushName: contactPushName,
     };
     for (const jid of syncJids) {
       await this.upsertLastMessage({ ...lastMsgPayload, remoteJid: jid });
@@ -197,7 +211,9 @@ export class WhatsAppWebhookController {
     // só aumenta se mensagem veio do cliente
     // ─────────────────────────────────────────
     if (!fromMe && config?.id) {
-      await this.incrementUnread(config.id, remoteJid, timestampMs);
+      for (const jid of syncJids) {
+        await this.incrementUnread(config.id, jid, timestampMs);
+      }
     }
 
     // ─────────────────────────────────────────
@@ -205,19 +221,32 @@ export class WhatsAppWebhookController {
     // envia para frontend imediatamente
     // ─────────────────────────────────────────
     const room = `branch:${branchId}`;
+    const wsMeta = {
+      branchId,
+      instanceName: config?.instanceName,
+    };
 
     const msgStatus = fromMe
       ? this.mapStatus(data?.status ?? msg?.status)
       : 'received';
 
+    const lidJidForWs =
+      originalJid && isLidJid(originalJid)
+        ? originalJid
+        : isLidJid(remoteJid)
+          ? remoteJid
+          : undefined;
+
     this.wsGateway.emitCRMEvent(room, 'crm:message', {
+      ...wsMeta,
       id: messageId,
       remoteJid,
+      lidJid: lidJidForWs,
       fromMe,
       text,
       timestamp: timestampMs,
-      pushName,
-      phone,
+      pushName: contactPushName || rawPushName,
+      phone: isPhoneJid(remoteJid) ? phone : '',
       status: msgStatus,
     });
 
@@ -228,12 +257,29 @@ export class WhatsAppWebhookController {
         text,
         timestamp: timestampMs,
         fromMe,
-        pushName,
+        pushName: contactPushName || rawPushName,
       },
     };
     for (const jid of syncJids) {
+      const unreadForJid =
+        !fromMe && config?.id
+          ? await this.getUnreadCount(config.id, jid)
+          : undefined;
+
       this.wsGateway.emitCRMEvent(room, 'crm:chat:update', {
+        ...wsMeta,
         remoteJid: jid,
+        jid,
+        lidJid:
+          originalJid && isLidJid(originalJid)
+            ? originalJid
+            : isLidJid(jid)
+              ? jid
+              : undefined,
+        ...(contactPushName ? { name: contactPushName } : {}),
+        phone: isPhoneJid(remoteJid) ? phone : '',
+        lastMsgTimestamp: timestampMs,
+        ...(unreadForJid !== undefined ? { unreadCount: unreadForJid } : {}),
         ...chatUpdate,
       });
     }
@@ -269,6 +315,11 @@ export class WhatsAppWebhookController {
         select: { id: true, instanceName: true, phoneNumber: true },
       });
 
+      const wsMeta = {
+        branchId,
+        instanceName: config?.instanceName,
+      };
+
       const remoteJid = config?.instanceName
         ? await this.whatsappService.resolveContactJid(
             config.instanceName,
@@ -279,6 +330,14 @@ export class WhatsAppWebhookController {
         : this.resolveJidFallback(key, upd);
 
       if (!remoteJid) continue;
+
+      const originalJid = key?.remoteJid ?? upd?.remoteJid;
+      const lidJidForWs =
+        originalJid && isLidJid(originalJid)
+          ? originalJid
+          : isLidJid(remoteJid)
+            ? remoteJid
+            : undefined;
 
       const status = this.mapStatus(upd.status ?? upd.update?.status);
       const fromMe = !!key.fromMe;
@@ -302,7 +361,9 @@ export class WhatsAppWebhookController {
         }
         for (const jid of syncJids) {
           this.wsGateway.emitCRMEvent(room, 'crm:chat:update', {
+            ...wsMeta,
             remoteJid: jid,
+            lidJid: lidJidForWs,
             unreadCount: 0,
           });
         }
@@ -310,8 +371,10 @@ export class WhatsAppWebhookController {
 
       for (const jid of syncJids) {
         this.wsGateway.emitCRMEvent(room, 'crm:message:status', {
+          ...wsMeta,
           id: messageId,
           remoteJid: jid,
+          lidJid: lidJidForWs,
           status,
           fromMe,
         });
@@ -449,6 +512,17 @@ export class WhatsAppWebhookController {
       pushName,
     } = params;
 
+    const updateData: Record<string, unknown> = {
+      messageId,
+      text,
+      timestamp: BigInt(timestampMs),
+      fromMe,
+    };
+    // Mensagem enviada: não sobrescreve pushName (payload traz nome da loja)
+    if (!fromMe && pushName) {
+      updateData.pushName = pushName;
+    }
+
     await prisma.chatLastMessage.upsert({
       where: { remoteJid },
       create: {
@@ -458,16 +532,47 @@ export class WhatsAppWebhookController {
         text,
         timestamp: BigInt(timestampMs),
         fromMe,
-        pushName,
+        pushName: pushName ?? null,
       },
-      update: {
-        messageId,
-        text,
-        timestamp: BigInt(timestampMs),
-        fromMe,
-        pushName,
+      update: updateData as {
+        messageId: string;
+        text: string;
+        timestamp: bigint;
+        fromMe: boolean;
+        pushName?: string | null;
       },
     });
+  }
+
+  /**
+   * Nome do cliente destino — em mensagens enviadas (fromMe) o pushName do payload é da loja.
+   */
+  private async resolveContactPushName(
+    syncJids: string[],
+    fromMe: boolean,
+    incomingPushName: string,
+    instanceProfileName?: string | null,
+    instancePhone?: string | null,
+  ): Promise<string> {
+    if (!fromMe && incomingPushName && !isInstanceDisplayName(incomingPushName, instanceProfileName, instancePhone)) {
+      return incomingPushName;
+    }
+
+    for (const jid of syncJids) {
+      const row = await prisma.chatLastMessage.findUnique({
+        where: { remoteJid: jid },
+        select: { pushName: true },
+      });
+      if (row?.pushName && !isInstanceDisplayName(row.pushName, instanceProfileName, instancePhone)) {
+        return row.pushName;
+      }
+    }
+
+    if (fromMe) return '';
+
+    return incomingPushName && !isInstanceDisplayName(incomingPushName, instanceProfileName, instancePhone)
+      ? incomingPushName
+      : '';
   }
 
   // ─────────────────────────────────────────────
@@ -570,6 +675,14 @@ export class WhatsAppWebhookController {
   }
 
   // resolve branch da instância WhatsApp
+  private async getUnreadCount(configId: string, jid: string): Promise<number> {
+    const row = await prisma.whatsAppChatRead.findUnique({
+      where: { branchId_jid: { branchId: configId, jid } },
+      select: { unreadCount: true },
+    });
+    return row?.unreadCount ?? 0;
+  }
+
   private async resolveBranchId(instanceName: string): Promise<string | null> {
     const config = await prisma.whatsAppConfig.findFirst({
       where: { instanceName },
