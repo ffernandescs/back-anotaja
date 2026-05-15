@@ -467,6 +467,9 @@ export class WhatsAppService {
     if (phoneJid) return phoneJid;
 
     if (lidJid) {
+      const cached = this.lidMapCache.get(instanceName)?.get(lidJid);
+      if (cached && isPhoneJid(cached)) return cached;
+
       const map = await this.buildLidMap(instanceName);
       const resolved = resolveJidWithMap(lidJid, map);
       if (isPhoneJid(resolved)) return resolved;
@@ -474,6 +477,37 @@ export class WhatsAppService {
     }
 
     return rawJid;
+  }
+
+  /**
+   * Todos os JIDs que representam o mesmo chat (telefone + @lid).
+   * Usado para manter ChatLastMessage sincronizado em ambos os lados.
+   */
+  async collectSyncJids(
+    instanceName: string,
+    canonicalJid: string,
+    key: any,
+    data: any,
+  ): Promise<string[]> {
+    const set = new Set<string>();
+    const add = (j?: string | null) => {
+      if (j && typeof j === 'string' && !isGroupJid(j) && j !== 'status@broadcast') {
+        set.add(j);
+      }
+    };
+
+    add(canonicalJid);
+    add(key?.remoteJid);
+    add(data?.remoteJid);
+    add(data?.remoteJidAlt);
+
+    const map = await this.buildLidMap(instanceName);
+    for (const jid of [...set]) {
+      add(map.get(jid));
+      add(resolveJidWithMap(jid, map));
+    }
+
+    return [...set];
   }
 
   /** Todos os JIDs equivalentes (telefone + @lid) para buscar mensagens. */

@@ -3,7 +3,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
 import { prisma } from '../../../lib/prisma';
 import { WhatsAppService } from './whatsapp.service';
-import { isGroupJid, phoneFromJid } from 'src/utils/whatsapp-jid.util';
+import { isGroupJid, isLidJid, isPhoneJid, phoneFromJid } from 'src/utils/whatsapp-jid.util';
 
 @Controller('whatsapp/webhook')
 export class WhatsAppWebhookController {
@@ -123,6 +123,26 @@ export class WhatsAppWebhookController {
 
     if (!remoteJid) return; // ignora grupo/status
 
+    const originalJid = key?.remoteJid || data?.remoteJid;
+    if (
+      config?.instanceName &&
+      originalJid &&
+      isLidJid(originalJid) &&
+      isPhoneJid(remoteJid)
+    ) {
+      this.whatsappService.rememberLidPair(config.instanceName, originalJid, remoteJid);
+    }
+
+    const syncJids =
+      config?.instanceName
+        ? await this.whatsappService.collectSyncJids(
+            config.instanceName,
+            remoteJid,
+            key,
+            data,
+          )
+        : [remoteJid];
+
     const messageId = key.id; // id único da mensagem
 
     // converte timestamp (segundos/ms → ms padrão)
@@ -154,18 +174,19 @@ export class WhatsAppWebhookController {
     });
 
     // ─────────────────────────────────────────
-    // 2. ATUALIZA LAST MESSAGE DO CHAT
-    // (isso alimenta lista de conversas)
+    // 2. ATUALIZA LAST MESSAGE DO CHAT (telefone + @lid)
     // ─────────────────────────────────────────
-    await this.upsertLastMessage({
+    const lastMsgPayload = {
       branchId,
-      remoteJid,
       messageId,
       text,
       timestampMs,
       fromMe,
       pushName,
-    });
+    };
+    for (const jid of syncJids) {
+      await this.upsertLastMessage({ ...lastMsgPayload, remoteJid: jid });
+    }
 
     // ─────────────────────────────────────────
     // 3. CONTADOR DE NÃO LIDAS
@@ -191,9 +212,8 @@ export class WhatsAppWebhookController {
       phone,
     });
 
-    // atualização do chat (lista da esquerda tipo WhatsApp)
-    this.wsGateway.emitCRMEvent(room, 'crm:chat:update', {
-      remoteJid,
+    // atualização do chat (lista da esquerda) — emite para todos os JIDs do mesmo contato
+    const chatUpdate = {
       lastMessage: {
         id: messageId,
         text,
@@ -201,7 +221,13 @@ export class WhatsAppWebhookController {
         fromMe,
         pushName,
       },
-    });
+    };
+    for (const jid of syncJids) {
+      this.wsGateway.emitCRMEvent(room, 'crm:chat:update', {
+        remoteJid: jid,
+        ...chatUpdate,
+      });
+    }
   }
 
   // ─────────────────────────────────────────────
