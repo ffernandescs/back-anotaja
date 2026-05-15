@@ -98,7 +98,7 @@ export class WhatsAppWebhookController {
 
     const config = await prisma.whatsAppConfig.findUnique({
       where: { branchId },
-      select: { instanceName: true },
+      select: { id: true, instanceName: true },
     });
 
     const extraJids: string[] = [];
@@ -161,8 +161,8 @@ export class WhatsAppWebhookController {
     // 3. CONTADOR DE NÃO LIDAS
     // só aumenta se mensagem veio do cliente
     // ─────────────────────────────────────────
-    if (!fromMe) {
-      await this.incrementUnread(branchId, remoteJid, timestampMs);
+    if (!fromMe && config?.id) {
+      await this.incrementUnread(config.id, remoteJid, timestampMs);
     }
 
     // ─────────────────────────────────────────
@@ -212,7 +212,7 @@ export class WhatsAppWebhookController {
 
       const config = await prisma.whatsAppConfig.findUnique({
         where: { branchId },
-        select: { instanceName: true },
+        select: { id: true, instanceName: true },
       });
 
       const remoteJid = config?.instanceName
@@ -224,8 +224,8 @@ export class WhatsAppWebhookController {
       const status = this.mapStatus(upd.status ?? upd.update?.status);
 
       // se usuário leu mensagem → zera unread
-      if (status === 'read' && !key.fromMe) {
-        await this.resetUnread(branchId, remoteJid);
+      if (status === 'read' && !key.fromMe && config?.id) {
+        await this.resetUnread(config.id, remoteJid);
       }
 
       // envia status para frontend
@@ -322,15 +322,16 @@ export class WhatsAppWebhookController {
   // ─────────────────────────────────────────────
   // INCREMENTA NÃO LIDAS
   // ─────────────────────────────────────────────
+  /** @param configId ID do WhatsAppConfig (FK de WhatsAppChatRead.branchId) */
   private async incrementUnread(
-    branchId: string,
+    configId: string,
     jid: string,
     timestampMs: number,
   ) {
     await prisma.whatsAppChatRead.upsert({
-      where: { branchId_jid: { branchId, jid } },
+      where: { branchId_jid: { branchId: configId, jid } },
       create: {
-        branchId,
+        branchId: configId,
         jid,
         unreadCount: 1,
         lastMessageAt: new Date(timestampMs),
@@ -345,9 +346,10 @@ export class WhatsAppWebhookController {
   // ─────────────────────────────────────────────
   // ZERA NÃO LIDAS (quando usuário lê)
   // ─────────────────────────────────────────────
-  private async resetUnread(branchId: string, jid: string) {
+  /** @param configId ID do WhatsAppConfig (FK de WhatsAppChatRead.branchId) */
+  private async resetUnread(configId: string, jid: string) {
     await prisma.whatsAppChatRead.updateMany({
-      where: { branchId, jid },
+      where: { branchId: configId, jid },
       data: { unreadCount: 0, lastReadAt: new Date() },
     });
   }

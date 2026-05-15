@@ -239,8 +239,8 @@ export class WhatsAppService {
     // Pede para a Evolution limpar o cache da instância
     await this.evolutionRequest('POST', `/instance/restart/${config.instanceName}`).catch(() => {});
 
-    // Limpa unreads
-    await prisma.whatsAppChatRead.deleteMany({ where });
+    // Limpa unreads (branchId aqui é WhatsAppConfig.id, não Branch.id)
+    await prisma.whatsAppChatRead.deleteMany({ where: { branchId: config.id } });
 
     // Limpa mensagens @lid e @g.us
     await prisma.whatsAppMessage.deleteMany({
@@ -632,9 +632,9 @@ async fetchChats(branchId: string) {
     ordersByCustomer.set(order.customerId, list);
   }
 
-  // ── Mensagens não lidas ────────────────────────────────────────
+  // ── Mensagens não lidas (branchId = WhatsAppConfig.id) ─────────
   const unreadRows = await prisma.whatsAppChatRead.findMany({
-    where: { branchId, jid: { in: jids } },
+    where: { branchId: config.id, jid: { in: jids } },
   });
   const unreadByJid = new Map(unreadRows.map((r) => [r.jid, r.unreadCount]));
 
