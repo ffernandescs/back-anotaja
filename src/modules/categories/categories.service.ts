@@ -129,6 +129,8 @@ export class CategoriesService {
             description: true,
             price: true,
             promotionalPrice: true,
+            promotionalType: true,
+            hasPromotion: true,
             promotionalPeriodType: true,
             promotionalStartDate: true,
             promotionalEndDate: true,
