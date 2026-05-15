@@ -107,24 +107,16 @@ export class WhatsAppWebhookController {
       select: { id: true, instanceName: true, phoneNumber: true },
     });
 
-    const extraJids: string[] = [];
-    const webhookSender = webhookBody?.sender ? String(webhookBody.sender) : '';
-    const instanceDigits = (config?.phoneNumber ?? '').replace(/\D/g, '');
-    const senderDigits = webhookSender.replace(/\D/g, '').split('@')[0];
+    // O campo "sender" no root do webhook é a INSTÂNCIA Evolution (seu 95821711),
+    // NÃO o cliente que enviou. Nunca usar como telefone do contato.
 
-    // sender do webhook = telefone de quem enviou (não confundir com o número da instância)
-    if (
-      !fromMe &&
-      webhookSender.includes('@s.whatsapp.net') &&
-      senderDigits &&
-      senderDigits !== instanceDigits
-    ) {
-      extraJids.push(webhookSender);
-    }
-
-    // identifica chat (jid do WhatsApp) — resolve @lid → telefone quando possível
     const remoteJid = config?.instanceName
-      ? await this.whatsappService.resolveContactJid(config.instanceName, key, data, extraJids)
+      ? await this.whatsappService.resolveContactJid(
+          config.instanceName,
+          key,
+          data,
+          config.phoneNumber,
+        )
       : this.resolveJidFallback(key, data);
 
     if (!remoteJid) return; // ignora grupo/status
@@ -136,7 +128,12 @@ export class WhatsAppWebhookController {
       isLidJid(originalJid) &&
       isPhoneJid(remoteJid)
     ) {
-      this.whatsappService.rememberLidPair(config.instanceName, originalJid, remoteJid);
+      this.whatsappService.rememberLidPair(
+        config.instanceName,
+        originalJid,
+        remoteJid,
+        config.phoneNumber,
+      );
     }
 
     const syncJids =
@@ -146,6 +143,7 @@ export class WhatsAppWebhookController {
             remoteJid,
             key,
             data,
+            config.phoneNumber,
           )
         : [remoteJid];
 
@@ -268,21 +266,15 @@ export class WhatsAppWebhookController {
 
       const config = await prisma.whatsAppConfig.findUnique({
         where: { branchId },
-        select: { id: true, instanceName: true },
+        select: { id: true, instanceName: true, phoneNumber: true },
       });
-
-      const extraJids: string[] = [];
-      const webhookSender = webhookBody?.sender ? String(webhookBody.sender) : '';
-      if (webhookSender.includes('@s.whatsapp.net')) {
-        extraJids.push(webhookSender);
-      }
 
       const remoteJid = config?.instanceName
         ? await this.whatsappService.resolveContactJid(
             config.instanceName,
             key,
             upd,
-            extraJids,
+            config.phoneNumber,
           )
         : this.resolveJidFallback(key, upd);
 
@@ -299,6 +291,7 @@ export class WhatsAppWebhookController {
             remoteJid,
             key,
             upd,
+            config.phoneNumber,
           )
         : [remoteJid];
 
@@ -331,10 +324,10 @@ export class WhatsAppWebhookController {
     const items = Array.isArray(data) ? data : [data];
     const room = `branch:${branchId}`;
 
-    const config = await prisma.whatsAppConfig.findUnique({
-      where: { branchId },
-      select: { instanceName: true },
-    });
+      const config = await prisma.whatsAppConfig.findUnique({
+        where: { branchId },
+        select: { instanceName: true, phoneNumber: true },
+      });
 
     for (const item of items) {
       let remoteJid =
@@ -374,6 +367,7 @@ export class WhatsAppWebhookController {
             config.instanceName,
             { remoteJid },
             item,
+            config.phoneNumber,
           )
         : remoteJid;
 
@@ -385,6 +379,7 @@ export class WhatsAppWebhookController {
             resolved,
             { remoteJid },
             item,
+            config.phoneNumber,
           )
         : [resolved];
 

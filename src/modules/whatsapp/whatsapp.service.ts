@@ -14,6 +14,7 @@ import { UploadService } from '../upload/upload.service';
 import { normalizeBrazilPhone } from 'src/utils/normalizePhone';
 import { isGroupJid, safeMessageId } from 'src/utils/reutilizeWhatsapp';
 import {
+  isInstancePhone,
   isLidJid,
   isPhoneJid,
   phoneFromJid,
@@ -38,14 +39,70 @@ export class WhatsAppService {
 
   constructor(private readonly uploadService: UploadService) {}
 
-  rememberLidPair(instanceName: string, lidJid: string, phoneJid: string): void {
+  rememberLidPair(
+    instanceName: string,
+    lidJid: string,
+    phoneJid: string,
+    instancePhone?: string | null,
+  ): void {
     if (!isLidJid(lidJid) || !isPhoneJid(phoneJid)) return;
+    if (isInstancePhone(phoneJid, instancePhone)) return;
+
     let map = this.lidMapCache.get(instanceName);
     if (!map) {
       map = new Map();
       this.lidMapCache.set(instanceName, map);
     }
     registerLidPair(map, lidJid, phoneJid);
+  }
+
+  /** Remove do mapa pares LID → telefone que apontam para o número da própria instância. */
+  private purgeInstanceFromLidMap(map: Map<string, string>, instancePhone?: string | null): void {
+    if (!instancePhone) return;
+    for (const [lid, phone] of [...map]) {
+      if (isInstancePhone(phone, instancePhone)) {
+        map.delete(lid);
+        map.delete(phone);
+      }
+    }
+  }
+
+  /** Busca senderPn / remoteJidAlt nas mensagens do chat @lid na Evolution. */
+  async resolveLidViaMessages(
+    instanceName: string,
+    lidJid: string,
+    instancePhone?: string | null,
+  ): Promise<string | null> {
+    const raw = await this.evolutionRequest(
+      'POST',
+      `/chat/findMessages/${instanceName}`,
+      { where: { key: { remoteJid: lidJid } } },
+    ).catch(() => null);
+
+    if (!raw) return null;
+
+    const messages = this.extractMessages(raw);
+
+    for (const m of messages) {
+      if (m.key?.fromMe) continue;
+      const candidate =
+        m.senderPn ||
+        m.remoteJidAlt ||
+        m.participant ||
+        m.key?.participant;
+      if (candidate && isPhoneJid(candidate) && !isInstancePhone(candidate, instancePhone)) {
+        return candidate;
+      }
+    }
+
+    for (const m of messages) {
+      const candidate = m.senderPn || m.remoteJidAlt || m.key?.participant;
+      if (candidate && isPhoneJid(candidate) && !isInstancePhone(candidate, instancePhone)) {
+        return candidate;
+      }
+    }
+
+    return null;
   }
 
   // ─── Env helpers ─────────────────────────────────────────────────────────────
@@ -419,7 +476,11 @@ export class WhatsAppService {
   /**
    * Mapa bidirecional @lid ↔ @s.whatsapp.net (contatos + mensagens recentes).
    */
-  async buildLidMap(instanceName: string, rawChats: any[] = []): Promise<Map<string, string>> {
+  async buildLidMap(
+    instanceName: string,
+    rawChats: any[] = [],
+    instancePhone?: string | null,
+  ): Promise<Map<string, string>> {
     const contacts = await this.evolutionRequest(
       'POST',
       `/chat/findContacts/${instanceName}`,
@@ -443,6 +504,8 @@ export class WhatsAppService {
       for (const [k, v] of cached) map.set(k, v);
     }
 
+    this.purgeInstanceFromLidMap(map, instancePhone);
+
     this.logger.debug(`[buildLidMap] ${map.size / 2} pares LID mapeados`);
     return map;
   }
@@ -454,28 +517,47 @@ export class WhatsAppService {
     instanceName: string,
     key: any,
     data: any,
-    extraCandidates: string[] = [],
+    instancePhone?: string | null,
   ): Promise<string | null> {
-    const { phoneJid, lidJid, rawJid } = pickContactJids(key, data, extraCandidates);
+    const { phoneJid, lidJid, rawJid } = pickContactJids(key, data, []);
     if (!rawJid || rawJid === 'status@broadcast' || isGroupJid(rawJid)) return null;
 
-    if (phoneJid && lidJid) {
-      this.rememberLidPair(instanceName, lidJid, phoneJid);
-      return phoneJid;
+    const safePhone =
+      phoneJid && !isInstancePhone(phoneJid, instancePhone) ? phoneJid : null;
+
+    if (safePhone && lidJid) {
+      this.rememberLidPair(instanceName, lidJid, safePhone, instancePhone);
+      return safePhone;
     }
 
-    if (phoneJid) return phoneJid;
+    if (safePhone) return safePhone;
 
     if (lidJid) {
       const cached = this.lidMapCache.get(instanceName)?.get(lidJid);
-      if (cached && isPhoneJid(cached)) return cached;
+      if (cached && isPhoneJid(cached) && !isInstancePhone(cached, instancePhone)) {
+        return cached;
+      }
 
-      const map = await this.buildLidMap(instanceName);
+      const map = await this.buildLidMap(instanceName, [], instancePhone);
       const resolved = resolveJidWithMap(lidJid, map);
-      if (isPhoneJid(resolved)) return resolved;
+      if (isPhoneJid(resolved) && !isInstancePhone(resolved, instancePhone)) {
+        return resolved;
+      }
+
+      const fromMessages = await this.resolveLidViaMessages(
+        instanceName,
+        lidJid,
+        instancePhone,
+      );
+      if (fromMessages) {
+        this.rememberLidPair(instanceName, lidJid, fromMessages, instancePhone);
+        return fromMessages;
+      }
+
       return lidJid;
     }
 
+    if (isInstancePhone(rawJid, instancePhone)) return null;
     return rawJid;
   }
 
@@ -488,6 +570,7 @@ export class WhatsAppService {
     canonicalJid: string,
     key: any,
     data: any,
+    instancePhone?: string | null,
   ): Promise<string[]> {
     const set = new Set<string>();
     const add = (j?: string | null) => {
@@ -501,7 +584,7 @@ export class WhatsAppService {
     add(data?.remoteJid);
     add(data?.remoteJidAlt);
 
-    const map = await this.buildLidMap(instanceName);
+    const map = await this.buildLidMap(instanceName, [], instancePhone);
     for (const jid of [...set]) {
       add(map.get(jid));
       add(resolveJidWithMap(jid, map));
@@ -511,9 +594,13 @@ export class WhatsAppService {
   }
 
   /** Todos os JIDs equivalentes (telefone + @lid) para buscar mensagens. */
-  async relatedJids(instanceName: string, jid: string): Promise<string[]> {
+  async relatedJids(
+    instanceName: string,
+    jid: string,
+    instancePhone?: string | null,
+  ): Promise<string[]> {
     const set = new Set<string>([jid]);
-    const map = await this.buildLidMap(instanceName);
+    const map = await this.buildLidMap(instanceName, [], instancePhone);
     const alt = map.get(jid);
     if (alt) set.add(alt);
     return [...set];
@@ -543,7 +630,11 @@ async fetchChats(branchId: string) {
     .then((r) => normalizeEvolutionList(r))
     .catch(() => [] as any[]);
 
-  const lidMap = await this.buildLidMap(config.instanceName!, rawChats);
+  const lidMap = await this.buildLidMap(
+    config.instanceName!,
+    rawChats,
+    config.phoneNumber,
+  );
 
   this.logger.log(`[fetchChats] rawChats total: ${rawChats.length}`);
   this.logger.log(`[fetchChats] rawChats JIDs sample: ${rawChats.slice(0, 5).map((c: any) => c.remoteJid)}`);
@@ -806,7 +897,11 @@ async fetchMessages(branchId: string, dto: FetchMessagesDto) {
 
   if (!config?.instanceName) return [];
 
-  const jidsToFetch = await this.relatedJids(config.instanceName, jid);
+  const jidsToFetch = await this.relatedJids(
+    config.instanceName,
+    jid,
+    config.phoneNumber,
+  );
 
   // 📡 busca mensagens em todos os JIDs equivalentes (telefone + @lid)
   const allRaw: any[] = [];
