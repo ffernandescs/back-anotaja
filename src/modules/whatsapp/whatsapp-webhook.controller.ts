@@ -33,7 +33,6 @@ export class WhatsAppWebhookController {
   @Public()
   @Post()
   async handleWebhook(@Body() body: any) {
-      this.logger.log('[Webhook] body recebido: ' + JSON.stringify(body)); // ← adiciona isso
     const event = body?.event; // tipo do evento
     const data = body?.data; // payload do evento
     const instanceName = body?.instance; // instância do WhatsApp
@@ -113,6 +112,8 @@ export class WhatsAppWebhookController {
       select: { id: true, instanceName: true, phoneNumber: true, profileName: true },
     });
 
+    const originalJid = key?.remoteJid || data?.remoteJid;
+
     // O campo "sender" no root do webhook é a INSTÂNCIA Evolution (seu 95821711),
     // NÃO o cliente que enviou. Nunca usar como telefone do contato.
 
@@ -125,9 +126,10 @@ export class WhatsAppWebhookController {
         )
       : this.resolveJidFallback(key, data);
 
-    if (!remoteJid) return; // ignora grupo/status
+    if (!remoteJid) {
+      return;
+    }
 
-    const originalJid = key?.remoteJid || data?.remoteJid;
     if (
       config?.instanceName &&
       originalJid &&

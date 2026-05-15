@@ -682,7 +682,9 @@ async fetchMessages(branchId: string, dto: FetchMessagesDto) {
     where: { branchId },
   });
 
-  if (!config?.instanceName) return [];
+  if (!config?.instanceName) {
+    return [];
+  }
 
   const jidsToFetch = await this.relatedJids(
     config.instanceName,
@@ -750,7 +752,7 @@ async fetchMessages(branchId: string, dto: FetchMessagesDto) {
     });
 
   // 📦 normalize final
-  return cleaned.map((msg: any) => ({
+  const normalized = cleaned.map((msg: any) => ({
     id: safeMessageId(msg),
     fromMe: msg?.key?.fromMe ?? false,
     text: this.extractText(msg) ?? '',
@@ -760,6 +762,8 @@ async fetchMessages(branchId: string, dto: FetchMessagesDto) {
     mediaUrl: this.extractMediaUrl(msg),
     pushName: msg?.pushName ?? null,
   }));
+
+  return normalized;
 }
 
   async sendCrmMessage(branchId: string, dto: SendCrmMessageDto) {

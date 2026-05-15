@@ -15,7 +15,6 @@ import {
 import { buildLidMapFromEvolutionData, normalizeEvolutionList } from 'src/utils/whatsapp-lid-map';
 import { pickPhoneFromLidMessages } from 'src/utils/whatsapp-lid-resolve';
 
-/** Chat agregado — telefone canônico ou @lid quando não resolvido. */
 interface AggregatedChat {
   remoteJid: string;
   lidJid?: string;
@@ -260,31 +259,43 @@ function pickBetterPushName(
 
 const LID_PHONE_MERGE_WINDOW_MS = 5 * 60 * 1000;
 
-/** Aprende pares @lid ↔ telefone a partir de ChatLastMessage com atividade próxima. */
-function inferLidPairsFromChatLastRows(
-  rows: Array<{ remoteJid: string; timestamp: bigint | number }>,
-  lidMap: Map<string, string>,
+/** Vários registros em whatsapp_lid_pairs podem apontar o mesmo telefone para LIDs diferentes (dados antigos).
+ * Mantém um único LID por phone: prioriza ordem em rawChats (Evolution) e depois presença na lista. */
+function dedupeLidMapOneLidPerPhone(
+  map: Map<string, string>,
+  rawChats: any[],
   instancePhone: string | null,
 ): void {
-  const lids = rows.filter((r) => isLidJid(r.remoteJid));
-  const phones = rows.filter(
-    (r) => isPhoneJid(r.remoteJid) && !isInstancePhone(r.remoteJid, instancePhone),
-  );
-  if (!lids.length || !phones.length) return;
+  const order = new Map<string, number>();
+  rawChats.forEach((c, i) => {
+    const j = String(c.remoteJid ?? c.id ?? '');
+    if (j && isLidJid(j) && !order.has(j)) order.set(j, i);
+  });
 
-  for (const lidRow of lids) {
-    const lidTs = Number(lidRow.timestamp);
-    let best: { remoteJid: string; diff: number } | null = null;
-
-    for (const phoneRow of phones) {
-      const diff = Math.abs(lidTs - Number(phoneRow.timestamp));
-      if (diff > LID_PHONE_MERGE_WINDOW_MS) continue;
-      if (!best || diff < best.diff) {
-        best = { remoteJid: phoneRow.remoteJid, diff };
-      }
+  const byPhone = new Map<string, string[]>();
+  for (const [k, v] of map) {
+    if (isLidJid(k) && isPhoneJid(v) && !isInstancePhone(v, instancePhone)) {
+      const list = byPhone.get(v) ?? [];
+      list.push(k);
+      byPhone.set(v, list);
     }
+  }
 
-    if (best) registerLidPair(lidMap, lidRow.remoteJid, best.remoteJid);
+  for (const [phone, lids] of byPhone) {
+    if (lids.length <= 1) continue;
+
+    const preferred = [...lids].sort((a, b) => {
+      const ia = order.get(a) ?? 99999;
+      const ib = order.get(b) ?? 99999;
+      if (ia !== ib) return ia - ib;
+      return a.localeCompare(b);
+    })[0];
+
+    for (const lid of lids) {
+      if (lid === preferred) continue;
+      if (map.get(lid) === phone) map.delete(lid);
+    }
+    registerLidPair(map, preferred, phone);
   }
 }
 
@@ -433,9 +444,14 @@ function mergeAggregatedChats(
   const usedLid = new Set<string>();
   const usedPhone = new Set<string>();
 
+  /** Só une @lid ao telefone se o mapa já conhecer o par (webhook/Evolution/Persistência). Proximidade só no tempo causava dois LIDs diferentes colidirem no mesmo número. */
+  const lidAlreadyLinkedToPhone = (lidKey: string, phoneKey: string): boolean =>
+    lidMap.get(lidKey) === phoneKey || lidMap.get(phoneKey) === lidKey;
+
   for (const p of pairs) {
     if (usedLid.has(p.lidKey) || usedPhone.has(p.phoneKey)) continue;
     if (!aggregated.has(p.lidKey) || !aggregated.has(p.phoneKey)) continue;
+    if (!lidAlreadyLinkedToPhone(p.lidKey, p.phoneKey)) continue;
 
     usedLid.add(p.lidKey);
     usedPhone.add(p.phoneKey);
@@ -535,15 +551,12 @@ export async function fetchChatsForBranch(deps: FetchChatsDeps): Promise<FetchCh
   const persisted = await loadPersistedLidMap(instanceName);
   for (const [k, v] of persisted) registerLidPair(lidMap, k, v);
   purgeInstanceFromLidMap(lidMap, instancePhone);
+  dedupeLidMapOneLidPerPhone(lidMap, rawChats, instancePhone);
 
   const localLastRows = await prisma.chatLastMessage.findMany({
     where: { branchId },
     orderBy: { timestamp: 'desc' },
   });
-
-  inferLidPairsFromChatLastRows(localLastRows, lidMap, instancePhone);
-
-  logger?.log(`[fetchChats] evolution=${rawChats.length} lidPairs=${lidMap.size / 2}`);
 
   const pushNamePhoneIndex = buildPushNamePhoneIndex(
     contacts,
@@ -701,8 +714,6 @@ export async function fetchChatsForBranch(deps: FetchChatsDeps): Promise<FetchCh
       }
     }
   }
-
-  logger?.log(`[fetchChats] conversas únicas=${chatList.length}`);
 
   if (!chatList.length) {
     const orders = await prisma.order.findMany({
