@@ -7,6 +7,7 @@ import {
   Patch,
   Body,
   Param,
+  Query,
   Request,
   UseGuards,
   UseInterceptors,
@@ -20,13 +21,11 @@ import { JwtOwnerAuthGuard } from 'src/common/guards/jwt-owner.guard';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { UploadService } from '../upload/upload.service';
-import { MasterService } from '../master/master.service';
 
 @Controller('master/brands')
 export class MasterBrandController {
   constructor(
     private readonly brandService: MasterBrandService,
-    private readonly masterService: MasterService,
     private readonly uploadService: UploadService,
   ) {}
 
@@ -40,6 +39,16 @@ export class MasterBrandController {
   @HttpCode(HttpStatus.OK)
   async findAll(@Request() req) {
     return this.brandService.findAll(req.user.userId);
+  }
+
+  // ─── Resolução pública por host (white-label) ────────────────────────────────
+  // GET /master/brands/public/by-host?host=app.revenda.com
+
+  @Public()
+  @Get('public/by-host')
+  @HttpCode(HttpStatus.OK)
+  async resolveByHost(@Query('host') host: string) {
+    return this.brandService.resolvePublicByHost(host ?? '');
   }
 
   // ─── Single ───────────────────────────────────────────────────────────────────
@@ -117,10 +126,14 @@ export class MasterBrandController {
 @HttpCode(HttpStatus.OK)
 async uploadLogoLight(
   @Request() req,
+  @Query('brandId') brandId: string | undefined,
   @UploadedFile() file: Express.Multer.File,
 ) {
   const url = await this.uploadService.uploadFile(file, 'master/brands/logos-light');
-  await this.masterService.updateBranding(req.user.userId, { logoLightUrl: url });
+  // Sem brandId: só devolve URL (fluxo "Novo brand" — evita criar MasterBrand "Padrão" via updateBranding legado)
+  if (brandId?.trim()) {
+    await this.brandService.update(brandId.trim(), req.user.userId, { logoLightUrl: url });
+  }
   return { url };
 }
 
@@ -132,10 +145,13 @@ async uploadLogoLight(
 @HttpCode(HttpStatus.OK)
 async uploadLogoDark(
   @Request() req,
+  @Query('brandId') brandId: string | undefined,
   @UploadedFile() file: Express.Multer.File,
 ) {
   const url = await this.uploadService.uploadFile(file, 'master/brands/logos-dark');
-  await this.masterService.updateBranding(req.user.userId, { logoDarkUrl: url });
+  if (brandId?.trim()) {
+    await this.brandService.update(brandId.trim(), req.user.userId, { logoDarkUrl: url });
+  }
   return { url };
 }
 
@@ -147,10 +163,13 @@ async uploadLogoDark(
 @HttpCode(HttpStatus.OK)
 async uploadFavicon(
   @Request() req,
+  @Query('brandId') brandId: string | undefined,
   @UploadedFile() file: Express.Multer.File,
 ) {
   const url = await this.uploadService.uploadFile(file, 'master/brands/favicons');
-  await this.masterService.updateBranding(req.user.userId, { faviconUrl: url });
+  if (brandId?.trim()) {
+    await this.brandService.update(brandId.trim(), req.user.userId, { faviconUrl: url });
+  }
   return { url };
 }
 }

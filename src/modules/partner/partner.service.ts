@@ -916,13 +916,17 @@ Se precisar de ajuda, entre em contato!
     return updatedCustomer;
   }
 
-  async deleteCustomer(id: string) {
+  async deleteCustomer(id: string, partnerId: string) {
     const customer = await prisma.partnerCustomer.findUnique({
       where: { id },
     });
 
     if (!customer) {
       throw new NotFoundException('Cliente não encontrado');
+    }
+
+    if (customer.partnerId !== partnerId) {
+      throw new ForbiddenException('Você não tem permissão para excluir este cliente');
     }
 
     await prisma.partnerCustomer.delete({
@@ -932,13 +936,17 @@ Se precisar de ajuda, entre em contato!
     return { message: 'Cliente excluído com sucesso' };
   }
 
-  async toggleCustomerSubscription(id: string) {
+  async toggleCustomerSubscription(id: string, partnerId: string) {
     const customer = await prisma.partnerCustomer.findUnique({
       where: { id },
     });
 
     if (!customer) {
       throw new NotFoundException('Cliente não encontrado');
+    }
+
+    if (customer.partnerId !== partnerId) {
+      throw new ForbiddenException('Você não tem permissão para alterar este cliente');
     }
 
     const updatedCustomer = await prisma.partnerCustomer.update({

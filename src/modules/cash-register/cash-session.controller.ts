@@ -50,7 +50,7 @@ export class CashSessionController {
       throw new UnauthorizedException('Usuário não autenticado');
     }
     const includeAllBool = includeAll === 'true';
-    return this.cashSessionService.findAllCashSessions(req.user.userId, includeAllBool);
+    return this.cashSessionService.findAllCashSessions(req.user.userId);
   }
 
   @Get('for-transfer')
@@ -59,7 +59,7 @@ export class CashSessionController {
       throw new UnauthorizedException('Usuário não autenticado');
     }
     // Sempre retorna todos os caixas abertos para transferência
-    return this.cashSessionService.findAllCashSessions(req.user.userId, true);
+    return this.cashSessionService.findAllCashSessions(req.user.userId);
   }
 
   @Get('balance')
@@ -78,12 +78,12 @@ export class CashSessionController {
     return this.cashSessionService.findLastClosedByBranch(req.user.userId);
   }
 
-  @Get(':id')
+  @Get('dashboard')
   async findCashSessionById(@Param('id') id: string, @Req() req: RequestWithUser) {
     if (!req.user?.userId) {
       throw new UnauthorizedException('Usuário não autenticado');
     }
-    return this.cashSessionService.findCashSessionById(id, req.user.userId);
+    return this.cashSessionService.findCashSessionById(req.user.userId);
   }
 
   @Post(':id/close')

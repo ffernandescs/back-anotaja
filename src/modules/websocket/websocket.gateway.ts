@@ -1002,6 +1002,52 @@ export class OrdersWebSocketGateway
     }
   }
 
+  emitCashTransferReceived(
+    toUserId: string,
+    payload: {
+      cashSessionId: string;
+      fromUserId: string;
+      fromUserName: string | null;
+      amount: number;        // centavos
+      description?: string;
+      timestamp: string;     // ISO
+    },
+  ) {
+    if (!this.server?.sockets) {
+      this.logger.warn('WebSocket server not initialized, cannot emit cash transfer');
+      return;
+    }
+    this.server.to(`user:${toUserId}`).emit('transfer:received', payload);
+    this.logger.log(
+      `📤 transfer:received → user:${toUserId} amount=${payload.amount}`,
+    );
+  }
+ 
+  /**
+   * Confirma para o REMETENTE que a saída foi registrada no caixa.
+   * Invalida o cache do lado do remetente sem precisar de polling.
+   */
+  emitCashTransferSent(
+    fromUserId: string,
+    payload: {
+      cashSessionId: string;
+      toUserId: string;
+      toUserName: string | null;
+      amount: number;
+      description?: string;
+      timestamp: string;
+    },
+  ) {
+    if (!this.server?.sockets) {
+      this.logger.warn('WebSocket server not initialized, cannot emit cash transfer');
+      return;
+    }
+    this.server.to(`user:${fromUserId}`).emit('transfer:sent', payload);
+    this.logger.log(
+      `📤 transfer:sent → user:${fromUserId} amount=${payload.amount}`,
+    );
+  }
+
   /**
    * Formatar telefone com máscara brasileira
    */

@@ -23,39 +23,31 @@ async function bootstrap() {
    */
   app.enableCors({
     origin: (origin, callback) => {
-      // Permite chamadas server-to-server (ex: curl, cron, SSR)
-      if (!origin) {
-        return callback(null, true);
-      }
+      if (!origin) return callback(null, true);
 
       const allowedOrigins = [
-        /^https?:\/\/([a-z0-9-]+\.)*vaidelli\.com.br$/i,
+        /^https?:\/\/([a-z0-9-]+\.)*vaidelli\.com\.br$/i,
         /^https?:\/\/([a-z0-9-]+\.)*vercel\.app$/i,
-
-        // 🔥 localhost + subdomínios (thyaynna.localhost, admin.localhost etc)
-        /^http:\/\/([a-z0-9-]+\.)*localhost:\d+$/i,
+        /^http:\/\/localhost:\d+$/i,
       ];
 
-      const isAllowed = allowedOrigins.some((regex) => regex.test(origin));
+      const allowed = allowedOrigins.some((r) => r.test(origin));
 
-      if (isAllowed) {
-        return callback(null, true);
-      }
-
-      return callback(new Error(`Not allowed by CORS: ${origin}`), false);
+      return allowed
+        ? callback(null, true)
+        : callback(new Error(`CORS blocked: ${origin}`), false);
     },
     credentials: true,
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: [
       'Content-Type',
       'Authorization',
       'Accept',
       'Origin',
       'X-Requested-With',
-      'x-tenant', // 🔥 O HEADER QUE FALTAVA
+      'X-Tenant',
+      'X-Auth-Context',
     ],
-
-    optionsSuccessStatus: 204,
   });
 
   /**
@@ -86,6 +78,11 @@ async function bootstrap() {
       },
     }),
   );
+
+  app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Credentials', 'true');
+    next();
+  });
 
 await app.listen(port, '0.0.0.0'); // <-- importante
 

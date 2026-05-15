@@ -34,13 +34,16 @@ model MasterUser {
   brands    MasterBrand[] // ← substituir por esta
 }
 
-// Branding personalizado do Master (logos, favicon, cores)
+// Branding personalizado do Master (logos, favicon, cores, domínio white-label)
 model MasterBrand {
   id             String     @id @default(cuid())
   masterUserId   String
 
   name           String
   appName        String?
+
+  /// Host canônico (ex.: app.revenda.com), minúsculo, sem protocolo — usado para resolver marca pelo Host no futuro
+  domain         String?    @unique
 
   logoLightUrl   String?
   logoDarkUrl    String?

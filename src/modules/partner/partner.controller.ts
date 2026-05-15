@@ -22,6 +22,7 @@ import { ImportCustomersDto } from './dto/import-customers.dto';
 import { UpdatePartnerCustomerDto } from './dto/update-partner-customer.dto';
 import { UpdatePartnerDto } from './dto/update-partner.dto';
 import { PartnerService } from './partner.service';
+import { JwtPartnerAuthGuard } from 'src/common/guards/jwt-partner.guard';
 
 @Controller('partners')
 export class PartnerController {
@@ -36,32 +37,33 @@ export class PartnerController {
     return this.partnerService.login(body.email, body.password);
   }
 
+  @Public()
   @Get('me')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtPartnerAuthGuard)
   async getCurrentPartner(@Request() req) {
     return this.partnerService.getPartnerById(req.user.partnerId);
   }
 
   @Get('me/referral-link')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtPartnerAuthGuard)
   async getMyReferralLink(@Request() req) {
     return this.partnerService.getPartnerReferralLink(req.user.partnerId);
   }
 
   @Put('me')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtPartnerAuthGuard)
   async updateMyProfile(@Request() req, @Body() dto: UpdatePartnerDto) {
     return this.partnerService.updatePartner(req.user.partnerId, dto);
   }
 
   @Put('me/password')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtPartnerAuthGuard)
   async updateMyPassword(@Request() req, @Body() body: { currentPassword: string; newPassword: string }) {
     return this.partnerService.updatePartnerPassword(req.user.partnerId, body.currentPassword, body.newPassword);
   }
 
   @Get('me/customers')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtPartnerAuthGuard)
   async getMyCustomers(
     @Request() req,
     @Query('hasSubscription') hasSubscription?: boolean,
@@ -70,28 +72,28 @@ export class PartnerController {
   }
 
   @Post('me/customers')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtPartnerAuthGuard)
   async createMyCustomer(@Request() req, @Body() dto: CreatePartnerCustomerDto) {
     return this.partnerService.createCustomer(req.user.partnerId, dto);
   }
 
   @Post('me/customers/import')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtPartnerAuthGuard)
   async importMyCustomers(@Request() req, @Body() dto: ImportCustomersDto) {
     return this.partnerService.importCustomersFromCsv(req.user.partnerId, dto);
   }
 
   @Put('customers/:id/toggle-subscription')
-  @UseGuards(JwtAuthGuard)
-  async toggleCustomerSubscription(@Param('id') id: string) {
-    return this.partnerService.toggleCustomerSubscription(id);
+  @UseGuards(JwtPartnerAuthGuard)
+  async toggleCustomerSubscription(@Request() req, @Param('id') id: string) {
+    return this.partnerService.toggleCustomerSubscription(id, req.user.partnerId);
   }
 
   @Delete('customers/:id')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtPartnerAuthGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
-  async deleteCustomer(@Param('id') id: string) {
-    return this.partnerService.deleteCustomer(id);
+  async deleteCustomer(@Request() req, @Param('id') id: string) {
+    return this.partnerService.deleteCustomer(id, req.user.partnerId);
   }
 
   // ─── Partner Endpoints (Master Admin) ─────────────────────
@@ -153,25 +155,25 @@ export class PartnerController {
   }
 
   @Get('me/companies')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtPartnerAuthGuard)
   async getMyCompanies(@Request() req) {
     return this.partnerService.getPartnerCompanies(req.user.partnerId);
   }
 
   @Get('me/plans')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtPartnerAuthGuard)
   async getAvailablePlans() {
     return this.partnerService.getAvailablePlans();
   }
 
   @Post('me/companies/:companyId/activate')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtPartnerAuthGuard)
   async activateMyCompany(@Param('companyId') companyId: string, @Body() body: { planId?: string; withTrial?: boolean }, @Request() req) {
     return this.partnerService.activateClient(companyId, req.user.partnerId, body.planId, body.withTrial);
   }
 
   @Post('me/companies/:companyId/resend-credentials')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtPartnerAuthGuard)
   async resendCredentials(@Param('companyId') companyId: string, @Request() req) {
     return this.partnerService.resendCredentials(companyId, req.user.partnerId);
   }
