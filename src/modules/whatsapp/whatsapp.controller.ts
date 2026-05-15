@@ -349,6 +349,22 @@ export class WhatsAppController {
     }
   }
 
+  @Post('crm/mark-as-unread')
+  async markChatAsUnread(@Request() req, @Body() body: { jid: string }) {
+    try {
+      const branchId = req.user.branchId;
+      const partnerId = req.user.partnerId;
+
+      if (!branchId && !partnerId) {
+        throw new BadRequestException('branchId ou partnerId é necessário');
+      }
+
+      return this.whatsappService.markChatAsUnread(branchId, partnerId, body.jid);
+    } catch (error) {
+      throw new BadRequestException((error as Error).message);
+    }
+  }
+
   @Post('crm/webhook/register')
   async registerWebhook(@Request() req, @Body() body: { webhookUrl: string }) {
     try {

@@ -915,24 +915,74 @@ async fetchMessages(branchId: string, dto: FetchMessagesDto) {
     return { success: true, messageId: result?.key?.id ?? result?.messageId ?? null };
   }
 
+  async updateMessageStatus(messageId: string, status: string): Promise<void> {
+    try {
+      await prisma.whatsAppMessage.updateMany({
+        where: { id: messageId },
+        data: { status },
+      });
+    } catch {
+      // mensagem pode não existir ainda no banco local
+    }
+  }
+
   async markChatAsRead(branchId?: string, partnerId?: string, jid?: string) {
-    // WhatsAppChatRead usa branchId da config (id), não branchId da branch
-    if (!branchId) return { success: true };
+    if (!branchId || !jid) return { success: true };
 
     try {
       const config = await prisma.whatsAppConfig.findUnique({ where: { branchId } });
-      if (!config) return { success: true };
+      if (!config?.instanceName) return { success: true };
 
-      await prisma.whatsAppChatRead.upsert({
-        where: { branchId_jid: { branchId: config.id, jid: jid ?? '' } },
-        create: { branchId: config.id, jid: jid ?? '', unreadCount: 0, lastReadAt: new Date() },
-        update: { unreadCount: 0, lastReadAt: new Date() },
-      });
+      const syncJids = await this.collectSyncJids(config.instanceName, jid, { remoteJid: jid }, {});
+
+      for (const targetJid of syncJids) {
+        await prisma.whatsAppChatRead.upsert({
+          where: { branchId_jid: { branchId: config.id, jid: targetJid } },
+          create: {
+            branchId: config.id,
+            jid: targetJid,
+            unreadCount: 0,
+            lastReadAt: new Date(),
+          },
+          update: { unreadCount: 0, lastReadAt: new Date() },
+        });
+      }
+
+      await this.evolutionRequest(
+        'POST',
+        `/chat/markMessageAsRead/${config.instanceName}`,
+        { readMessages: [{ remoteJid: jid, fromMe: false }] },
+      ).catch(() =>
+        this.evolutionRequest('POST', `/chat/readMessages/${config.instanceName}`, {
+          readMessages: [{ remoteJid: jid }],
+        }),
+      );
     } catch (err) {
       this.logger.warn('[markChatAsRead] Falhou silenciosamente:', err);
     }
 
-    return { success: true };
+    return { success: true, unreadCount: 0 };
+  }
+
+  async markChatAsUnread(branchId?: string, partnerId?: string, jid?: string) {
+    if (!branchId || !jid) return { success: true };
+
+    const config = await prisma.whatsAppConfig.findUnique({ where: { branchId } });
+    if (!config?.instanceName) return { success: true };
+
+    const syncJids = await this.collectSyncJids(config.instanceName, jid, { remoteJid: jid }, {});
+    let unreadCount = 1;
+
+    for (const targetJid of syncJids) {
+      const row = await prisma.whatsAppChatRead.upsert({
+        where: { branchId_jid: { branchId: config.id, jid: targetJid } },
+        create: { branchId: config.id, jid: targetJid, unreadCount: 1 },
+        update: { unreadCount: { increment: 1 } },
+      });
+      unreadCount = row.unreadCount;
+    }
+
+    return { success: true, unreadCount };
   }
 
   // ─── Audio processing ─────────────────────────────────────────────────────────

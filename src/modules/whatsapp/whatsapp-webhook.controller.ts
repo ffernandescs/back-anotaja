@@ -57,7 +57,13 @@ export class WhatsAppWebhookController {
          * (enviada, entregue, lida)
          */
         case 'messages.update':
-          await this.handleMessageStatus(branchId, data);
+        case 'MESSAGES_UPDATE':
+          await this.handleMessageStatus(branchId, data, body);
+          break;
+
+        case 'presence.update':
+        case 'PRESENCE_UPDATE':
+          await this.handlePresence(branchId, data);
           break;
 
         default:
@@ -202,6 +208,10 @@ export class WhatsAppWebhookController {
     // ─────────────────────────────────────────
     const room = `branch:${branchId}`;
 
+    const msgStatus = fromMe
+      ? this.mapStatus(data?.status ?? msg?.status)
+      : 'received';
+
     this.wsGateway.emitCRMEvent(room, 'crm:message', {
       id: messageId,
       remoteJid,
@@ -210,6 +220,7 @@ export class WhatsAppWebhookController {
       timestamp: timestampMs,
       pushName,
       phone,
+      status: msgStatus,
     });
 
     // atualização do chat (lista da esquerda) — emite para todos os JIDs do mesmo contato
@@ -239,41 +250,150 @@ export class WhatsAppWebhookController {
    * - received
    * - read
    */
-  private async handleMessageStatus(branchId: string, data: any) {
+  private async handleMessageStatus(branchId: string, data: any, webhookBody?: any) {
     const updates = Array.isArray(data) ? data : [data];
+    const room = `branch:${branchId}`;
 
     for (const upd of updates) {
-      const key = upd?.key;
-      if (!key?.id) continue;
+      const messageId = upd?.key?.id ?? upd?.keyId ?? upd?.messageId;
+      if (!messageId) continue;
+
+      const key = {
+        ...(upd?.key ?? {}),
+        id: messageId,
+        remoteJid: upd?.key?.remoteJid ?? upd?.remoteJid,
+        fromMe: upd?.key?.fromMe ?? upd?.fromMe ?? false,
+        participant: upd?.key?.participant ?? upd?.participant,
+      };
 
       const config = await prisma.whatsAppConfig.findUnique({
         where: { branchId },
         select: { id: true, instanceName: true },
       });
 
+      const extraJids: string[] = [];
+      const webhookSender = webhookBody?.sender ? String(webhookBody.sender) : '';
+      if (webhookSender.includes('@s.whatsapp.net')) {
+        extraJids.push(webhookSender);
+      }
+
       const remoteJid = config?.instanceName
-        ? await this.whatsappService.resolveContactJid(config.instanceName, key, upd)
+        ? await this.whatsappService.resolveContactJid(
+            config.instanceName,
+            key,
+            upd,
+            extraJids,
+          )
         : this.resolveJidFallback(key, upd);
 
       if (!remoteJid) continue;
 
       const status = this.mapStatus(upd.status ?? upd.update?.status);
+      const fromMe = !!key.fromMe;
 
-      // se usuário leu mensagem → zera unread
-      if (status === 'read' && !key.fromMe && config?.id) {
-        await this.resetUnread(config.id, remoteJid);
+      await this.whatsappService.updateMessageStatus(messageId, status);
+
+      const syncJids = config?.instanceName
+        ? await this.whatsappService.collectSyncJids(
+            config.instanceName,
+            remoteJid,
+            key,
+            upd,
+          )
+        : [remoteJid];
+
+      // Lido no celular da loja (mensagem do cliente) → zera não lidas
+      if (status === 'read' && !fromMe && config?.id) {
+        for (const jid of syncJids) {
+          await this.resetUnread(config.id, jid);
+        }
+        for (const jid of syncJids) {
+          this.wsGateway.emitCRMEvent(room, 'crm:chat:update', {
+            remoteJid: jid,
+            unreadCount: 0,
+          });
+        }
       }
 
-      // envia status para frontend
-      this.wsGateway.emitCRMEvent(
-        `branch:${branchId}`,
-        'crm:message:status',
-        {
-          id: key.id,
-          remoteJid,
+      for (const jid of syncJids) {
+        this.wsGateway.emitCRMEvent(room, 'crm:message:status', {
+          id: messageId,
+          remoteJid: jid,
           status,
-        },
-      );
+          fromMe,
+        });
+      }
+    }
+  }
+
+  /** Presença: digitando, gravando, online/offline (Evolution PRESENCE_UPDATE). */
+  private async handlePresence(branchId: string, data: any) {
+    const items = Array.isArray(data) ? data : [data];
+    const room = `branch:${branchId}`;
+
+    const config = await prisma.whatsAppConfig.findUnique({
+      where: { branchId },
+      select: { instanceName: true },
+    });
+
+    for (const item of items) {
+      let remoteJid =
+        item?.id ||
+        item?.remoteJid ||
+        item?.participant ||
+        (item?.presences ? Object.keys(item.presences)[0] : null);
+
+      if (!remoteJid || isGroupJid(remoteJid)) continue;
+
+      let presence: string =
+        item?.presence ||
+        item?.lastKnownPresence ||
+        item?.status ||
+        'unavailable';
+
+      if (item?.presences && typeof item.presences === 'object') {
+        const entry =
+          item.presences[remoteJid] ?? Object.values(item.presences)[0];
+        if (entry && typeof entry === 'object') {
+          presence =
+            (entry as any).lastKnownPresence ??
+            (entry as any).presence ??
+            presence;
+        }
+      }
+
+      const normalized =
+        presence === 'composing' || presence === 'recording'
+          ? presence
+          : presence === 'available'
+            ? 'available'
+            : 'unavailable';
+
+      const resolved = config?.instanceName
+        ? await this.whatsappService.resolveContactJid(
+            config.instanceName,
+            { remoteJid },
+            item,
+          )
+        : remoteJid;
+
+      if (!resolved) continue;
+
+      const syncJids = config?.instanceName
+        ? await this.whatsappService.collectSyncJids(
+            config.instanceName,
+            resolved,
+            { remoteJid },
+            item,
+          )
+        : [resolved];
+
+      for (const jid of syncJids) {
+        this.wsGateway.emitCRMEvent(room, 'crm:presence', {
+          remoteJid: jid,
+          presence: normalized,
+        });
+      }
     }
   }
 
@@ -445,9 +565,11 @@ export class WhatsAppWebhookController {
       return map[status] ?? 'sent';
     }
 
-    if (s === 'READ') return 'read';
-    if (s === 'DELIVERY_ACK') return 'received';
+    if (s === 'READ' || s === 'PLAYED') return 'read';
+    if (s === 'DELIVERY_ACK' || s === 'DELIVERED' || s === 'RECEIVED') return 'received';
+    if (s === 'SERVER_ACK' || s === 'SENT') return 'sent';
     if (s === 'PENDING') return 'pending';
+    if (s === 'ERROR') return 'error';
 
     return 'sent';
   }
