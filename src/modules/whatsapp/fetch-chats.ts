@@ -259,43 +259,48 @@ function pickBetterPushName(
 
 const LID_PHONE_MERGE_WINDOW_MS = 5 * 60 * 1000;
 
-/** Vários registros em whatsapp_lid_pairs podem apontar o mesmo telefone para LIDs diferentes (dados antigos).
- * Mantém um único LID por phone: prioriza ordem em rawChats (Evolution) e depois presença na lista. */
-function dedupeLidMapOneLidPerPhone(
-  map: Map<string, string>,
-  rawChats: any[],
+/** Aprende pares @lid ↔ telefone a partir de ChatLastMessage com atividade próxima.
+ * Usa greedy 1–1 ordenado pelo menor Δt para não “roubar” o mesmo telefone
+ * quando há vários chats @lid ativos pouco tempo depois da mesma msg (ex.: LID diferente pegando pedido/outro cliente).
+ */
+function inferLidPairsFromChatLastRows(
+  rows: Array<{ remoteJid: string; timestamp: bigint | number }>,
+  lidMap: Map<string, string>,
   instancePhone: string | null,
 ): void {
-  const order = new Map<string, number>();
-  rawChats.forEach((c, i) => {
-    const j = String(c.remoteJid ?? c.id ?? '');
-    if (j && isLidJid(j) && !order.has(j)) order.set(j, i);
-  });
+  const lids = rows.filter((r) => isLidJid(r.remoteJid));
+  const phones = rows.filter(
+    (r) => isPhoneJid(r.remoteJid) && !isInstancePhone(r.remoteJid, instancePhone),
+  );
+  if (!lids.length || !phones.length) return;
 
-  const byPhone = new Map<string, string[]>();
-  for (const [k, v] of map) {
-    if (isLidJid(k) && isPhoneJid(v) && !isInstancePhone(v, instancePhone)) {
-      const list = byPhone.get(v) ?? [];
-      list.push(k);
-      byPhone.set(v, list);
+  type Cand = { lid: string; phone: string; diff: number };
+  const cands: Cand[] = [];
+
+  for (const lidRow of lids) {
+    const lidTs = Number(lidRow.timestamp);
+    for (const phoneRow of phones) {
+      const diff = Math.abs(lidTs - Number(phoneRow.timestamp));
+      if (diff <= LID_PHONE_MERGE_WINDOW_MS) {
+        cands.push({
+          lid: lidRow.remoteJid,
+          phone: phoneRow.remoteJid,
+          diff,
+        });
+      }
     }
   }
 
-  for (const [phone, lids] of byPhone) {
-    if (lids.length <= 1) continue;
+  cands.sort((a, b) => a.diff - b.diff);
 
-    const preferred = [...lids].sort((a, b) => {
-      const ia = order.get(a) ?? 99999;
-      const ib = order.get(b) ?? 99999;
-      if (ia !== ib) return ia - ib;
-      return a.localeCompare(b);
-    })[0];
+  const lidsUsed = new Set<string>();
+  const phonesUsed = new Set<string>();
 
-    for (const lid of lids) {
-      if (lid === preferred) continue;
-      if (map.get(lid) === phone) map.delete(lid);
-    }
-    registerLidPair(map, preferred, phone);
+  for (const c of cands) {
+    if (lidsUsed.has(c.lid) || phonesUsed.has(c.phone)) continue;
+    lidsUsed.add(c.lid);
+    phonesUsed.add(c.phone);
+    registerLidPair(lidMap, c.lid, c.phone);
   }
 }
 
@@ -529,8 +534,10 @@ export async function fetchChatsForBranch(deps: FetchChatsDeps): Promise<FetchCh
   const rawChats = await evolutionRequest('POST', `/chat/findChats/${instanceName}`, {
     where: {},
   })
+
     .then((r) => normalizeEvolutionList(r))
     .catch(() => [] as any[]);
+  console.log(rawChats, "dsadsadsa22")
 
   const contacts = await evolutionRequest('POST', `/chat/findContacts/${instanceName}`, {
     where: {},
@@ -551,12 +558,13 @@ export async function fetchChatsForBranch(deps: FetchChatsDeps): Promise<FetchCh
   const persisted = await loadPersistedLidMap(instanceName);
   for (const [k, v] of persisted) registerLidPair(lidMap, k, v);
   purgeInstanceFromLidMap(lidMap, instancePhone);
-  dedupeLidMapOneLidPerPhone(lidMap, rawChats, instancePhone);
 
   const localLastRows = await prisma.chatLastMessage.findMany({
     where: { branchId },
     orderBy: { timestamp: 'desc' },
   });
+
+  logger?.log(`[fetchChats] evolution=${rawChats.length} lidPairs=${lidMap.size / 2}`);
 
   const pushNamePhoneIndex = buildPushNamePhoneIndex(
     contacts,
@@ -714,6 +722,8 @@ export async function fetchChatsForBranch(deps: FetchChatsDeps): Promise<FetchCh
       }
     }
   }
+
+  logger?.log(`[fetchChats] conversas únicas=${chatList.length}`);
 
   if (!chatList.length) {
     const orders = await prisma.order.findMany({
