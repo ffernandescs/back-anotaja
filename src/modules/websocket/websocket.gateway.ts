@@ -21,6 +21,8 @@ interface AuthenticatedSocket extends Socket {
     groupId?: string;
     branchId?: string;
     deliveryPersonId?: string;
+    /** staff = User Prisma; customer = JWT sem User; delivery = entregador; external = token legado */
+    wsSessionKind?: 'staff' | 'customer' | 'delivery' | 'external';
   };
 }
 
@@ -45,6 +47,26 @@ export class OrdersWebSocketGateway
     private redisService: RedisService,
     private uploadService: UploadService,
   ) {
+  }
+
+  /** Mesma empresa (ex.: matriz x filial) — usado para liberar join de sala só para staff/entregador */
+  private async branchesShareCompany(branchIdA: string, branchIdB: string): Promise<boolean> {
+    if (branchIdA === branchIdB) return true;
+    const [a, b] = await Promise.all([
+      prisma.branch.findUnique({
+        where: { id: branchIdA },
+        select: { companyId: true },
+      }),
+      prisma.branch.findUnique({
+        where: { id: branchIdB },
+        select: { companyId: true },
+      }),
+    ]);
+    return !!(
+      a?.companyId &&
+      b?.companyId &&
+      a.companyId === b.companyId
+    );
   }
 
   async handleConnection(client: AuthenticatedSocket) {
@@ -130,6 +152,7 @@ export class OrdersWebSocketGateway
           userId: deliveryPerson.id,
           branchId: deliveryPerson.branchId,
           deliveryPersonId: deliveryPerson.id,
+          wsSessionKind: 'delivery',
         };
 
         if (deliveryPerson.branchId) {
@@ -154,19 +177,34 @@ export class OrdersWebSocketGateway
         });
 
         if (!user) {
-          // Fallback para tokens da loja que não têm usuário no banco, mas trazem branchId no payload
+          // Fallback: token sem User no Prisma (ex.: cliente final ou token legado)
           if (payload.branchId) {
+            const customer = await prisma.customer.findUnique({
+              where: { id: userId },
+              select: { id: true },
+            });
+            const wsSessionKind = customer ? 'customer' : 'external';
+
             client.user = {
               userId: userId,
-              group: payload.group ,
+              group: payload.group,
               branchId: payload.branchId,
+              wsSessionKind,
             } as any;
 
-            const branchRoom = `branch:${payload.branchId}`;
-            client.join(branchRoom);
-            this.logger.log(
-              `✅ Store token without DB user joined room: ${branchRoom}`,
-            );
+            if (wsSessionKind === 'customer') {
+              const customerRoom = `customer:${userId}`;
+              client.join(customerRoom);
+              this.logger.log(
+                `✅ Customer ${userId} connected — private room ${customerRoom} (branch ${payload.branchId} no token)`,
+              );
+            } else {
+              const branchRoom = `branch:${payload.branchId}`;
+              client.join(branchRoom);
+              this.logger.log(
+                `✅ Store token without DB user joined room: ${branchRoom} (${wsSessionKind})`,
+              );
+            }
 
             void client.emit('connected', {
               userId,
@@ -188,6 +226,7 @@ export class OrdersWebSocketGateway
           email: user.email || undefined,
           groupId: user.groupId || undefined,
           branchId: user.branchId || undefined,
+          wsSessionKind: 'staff',
         };
 
         if (user.branchId) {
@@ -328,6 +367,26 @@ export class OrdersWebSocketGateway
       return;
     }
 
+    // Sala exclusiva do cliente final — só o próprio id
+    const customerRoomMatch = /^customer:([^:]+)$/.exec(room);
+    if (customerRoomMatch) {
+      const requestedCustomerId = customerRoomMatch[1];
+      if (
+        client.user.wsSessionKind !== 'customer' ||
+        requestedCustomerId !== client.user.userId
+      ) {
+        this.logger.warn(
+          `join denied: socket ${client.id} cannot join ${room} (kind=${client.user.wsSessionKind ?? 'unset'})`,
+        );
+        client.emit('error', { message: 'Cannot join this customer room' });
+        return;
+      }
+      client.join(room);
+      this.logger.log(`✅ Customer ${client.user.userId} joined room via emit: ${room}`);
+      void client.emit('joined', { room });
+      return;
+    }
+
     const branchId = client.user.branchId;
     if (!branchId) {
       this.logger.warn(
@@ -337,20 +396,36 @@ export class OrdersWebSocketGateway
       return;
     }
 
-    // Só permite sala da própria filial (evita receber order:update de outras lojas)
+    // Cliente final não escuta broadcast da filial (evita ver pedidos de terceiros)
     const branchRoomMatch = /^branch:([^:]+)$/.exec(room);
+    if (branchRoomMatch && client.user.wsSessionKind === 'customer') {
+      this.logger.warn(
+        `join denied: customer ${client.user.userId} cannot join branch room ${room}`,
+      );
+      client.emit('error', { message: 'Customers use customer:<id> room only' });
+      return;
+    }
+
+    // Sala de filial: própria filial OU (staff/entregador) outra filial da mesma empresa
     if (branchRoomMatch) {
       const requested = branchRoomMatch[1];
       if (requested !== branchId) {
-        this.logger.warn(
-          `join denied: user ${client.user.userId} tried ${room} but session branch is ${branchId}`,
-        );
-        client.emit('error', { message: 'Cannot join another branch room' });
-        return;
+        const kind = client.user.wsSessionKind;
+        const allowSiblingBranch =
+          (kind === 'staff' || kind === 'delivery') &&
+          (await this.branchesShareCompany(branchId, requested));
+
+        if (!allowSiblingBranch) {
+          this.logger.warn(
+            `join denied: user ${client.user.userId} tried ${room} but session branch is ${branchId} (kind=${kind ?? 'unset'})`,
+          );
+          client.emit('error', { message: 'Cannot join another branch room' });
+          return;
+        }
       }
     }
 
-    // Sala de pedido: só se o pedido pertencer à mesma filial
+    // Sala de pedido: mesma filial do pedido OU staff/entregador com pedido em filial da mesma empresa
     const orderRoomMatch = /^order:([^:]+)$/.exec(room);
     if (orderRoomMatch) {
       const orderId = orderRoomMatch[1];
@@ -358,12 +433,39 @@ export class OrdersWebSocketGateway
         where: { id: orderId },
         select: { branchId: true },
       });
-      if (!order || order.branchId !== branchId) {
+      if (!order?.branchId) {
         this.logger.warn(
-          `join denied: user ${client.user.userId} cannot join order room ${room}`,
+          `join denied: user ${client.user.userId} cannot join order room ${room} (order missing)`,
         );
         client.emit('error', { message: 'Cannot join this order room' });
         return;
+      }
+      if (order.branchId !== branchId) {
+        const kind = client.user.wsSessionKind;
+        const allowSiblingOrder =
+          (kind === 'staff' || kind === 'delivery') &&
+          (await this.branchesShareCompany(branchId, order.branchId));
+
+        if (!allowSiblingOrder) {
+          this.logger.warn(
+            `join denied: user ${client.user.userId} cannot join order room ${room}`,
+          );
+          client.emit('error', { message: 'Cannot join this order room' });
+          return;
+        }
+      }
+      if (client.user.wsSessionKind === 'customer') {
+        const fullOrder = await prisma.order.findUnique({
+          where: { id: orderId },
+          select: { customerId: true },
+        });
+        if (!fullOrder?.customerId || fullOrder.customerId !== client.user.userId) {
+          this.logger.warn(
+            `join denied: customer ${client.user.userId} cannot join order room ${room}`,
+          );
+          client.emit('error', { message: 'Cannot join this order room' });
+          return;
+        }
       }
     }
 
@@ -425,6 +527,14 @@ export class OrdersWebSocketGateway
       `📤 New order created - Emitted to room ${branchRoom}: Order #${order.orderNumber || order.id.slice(0, 8)}${clientCount > 0 ? ` (${clientCount} clients listening)` : ' (no clients listening)'}`,
     );
 
+    const orderCustomerId = order.customerId as string | undefined;
+    if (orderCustomerId) {
+      const customerRoom = `customer:${orderCustomerId}`;
+      this.server.to(customerRoom).emit('order:new', eventData);
+      this.server.to(customerRoom).emit('order:update', eventData);
+      this.logger.debug(`📤 Emitted order:new/update to ${customerRoom}`);
+    }
+
     // Emitir também para o room específico do pedido
     const orderRoom = `order:${order.id}`;
     this.server.to(orderRoom).emit('order:new', eventData);
@@ -454,15 +564,15 @@ export class OrdersWebSocketGateway
       order,
     };
 
+    if (!this.server || !this.server.sockets) {
+      this.logger.warn(
+        'WebSocket server not initialized, cannot emit order:update',
+      );
+      return;
+    }
+
     if (order.branchId) {
       const branchRoom = `branch:${order.branchId}`;
-
-      if (!this.server || !this.server.sockets) {
-        this.logger.warn(
-          'WebSocket server not initialized, cannot emit order:update',
-        );
-        return;
-      }
 
       let clientCount = 0;
       try {
@@ -478,6 +588,15 @@ export class OrdersWebSocketGateway
       this.server.to(branchRoom).emit('order:update', eventData);
       this.logger.log(
         `📤 Emitted order:update to room ${branchRoom}: ${eventType} - Order ${order.id}${clientCount > 0 ? ` (${clientCount} clients listening)` : ''}`,
+      );
+    }
+
+    const orderCustomerId = order.customerId as string | undefined;
+    if (orderCustomerId) {
+      const customerRoom = `customer:${orderCustomerId}`;
+      this.server.to(customerRoom).emit('order:update', eventData);
+      this.logger.debug(
+        `📤 Emitted order:update to ${customerRoom}: ${eventType} - Order ${order.id}`,
       );
     }
 
