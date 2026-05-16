@@ -153,4 +153,5 @@ export class CreateGeneralConfigDto {
   browserNotificationsEnabled?: boolean = false;
 }
 
-export class UpdateGeneralConfigDto extends CreateGeneralConfigDto {}
+/** Sem defaults de classe — evita gravar showMenuFooter=true ao enviar só um campo. */
+export class UpdateGeneralConfigDto extends PartialType(CreateGeneralConfigDto) {}
