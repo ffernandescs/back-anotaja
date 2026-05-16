@@ -6,13 +6,14 @@ import {
   SubscribeMessage,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { Logger } from '@nestjs/common';
+import { forwardRef, Inject, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { JwtPayload } from './types';
 import { prisma } from '../../../lib/prisma';
 import { RedisService, LocationUpdate } from './redis.service';
 import { UploadService } from '../upload/upload.service';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
 
 interface AuthenticatedSocket extends Socket {
   user?: {
@@ -46,6 +47,8 @@ export class OrdersWebSocketGateway
     private configService: ConfigService,
     private redisService: RedisService,
     private uploadService: UploadService,
+    @Inject(forwardRef(() => WhatsAppService))
+    private readonly whatsappService: WhatsAppService,
   ) {
   }
 
@@ -967,10 +970,7 @@ export class OrdersWebSocketGateway
     }
 
     try {
-      const { WhatsAppService } = await import('../whatsapp/whatsapp.service');
-      const whatsappService = new WhatsAppService(this.uploadService);
-
-      const result = await whatsappService.sendCrmMessage(
+      const result = await this.whatsappService.sendCrmMessage(
         client.user.branchId,
         payload,
       );
