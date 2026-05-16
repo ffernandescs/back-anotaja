@@ -403,32 +403,6 @@ async function seedTablesForBranch(branchId: string, userId: string) {
   }
 }
 
-/** Origens padrão do CRUD (WhatsApp / campanhas) — uma lista por filial. */
-const DEFAULT_ORDER_ORIGINS = [
-  { name: 'Instagram', code: 'insta1' },
-  { name: 'WhatsApp', code: 'wapp1' },
-  { name: 'Chatbot', code: 'chat1' },
-  { name: 'Tráfego Pago', code: 'trafg1' },
-  { name: 'Facebook', code: 'faceb1' },
-] as const;
-
-async function seedOrderOriginsForBranch(branchId: string, branchLabel: string) {
-  console.log(`📣 Verificando origens de pedido para "${branchLabel}"...`);
-  for (const origin of DEFAULT_ORDER_ORIGINS) {
-    await prisma.orderOrigin.upsert({
-      where: {
-        branchId_code: { branchId, code: origin.code },
-      },
-      update: { name: origin.name },
-      create: {
-        branchId,
-        name: origin.name,
-        code: origin.code,
-      },
-    });
-  }
-}
-
 export async function generateHashedPassword(
   password: string,
 ): Promise<string> {
@@ -3838,8 +3812,6 @@ export async function main() {
         console.log(
           `✅ Filial vinculada (${usedBranchIds.length}/${branches.length}): ${branch.branchName}`,
         );
-
-        await seedOrderOriginsForBranch(branch.id, branchName);
 
         // Verificar e criar clientes
         console.log('🔄 Verificando clientes para a filial...');

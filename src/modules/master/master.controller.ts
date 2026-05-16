@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Delete,
   Body,
   HttpCode,
   HttpStatus,
@@ -19,6 +20,12 @@ import { JwtOwnerAuthGuard } from 'src/common/guards/jwt-owner.guard';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { UploadService } from '../upload/upload.service';
 import { IsObject } from 'class-validator';
+import { OrderOriginsService } from '../order-origins/order-origins.service';
+import {
+  CreateOrderOriginDto,
+  SuggestOrderOriginCodeDto,
+  UpdateOrderOriginDto,
+} from '../order-origins/dto/order-origins.dto';
 
 class SetConfigDto {
   @IsObject()
@@ -30,6 +37,7 @@ export class MasterController {
   constructor(
     private readonly masterService: MasterService,
     private readonly uploadService: UploadService,
+    private readonly orderOriginsService: OrderOriginsService,
   ) {}
 
 
@@ -179,5 +187,55 @@ export class MasterController {
   @HttpCode(HttpStatus.OK)
   async setConfig(@Body() dto: SetConfigDto) {
     return this.masterService.setSystemConfigs(dto.configs);
+  }
+
+  // ─── Origens de pedido (global) ─────────────────────────────────
+
+  @Public()
+  @Get('order-origins')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  @HttpCode(HttpStatus.OK)
+  async getOrderOrigins() {
+    return this.orderOriginsService.getOrderOrigins();
+  }
+
+  @Public()
+  @Post('order-origins/suggest-code')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  @HttpCode(HttpStatus.OK)
+  async suggestOrderOriginCode(@Body() dto: SuggestOrderOriginCodeDto) {
+    return this.orderOriginsService.suggestOrderOriginCode(dto.name);
+  }
+
+  @Public()
+  @Post('order-origins')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  @HttpCode(HttpStatus.CREATED)
+  async createOrderOrigin(@Body() dto: CreateOrderOriginDto) {
+    return this.orderOriginsService.createOrderOrigin(dto);
+  }
+
+  @Public()
+  @Put('order-origins/:id')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  @HttpCode(HttpStatus.OK)
+  async updateOrderOrigin(
+    @Param('id') id: string,
+    @Body() dto: UpdateOrderOriginDto,
+  ) {
+    return this.orderOriginsService.updateOrderOrigin(id, dto);
+  }
+
+  @Public()
+  @Delete('order-origins/:id')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  @HttpCode(HttpStatus.OK)
+  async deleteOrderOrigin(@Param('id') id: string) {
+    return this.orderOriginsService.deleteOrderOrigin(id);
   }
 }

@@ -1829,16 +1829,16 @@ private async validateCustomer(
     return { deliveryFee, serviceFee, estimatedTime };
   }
 
-  /** Resolve origem do cardápio pelo código (?origem=) — opcional, não bloqueia o pedido se inválido. */
+  /** Resolve origem do cardápio pelo código (?origem=) — catálogo global da plataforma. */
   private async resolveOrderOriginIdForBranch(
-    branchId: string,
+    _branchId: string,
     orderOriginCode?: string | null,
   ): Promise<string | null> {
     const code = orderOriginCode?.trim().toLowerCase() ?? '';
     if (!code || !isValidOrderOriginCode(code)) return null;
 
     const origin = await prisma.orderOrigin.findFirst({
-      where: { branchId, code },
+      where: { code },
       select: { id: true },
     });
     return origin?.id ?? null;

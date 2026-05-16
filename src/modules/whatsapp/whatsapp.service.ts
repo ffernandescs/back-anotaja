@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import type { OrderChannelCampaignWsEmitter } from '../websocket/order-channel-campaign-ws.types';
 import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
-import type { OrderChannelCampaign, OrderOrigin, Prisma } from '@prisma/client';
+import type { OrderChannelCampaign, OrderOrigin, Prisma, WhatsAppConfig } from '@prisma/client';
 import { prisma } from '../../../lib/prisma';
 import ffmpeg from 'fluent-ffmpeg';
 import * as path from 'path';
@@ -65,12 +65,15 @@ import {
   type BranchScheduleLike,
 } from '../../utils/branch-schedule-for-chatbot';
 import { buildBranchStorefrontPublicUrl } from 'src/utils/storefront-url';
-import { PaginatedResponseDto } from '../../common/dto/paginated-response.dto';
+import { buildCrmStorefrontMenuUrl } from 'src/utils/crm-storefront-url';
 import {
-  buildOrderChannelCampaignLink,
-  isValidOrderOriginCode,
-  suggestOrderOriginCode as generateOrderOriginCode,
-} from '../../utils/order-channel-campaign';
+  extractMessageStatusFromEvolution,
+  mapEvolutionMessageStatus,
+  mergeWhatsAppMessageStatus,
+} from 'src/utils/whatsapp-message-status';
+import { PaginatedResponseDto } from '../../common/dto/paginated-response.dto';
+import { buildOrderChannelCampaignLink } from '../../utils/order-channel-campaign';
+import { OrderOriginsService } from '../order-origins/order-origins.service';
 import {
   parseOrderCampaignRecipientsJson,
   substituteOrderCampaignMessage,
@@ -343,6 +346,7 @@ export class WhatsAppService {
   constructor(
     private readonly uploadService: UploadService,
     private readonly aiService: AiService,
+    private readonly orderOriginsService: OrderOriginsService,
     @Inject(forwardRef(() => OrdersWebSocketGateway))
     private readonly wsGateway: OrderChannelCampaignWsEmitter,
   ) {}
@@ -1208,7 +1212,7 @@ export class WhatsAppService {
       fromMe: msg?.key?.fromMe ?? false,
       text: this.extractText(msg) ?? '',
       timestamp: this.toMs(msg?.messageTimestamp),
-      status: this.mapStatus(msg?.status),
+      status: extractMessageStatusFromEvolution(msg),
       mediaType: this.detectMediaType(msg),
       mediaUrl: this.extractMediaUrl(msg),
       pushName: msg?.pushName ?? null,
@@ -1219,18 +1223,73 @@ export class WhatsAppService {
 
   async sendCrmMessage(branchId: string, dto: SendCrmMessageDto) {
     const config = await this.requireConnectedConfig(branchId);
+    const targets = await this.resolveCrmSendTargets(branchId, config.instanceName, dto.jid);
+    if (!targets.length) {
+      throw new BadRequestException(`Número inválido ou sem WhatsApp ativo: ${dto.jid}`);
+    }
 
-    const result = await this.evolutionRequest(
-      'POST',
-      `/message/sendText/${config.instanceName}`,
-      { number: dto.jid, text: dto.text },
+    let lastError: unknown;
+    let lastKey: { id?: string; remoteJid?: string; fromMe?: boolean } | undefined;
+
+    for (const target of targets) {
+      const number = this.toEvolutionSendNumber(target);
+      try {
+        const result = await this.evolutionRequest(
+          'POST',
+          `/message/sendText/${config.instanceName}`,
+          { number, text: dto.text },
+        );
+        lastKey = result?.key as { id?: string; remoteJid?: string; fromMe?: boolean } | undefined;
+        const messageId = result?.key?.id ?? result?.messageId ?? null;
+        const remoteJid =
+          (typeof result?.key?.remoteJid === 'string' && result.key.remoteJid) ||
+          (number.includes('@') ? number : `${number.replace(/\D/g, '')}@s.whatsapp.net`);
+
+        if (messageId) {
+          try {
+            await prisma.whatsAppMessage.upsert({
+              where: { id: messageId },
+              create: {
+                id: messageId,
+                branchId,
+                remoteJid,
+                fromMe: true,
+                text: dto.text,
+                message: dto.text,
+                customerPhone:
+                  phoneFromJid(remoteJid).replace(/^55/, '') || number.replace(/\D/g, ''),
+                status: 'sent',
+                sentAt: new Date(),
+              },
+              update: {
+                text: dto.text,
+                message: dto.text,
+                status: mergeWhatsAppMessageStatus('pending', 'sent'),
+              },
+            });
+          } catch (err) {
+            this.logger.warn(`[sendCrmMessage] Falha ao persistir mensagem ${messageId}: ${err}`);
+          }
+        }
+
+        return {
+          success: true,
+          messageId,
+          key: lastKey,
+        };
+      } catch (err) {
+        if (this.isEvolutionExistsFalseError(err)) {
+          lastError = err;
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    const tried = this.buildEvolutionSendNumberCandidates(dto.jid).join(', ') || dto.jid;
+    throw new BadRequestException(
+      `Número sem WhatsApp ativo ou inválido. Formatos tentados (com 55): ${tried}`,
     );
-
-    return {
-      success: true,
-      messageId: result?.key?.id ?? null,
-      key: result?.key as { id?: string; remoteJid?: string; fromMe?: boolean } | undefined,
-    };
   }
 
   /**
@@ -1379,7 +1438,7 @@ export class WhatsAppService {
       refInSaoPaulo: nowSp,
     });
 
-    const ordersLink = this.buildBranchOrdersMenuUrl(branch.subdomain ?? null);
+    const ordersLink = buildCrmStorefrontMenuUrl(branch.subdomain ?? null);
     const firstName = `${customerDisplayName ?? ''}`.trim().split(/\s+/)[0] ?? '';
 
     const ctxCustomerName = firstName || null;
@@ -1582,7 +1641,7 @@ export class WhatsAppService {
       schedules,
       refInSaoPaulo: nowSp,
     });
-    const ordersLink = this.buildBranchOrdersMenuUrl(branch.subdomain ?? null);
+    const ordersLink = buildCrmStorefrontMenuUrl(branch.subdomain ?? null);
     const firstName = `${customerDisplayName ?? ''}`.trim().split(/\s+/)[0] ?? '';
     const ctxCustomerName = firstName || null;
 
@@ -1760,7 +1819,7 @@ export class WhatsAppService {
       refInSaoPaulo: nowSp,
     });
 
-    const ordersLink = this.buildBranchOrdersMenuUrl(branch.subdomain ?? null);
+    const ordersLink = buildCrmStorefrontMenuUrl(branch.subdomain ?? null);
     const firstName = `${customerDisplayName ?? ''}`.trim().split(/\s+/)[0] ?? '';
     const ctxCustomerName = firstName || null;
 
@@ -2065,34 +2124,186 @@ export class WhatsAppService {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  /** Destinos válidos para envio CRM (JID, LID, 55 + variantes com/sem 9). */
+  private async resolveCrmSendTargets(
+    branchId: string,
+    instanceName: string,
+    jidOrPhone: string,
+  ): Promise<string[]> {
+    const trimmed = `${jidOrPhone ?? ''}`.trim();
+    if (!trimmed || isGroupJid(trimmed)) return [];
+
+    const targets: string[] = [];
+    const seen = new Set<string>();
+    const push = (value?: string | null) => {
+      const v = `${value ?? ''}`.trim();
+      if (!v || isGroupJid(v) || seen.has(v)) return;
+      seen.add(v);
+      targets.push(v);
+    };
+
+    if (trimmed.includes('@')) {
+      push(trimmed);
+      for (const alt of this.expandBrazilPhoneJids(trimmed)) push(alt);
+      if (isPhoneJid(trimmed)) {
+        try {
+          const lidMap = await this.buildLidMap(instanceName, [], null);
+          push(lidMap.get(trimmed));
+          push(resolveJidWithMap(trimmed, lidMap));
+        } catch {
+          /* mapa LID opcional */
+        }
+      }
+    }
+
+    const digitCandidates = this.buildEvolutionSendNumberCandidates(trimmed);
+    for (const digits of digitCandidates) {
+      push(digits);
+      const phoneJid = `${digits}@s.whatsapp.net`;
+      push(phoneJid);
+      for (const alt of this.expandBrazilPhoneJids(phoneJid)) push(alt);
+    }
+
+    if (digitCandidates.length) {
+      try {
+        const res = await this.evolutionRequest('POST', `/chat/whatsappNumbers/${instanceName}`, {
+          numbers: digitCandidates,
+        });
+        const list = (Array.isArray(res) ? res : []) as Array<{
+          exists?: boolean;
+          jid?: string;
+          number?: string;
+        }>;
+        for (const row of list) {
+          if (!row?.exists) continue;
+          if (row.jid) push(row.jid);
+          if (row.number) {
+            push(
+              row.number.includes('@')
+                ? row.number
+                : `${row.number.replace(/\D/g, '')}@s.whatsapp.net`,
+            );
+          }
+        }
+      } catch (err) {
+        this.logger.warn(
+          `[resolveCrmSendTargets] whatsappNumbers falhou: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+
+    const phoneKeys = digitCandidates.length
+      ? digitCandidates
+      : [this.normalizePhoneE164Brazil(trimmed)].filter(Boolean);
+    if (phoneKeys.length) {
+      const last = await prisma.whatsAppMessage.findFirst({
+        where: {
+          branchId,
+          remoteJid: { not: '' },
+          OR: phoneKeys.flatMap((p) => [
+            { customerPhone: p },
+            { remoteJid: { contains: p.slice(-10) } },
+          ]),
+        },
+        orderBy: { sentAt: 'desc' },
+        select: { remoteJid: true },
+      });
+      if (last?.remoteJid) push(last.remoteJid);
+    }
+
+    return targets.sort((a, b) => {
+      const rank = (j: string) => (isLidJid(j) ? 0 : isPhoneJid(j) ? 1 : 2);
+      return rank(a) - rank(b);
+    });
+  }
+
   async sendCrmMedia(branchId: string, jid: string, file: Express.Multer.File, caption?: string) {
     const config = await this.requireConnectedConfig(branchId);
+    const targets = await this.resolveCrmSendTargets(branchId, config.instanceName, jid);
+    if (!targets.length) {
+      throw new BadRequestException(`Número inválido ou sem WhatsApp ativo: ${jid}`);
+    }
+
     const isAudio = file.mimetype.startsWith('audio/');
     const base64 = file.buffer.toString('base64');
-
     const endpoint = isAudio
       ? `/message/sendWhatsAppAudio/${config.instanceName}`
       : `/message/sendMedia/${config.instanceName}`;
 
-    const body = isAudio
-      ? { number: jid, audio: base64, encoding: true }
-      : {
-          number: jid,
-          mediatype: this.mimeToMediaType(file.mimetype),
-          media: base64,
-          fileName: file.originalname,
-          caption: caption ?? '',
-        };
+    const buildBody = (number: string) =>
+      isAudio
+        ? { number, audio: base64, encoding: true }
+        : {
+            number,
+            mediatype: this.mimeToMediaType(file.mimetype),
+            media: base64,
+            fileName: file.originalname,
+            caption: caption ?? '',
+          };
 
-    const result = await this.evolutionRequest('POST', endpoint, body);
-    return { success: true, messageId: result?.key?.id ?? result?.messageId ?? null };
+    let lastError: unknown;
+    for (const target of targets) {
+      const number = this.toEvolutionSendNumber(target);
+      try {
+        const result = await this.evolutionRequest('POST', endpoint, buildBody(number));
+        const messageId = result?.key?.id ?? result?.messageId ?? null;
+        const remoteJid = number.includes('@')
+          ? number
+          : `${number.replace(/\D/g, '')}@s.whatsapp.net`;
+
+        if (messageId) {
+          try {
+            await prisma.whatsAppMessage.upsert({
+              where: { id: messageId },
+              create: {
+                id: messageId,
+                branchId,
+                remoteJid,
+                fromMe: true,
+                text: caption?.trim() || file.originalname,
+                message: caption?.trim() || file.originalname,
+                customerPhone: phoneFromJid(remoteJid).replace(/^55/, '') || number.replace(/\D/g, ''),
+                status: 'sent',
+                sentAt: new Date(),
+              },
+              update: {
+                status: mergeWhatsAppMessageStatus('pending', 'sent'),
+              },
+            });
+          } catch (err) {
+            this.logger.warn(`[sendCrmMedia] Falha ao persistir mensagem ${messageId}: ${err}`);
+          }
+        }
+
+        return { success: true, messageId };
+      } catch (err) {
+        if (this.isEvolutionExistsFalseError(err)) {
+          lastError = err;
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    const tried = this.buildEvolutionSendNumberCandidates(jid).join(', ') || jid;
+    throw new BadRequestException(
+      `Número sem WhatsApp ativo ou inválido. Formatos tentados (com 55): ${tried}`,
+    );
   }
 
   async updateMessageStatus(messageId: string, status: string): Promise<void> {
+    const normalized = mapEvolutionMessageStatus(status);
     try {
+      const existing = await prisma.whatsAppMessage.findUnique({
+        where: { id: messageId },
+        select: { status: true },
+      });
+      const merged = mergeWhatsAppMessageStatus(existing?.status, normalized);
       await prisma.whatsAppMessage.updateMany({
         where: { id: messageId },
-        data: { status },
+        data: { status: merged },
       });
     } catch {
       // mensagem pode não existir ainda no banco local
@@ -2281,133 +2492,12 @@ export class WhatsAppService {
     orderOrigin: { select: { id: true, name: true, code: true } },
   } satisfies Prisma.OrderChannelCampaignInclude;
 
-  async getOrderOrigins(branchId: string): Promise<OrderOrigin[]> {
-    return prisma.orderOrigin.findMany({
-      where: { branchId },
-      orderBy: { name: 'asc' },
-    });
+  async getOrderOrigins(): Promise<OrderOrigin[]> {
+    return this.orderOriginsService.getOrderOrigins();
   }
 
-  async suggestOrderOriginCode(branchId: string, name: string): Promise<{ code: string }> {
-    const existing = await prisma.orderOrigin.findMany({
-      where: { branchId },
-      select: { code: true },
-    });
-    const code = generateOrderOriginCode(
-      name,
-      existing.map((o) => o.code),
-    );
-    return { code };
-  }
-
-  async createOrderOrigin(branchId: string, dto: { name: string; code?: string }) {
-    const name = dto.name?.trim();
-    if (!name) throw new BadRequestException('Nome da origem é obrigatório');
-
-    const existingCodes = (
-      await prisma.orderOrigin.findMany({
-        where: { branchId },
-        select: { code: true },
-      })
-    ).map((o) => o.code);
-
-    let code = (dto.code ?? '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (!code) {
-      code = generateOrderOriginCode(name, existingCodes);
-    }
-    if (!isValidOrderOriginCode(code)) {
-      throw new BadRequestException(
-        'Código deve ter no mínimo 5 caracteres, apenas letras e números (a-z, 0-9), com ambos na mesma combinação.',
-      );
-    }
-    if (existingCodes.some((c) => c.toLowerCase() === code)) {
-      throw new BadRequestException('Já existe uma origem com este código');
-    }
-
-    return prisma.orderOrigin.create({
-      data: { branchId, name, code },
-    });
-  }
-
-  async updateOrderOrigin(
-    branchId: string,
-    id: string,
-    dto: { name?: string; code?: string },
-  ) {
-    const existing = await prisma.orderOrigin.findFirst({ where: { id, branchId } });
-    if (!existing) throw new NotFoundException('Origem não encontrada');
-
-    const name = dto.name?.trim() ?? existing.name;
-    let code = existing.code;
-    if (dto.code !== undefined) {
-      code = dto.code.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-      if (!isValidOrderOriginCode(code)) {
-        throw new BadRequestException(
-          'Código deve ter no mínimo 5 caracteres, apenas letras e números (a-z, 0-9), com ambos na mesma combinação.',
-        );
-      }
-      const conflict = await prisma.orderOrigin.findFirst({
-        where: { branchId, code, NOT: { id } },
-      });
-      if (conflict) throw new BadRequestException('Já existe uma origem com este código');
-    }
-
-    const updated = await prisma.orderOrigin.update({
-      where: { id },
-      data: { name, code },
-    });
-
-    await this.refreshCampaignLinksForOrigin(branchId, id);
-    return updated;
-  }
-
-  async deleteOrderOrigin(branchId: string, id: string) {
-    const existing = await prisma.orderOrigin.findFirst({ where: { id, branchId } });
-    if (!existing) throw new NotFoundException('Origem não encontrada');
-
-    const inUse = await prisma.orderChannelCampaign.count({
-      where: { orderOriginId: id },
-    });
-    if (inUse > 0) {
-      throw new BadRequestException(
-        'Origem em uso por campanhas. Exclua ou altere as campanhas antes.',
-      );
-    }
-
-    return prisma.orderOrigin.delete({ where: { id } });
-  }
-
-  private async refreshCampaignLinksForOrigin(branchId: string, orderOriginId: string) {
-    const origin = await prisma.orderOrigin.findFirst({
-      where: { id: orderOriginId, branchId },
-    });
-    if (!origin) return;
-
-    const menuBaseUrl = await this.resolveBranchMenuBaseUrl(branchId);
-    const campaigns = await prisma.orderChannelCampaign.findMany({
-      where: { branchId, orderOriginId },
-      select: { id: true },
-    });
-
-    for (const c of campaigns) {
-      const linkUrl = buildOrderChannelCampaignLink({
-        menuBaseUrl,
-        originCode: origin.code,
-        campaignId: c.id,
-      });
-      await prisma.orderChannelCampaign.update({
-        where: { id: c.id },
-        data: { linkUrl, orderChannelCode: origin.code },
-      });
-    }
-  }
-
-  private async requireOrderOrigin(branchId: string, orderOriginId: string) {
-    const origin = await prisma.orderOrigin.findFirst({
-      where: { id: orderOriginId, branchId },
-    });
-    if (!origin) throw new BadRequestException('Origem não encontrada');
-    return origin;
+  private async requireOrderOrigin(orderOriginId: string) {
+    return this.orderOriginsService.requireOrderOrigin(orderOriginId);
   }
 
   /** E.164 Brasil: sempre 55 + DDD + número (ex.: 81982647352 → 5581982647352). */
@@ -3186,7 +3276,7 @@ export class WhatsAppService {
     let origin = campaign.orderOrigin;
     if (!origin) {
       origin = await prisma.orderOrigin.findFirst({
-        where: { id: campaign.orderOriginId, branchId },
+        where: { id: campaign.orderOriginId },
         select: { name: true, code: true },
       });
     }
@@ -3310,7 +3400,7 @@ export class WhatsAppService {
       await this.requireConnectedConfig(branchId);
     }
 
-    const origin = await this.requireOrderOrigin(branchId, dto.orderOriginId);
+    const origin = await this.requireOrderOrigin(dto.orderOriginId);
 
     const menuBaseUrl = await this.resolveBranchMenuBaseUrl(branchId);
 
@@ -3358,12 +3448,11 @@ export class WhatsAppService {
       recipients?: Array<{ customerId: string; name: string; phone: string }>;
     },
   ) {
-    const origins = await prisma.orderOrigin.findMany({
-      where: { branchId },
-      select: { id: true },
-    });
+    const origins = await this.orderOriginsService.getOrderOrigins();
     if (!origins.length) {
-      throw new BadRequestException('Cadastre ao menos uma origem antes de gerar campanhas em lote.');
+      throw new BadRequestException(
+        'Nenhuma origem cadastrada na plataforma. Cadastre origens no ambiente Master antes de gerar campanhas em lote.',
+      );
     }
 
     const results: OrderChannelCampaignSaveResponse[] = [];
@@ -3409,8 +3498,8 @@ export class WhatsAppService {
     }
 
     const origin = dto.orderOriginId
-      ? await this.requireOrderOrigin(branchId, dto.orderOriginId)
-      : await this.requireOrderOrigin(branchId, existing.orderOriginId);
+      ? await this.requireOrderOrigin(dto.orderOriginId)
+      : await this.requireOrderOrigin(existing.orderOriginId);
 
     const phoneNumber = dto.phoneNumber ?? existing.phoneNumber;
     const title = dto.title?.trim() ?? existing.title;
@@ -3648,11 +3737,17 @@ export class WhatsAppService {
 
   // ─── Privados ─────────────────────────────────────────────────────────────────
 
-  private async requireConnectedConfig(branchId: string) {
+  private async requireConnectedConfig(
+    branchId: string,
+  ): Promise<WhatsAppConfig & { instanceName: string }> {
     const config = await prisma.whatsAppConfig.findUnique({ where: { branchId } });
-    if (!config?.instanceName) throw new BadRequestException('WhatsApp não configurado. Conecte o WhatsApp primeiro.');
-    if (config.status !== 'connected') throw new BadRequestException('WhatsApp não está conectado.');
-    return config;
+    if (!config?.instanceName) {
+      throw new BadRequestException('WhatsApp não configurado. Conecte o WhatsApp primeiro.');
+    }
+    if (config.status !== 'connected') {
+      throw new BadRequestException('WhatsApp não está conectado.');
+    }
+    return { ...config, instanceName: config.instanceName };
   }
 
   private async requireFullConfig(branchId: string) {

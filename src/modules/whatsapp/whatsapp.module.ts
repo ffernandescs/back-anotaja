@@ -5,6 +5,7 @@ import { WhatsAppService } from './whatsapp.service';
 import { WebSocketModule } from '../websocket/websocket.module';
 import { UploadModule } from '../upload/upload.module';
 import { AiModule } from '../ai/ai.module';
+import { OrderOriginsModule } from '../order-origins/order-origins.module';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule } from '@nestjs/config';
@@ -14,6 +15,7 @@ import { ConfigModule } from '@nestjs/config';
     forwardRef(() => WebSocketModule),
     UploadModule,
     AiModule,
+    OrderOriginsModule,
     ConfigModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],

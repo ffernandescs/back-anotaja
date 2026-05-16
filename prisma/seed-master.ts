@@ -26,6 +26,30 @@ export const paymentMethods = [
   { type: PaymentMethodType.OTHER,        name: 'Outro',              isActive: true, icon: 'default' },
 ];
 
+/** Origens globais de pedido (?origem=) — gerenciadas no ambiente /master */
+export const DEFAULT_ORDER_ORIGINS = [
+  { name: 'Instagram', code: 'insta1' },
+  { name: 'WhatsApp', code: 'wapp1' },
+  { name: 'Chatbot', code: 'chat1' },
+  { name: 'Tráfego Pago', code: 'trafg1' },
+  { name: 'Facebook', code: 'faceb1' },
+] as const;
+
+async function seedGlobalOrderOrigins() {
+  console.log('📣 Verificando origens de pedido globais...');
+  for (const origin of DEFAULT_ORDER_ORIGINS) {
+    await prisma.orderOrigin.upsert({
+      where: { code: origin.code },
+      update: { name: origin.name },
+      create: {
+        name: origin.name,
+        code: origin.code,
+      },
+    });
+  }
+  console.log(`✅ ${DEFAULT_ORDER_ORIGINS.length} origens de pedido criadas/atualizadas`);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // FEATURE KEYS POR PLANO (fonte da verdade para isPro)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -101,6 +125,9 @@ async function seed() {
     });
   }
   console.log('✅ Métodos de pagamento criados/atualizados');
+
+  // ── Origens de pedido (catálogo global) ─────────────────────────────────────
+  await seedGlobalOrderOrigins();
 
   // ── Menu Groups ────────────────────────────────────────────────────────────
   const groupsData = [

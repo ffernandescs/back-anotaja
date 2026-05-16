@@ -532,10 +532,14 @@ export class WhatsAppWebhookController {
         sentAt: new Date(timestampMs),
       },
       update: {
-        // evita sobrescrever status ou histórico importante
         text,
         message: text,
         pushName,
+        ...(fromMe
+          ? {}
+          : {
+              status: 'received',
+            }),
       },
     });
   }

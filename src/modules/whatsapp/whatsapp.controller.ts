@@ -33,9 +33,6 @@ import {
   CreateMessageTemplateDto,
   UpdateMessageTemplateDto,
   CreateCampaignRecordDto,
-  CreateOrderOriginDto,
-  UpdateOrderOriginDto,
-  SuggestOrderOriginCodeDto,
 } from './dto/whatsapp.dto';
 import {
   BulkCreateOrderChannelCampaignsDto,
@@ -461,46 +458,8 @@ export class WhatsAppController {
 
   @UseGuards(JwtAuthGuard)
   @Get('order-origins')
-  async getOrderOrigins(@Request() req) {
-    const branchId = req.user?.branchId;
-    if (!branchId) throw new BadRequestException('Filial não identificada');
-    return this.whatsappService.getOrderOrigins(branchId);
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @Post('order-origins/suggest-code')
-  async suggestOrderOriginCode(@Request() req, @Body() dto: SuggestOrderOriginCodeDto) {
-    const branchId = req.user?.branchId;
-    if (!branchId) throw new BadRequestException('Filial não identificada');
-    return this.whatsappService.suggestOrderOriginCode(branchId, dto.name);
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @Post('order-origins')
-  async createOrderOrigin(@Request() req, @Body() dto: CreateOrderOriginDto) {
-    const branchId = req.user?.branchId;
-    if (!branchId) throw new BadRequestException('Filial não identificada');
-    return this.whatsappService.createOrderOrigin(branchId, dto);
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @Put('order-origins/:id')
-  async updateOrderOrigin(
-    @Request() req,
-    @Param('id') id: string,
-    @Body() dto: UpdateOrderOriginDto,
-  ) {
-    const branchId = req.user?.branchId;
-    if (!branchId) throw new BadRequestException('Filial não identificada');
-    return this.whatsappService.updateOrderOrigin(branchId, id, dto);
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @Delete('order-origins/:id')
-  async deleteOrderOrigin(@Request() req, @Param('id') id: string) {
-    const branchId = req.user?.branchId;
-    if (!branchId) throw new BadRequestException('Filial não identificada');
-    return this.whatsappService.deleteOrderOrigin(branchId, id);
+  async getOrderOrigins() {
+    return this.whatsappService.getOrderOrigins();
   }
 
   // ─── Campanhas de links de pedido ──────────────────────────────
