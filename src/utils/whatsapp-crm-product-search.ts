@@ -125,7 +125,8 @@ export function tokenizeProductSearchQuery(raw: string): string[] {
   return uniq.slice(0, 8);
 }
 
-function getEffectiveProductPrice(product: {
+/** Preço vigente considerando regras de promoção (data/dia da semana). */
+export function getCrmEffectiveProductPrice(product: {
   price: number;
   hasPromotion: boolean;
   promotionalPrice: number | null;
@@ -256,7 +257,7 @@ export async function searchBranchProductsForCrm(
 
   const scored = rows
     .map((row) => {
-      const effectivePrice = getEffectiveProductPrice(row);
+      const effectivePrice = getCrmEffectiveProductPrice(row);
       return {
         row,
         effectivePrice,

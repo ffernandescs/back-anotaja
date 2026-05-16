@@ -15,6 +15,10 @@ export interface CrmBootTemplateContext {
   productsListFormatted?: string | null;
   /** Endereço da filial (`{{endereco_filial}}`) — fluxo establishmentAddress. */
   branchAddressFormatted?: string | null;
+  /** Métodos de pagamento do delivery online (`{{metodos_pagamento_delivery}}`). */
+  deliveryPaymentMethodsFormatted?: string | null;
+  /** Lista de produtos em promoção ativa (`{{lista_promocoes}}`). */
+  productPromotionsFormatted?: string | null;
 }
 
 export function greetingForHour(when: Date): 'Bom dia' | 'Boa tarde' | 'Boa noite' {
@@ -32,6 +36,8 @@ export function substituteCrmBootTokens(text: string, ctx: CrmBootTemplateContex
   const statusHorario = ((ctx.branchHoursStatusLine ?? '') + '').trim();
   const listaProdutos = ((ctx.productsListFormatted ?? '') + '').trim();
   const enderecoFilial = ((ctx.branchAddressFormatted ?? '') + '').trim();
+  const metodosPagamentoDelivery = ((ctx.deliveryPaymentMethodsFormatted ?? '') + '').trim();
+  const listaPromocoes = ((ctx.productPromotionsFormatted ?? '') + '').trim();
 
   return text
     .replaceAll(/\{\{\s*nome_cliente\s*\}\}/g, nome)
@@ -40,5 +46,7 @@ export function substituteCrmBootTokens(text: string, ctx: CrmBootTemplateContex
     .replaceAll(/\{\{\s*horarios_filial\s*\}\}/g, horarios || '—')
     .replaceAll(/\{\{\s*status_horario_filial\s*\}\}/g, statusHorario || '—')
     .replaceAll(/\{\{\s*lista_produtos\s*\}\}/g, listaProdutos || '—')
-    .replaceAll(/\{\{\s*endereco_filial\s*\}\}/g, enderecoFilial || '—');
+    .replaceAll(/\{\{\s*endereco_filial\s*\}\}/g, enderecoFilial || '—')
+    .replaceAll(/\{\{\s*metodos_pagamento_delivery\s*\}\}/g, metodosPagamentoDelivery || '—')
+    .replaceAll(/\{\{\s*lista_promocoes\s*\}\}/g, listaPromocoes || '—');
 }

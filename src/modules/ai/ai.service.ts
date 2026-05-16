@@ -7,7 +7,9 @@ export type CrmReactiveIntentFlow =
   | 'businessHours'
   | 'orderMenuLink'
   | 'productInfo'
-  | 'establishmentAddress';
+  | 'establishmentAddress'
+  | 'deliveryPaymentMethods'
+  | 'productPromotions';
 
 const CRM_REACTIVE_INTENTS_CLASSIFIER_SYSTEM =
   'És um classificador JSON para WhatsApp de restaurante ou loja (pt-BR).\n' +
@@ -16,12 +18,16 @@ const CRM_REACTIVE_INTENTS_CLASSIFIER_SYSTEM =
   '- businessHours: pergunta sobre HORÁRIOS de funcionamento (dias, que horas abre/fecha, expediente).\n' +
   '- orderMenuLink: pedido explícito de LINK do cardápio/menu/site para pedir, "manda o link", "onde pedo", URL da loja.\n' +
   '- productInfo: pergunta sobre PRODUTO/ITEM do cardápio — preço, se tem/vende X, sabor, "quanto custa a pizza", disponibilidade de um prato.\n' +
-  '- establishmentAddress: pergunta sobre ENDEREÇO/LOCAL da loja — "onde fica", "qual o endereço", "como chego", localização, ponto da loja.\n\n' +
+  '- establishmentAddress: pergunta sobre ENDEREÇO/LOCAL da loja — "onde fica", "qual o endereço", "como chego", localização, ponto da loja.\n' +
+  '- deliveryPaymentMethods: pergunta sobre FORMAS DE PAGAMENTO para pedir pelo delivery/cardápio online — PIX, cartão, dinheiro na entrega, "como posso pagar", "aceita cartão".\n' +
+  '- productPromotions: pergunta sobre PROMOÇÕES/OFERTAS/DESCONTOS do cardápio — "quais promoções", "tem oferta", "o que está em promoção", produtos em desconto.\n\n' +
   'Não incluas cumprimento genérico ("oi") sem pedido.\n' +
   'Não uses orderMenuLink se o cliente citar um produto específico (use productInfo).\n' +
   'Não uses productInfo se for só pedido de link genérico sem citar produto.\n' +
   'Não uses businessHours se não for sobre horário/expediente.\n' +
-  'Não uses establishmentAddress se for só pedido de link ou produto sem pedir local/endereço.\n\n' +
+  'Não uses establishmentAddress se for só pedido de link ou produto sem pedir local/endereço.\n' +
+  'Não uses deliveryPaymentMethods se não for sobre pagamento/formas de pagar pedido online.\n' +
+  'Não uses productPromotions para preço de UM produto específico (use productInfo); não uses productInfo para listar todas as promoções.\n\n' +
   'Resposta: JSON minificado só com chave intents (array de strings válidas acima). Sem markdown.';
 
 const CRM_PRODUCT_SEARCH_EXTRACT_SYSTEM =
@@ -574,6 +580,8 @@ Se tiver dúvidas, entre em contato conosco. Pedimos desculpas pelo inconvenient
       'orderMenuLink',
       'productInfo',
       'establishmentAddress',
+      'deliveryPaymentMethods',
+      'productPromotions',
     ];
     const seen = new Set<CrmReactiveIntentFlow>();
     const out: CrmReactiveIntentFlow[] = [];
@@ -583,7 +591,9 @@ Se tiver dúvidas, entre em contato conosco. Pedimos desculpas pelo inconvenient
         item === 'businessHours' ||
         item === 'orderMenuLink' ||
         item === 'productInfo' ||
-        item === 'establishmentAddress'
+        item === 'establishmentAddress' ||
+        item === 'deliveryPaymentMethods' ||
+        item === 'productPromotions'
       ) {
         const k = item as CrmReactiveIntentFlow;
         if (!seen.has(k)) {
@@ -621,14 +631,24 @@ Se tiver dúvidas, entre em contato conosco. Pedimos desculpas pelo inconvenient
       /\bonde\s+(?:eu\s+)?(?:posso|consigo)\s+(?:fazer\s+)?pedido\b/.test(l) ||
       /\burl\s+da\s+loja\b/.test(l);
 
+    const promotions =
+      /\b(?:promo[cç][aã]o|promo[cç][oõ]es)\b/.test(l) ||
+      /\b(?:oferta|ofertas)\b/.test(l) ||
+      /\b(?:desconto|descontos)\b/.test(l) ||
+      /\b(?:o\s+)?que\s+est[aá]\s+em\s+promo/.test(l) ||
+      /\b(?:tem|t[eê]m)\s+(?:alguma\s+)?promo/.test(l) ||
+      /\bprodutos?\s+em\s+promo/.test(l) ||
+      /\bquais\s+promo/.test(l);
+
     const product =
-      /\b(?:tem|t[eê]m|vende|vendem|trazem|servem)\b/.test(l) ||
-      /\bquanto\s+(?:custa|custam|fica|é|e)\b/.test(l) ||
-      /\b(?:pre[cç]o|valor)\s+(?:do|da|de)\b/.test(l) ||
-      /\b(?:voc[eê]s|vcs)\s+tem\b/.test(l) ||
-      /\b(?:tem|t[eê]m)\s+(?:algum|alguma)?\s*\w{3,}/.test(l) ||
-      /\b(?:sabor|ingrediente|recheio|tamanho|por[cç][aã]o)\b/.test(l) ||
-      /\b(?:pizza|hamb[uú]rguer|lanche|bebida|refrigerante|suco|por[cç][aã]o|combo|promo[cç][aã]o)\b/.test(l);
+      !promotions &&
+      (/\b(?:tem|t[eê]m|vende|vendem|trazem|servem)\b/.test(l) ||
+        /\bquanto\s+(?:custa|custam|fica|é|e)\b/.test(l) ||
+        /\b(?:pre[cç]o|valor)\s+(?:do|da|de)\b/.test(l) ||
+        /\b(?:voc[eê]s|vcs)\s+tem\b/.test(l) ||
+        /\b(?:tem|t[eê]m)\s+(?:algum|alguma)?\s*\w{3,}/.test(l) ||
+        /\b(?:sabor|ingrediente|recheio|tamanho|por[cç][aã]o)\b/.test(l) ||
+        /\b(?:pizza|hamb[uú]rguer|lanche|bebida|refrigerante|suco|por[cç][aã]o|combo)\b/.test(l));
 
     const address =
       /\b(?:endereco|endere[cç]o)\b/.test(l) ||
@@ -645,6 +665,18 @@ Se tiver dúvidas, entre em contato conosco. Pedimos desculpas pelo inconvenient
       out.push('productInfo');
     }
     if (address) out.push('establishmentAddress');
+
+    const payment =
+      /\b(?:forma|formas|metodo|metodos)\s+(?:de\s+)?pagamento\b/.test(l) ||
+      /\b(?:como\s+)?(?:pago|pagamos|pagar|pagamento)\b/.test(l) ||
+      /\b(?:aceita|aceitam)\s+(?:pix|cart[aã]o|dinheiro|credito|cr[eé]dito|debito|d[eé]bito)\b/.test(l) ||
+      /\bpaga(?:r|mento)\s+(?:com|no|por|na entrega)\b/.test(l) ||
+      /\b(?:pode|posso)\s+pagar\s+(?:com|no|por)\b/.test(l) ||
+      /\bpix\b/.test(l) && /\b(?:delivery|pedido|entrega|online)\b/.test(l);
+
+    if (payment) out.push('deliveryPaymentMethods');
+    if (promotions) out.push('productPromotions');
+
     return out;
   }
 

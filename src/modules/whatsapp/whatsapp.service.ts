@@ -34,6 +34,8 @@ import {
   searchBranchProductsForCrm,
 } from 'src/utils/whatsapp-crm-product-search';
 import { resolveBranchAddressFormatted } from 'src/utils/whatsapp-crm-branch-address';
+import { resolveDeliveryPaymentMethodsFormatted } from 'src/utils/whatsapp-crm-branch-payment-methods';
+import { resolveBranchProductPromotionsFormatted } from 'src/utils/whatsapp-crm-product-promotions';
 import {
   buildBranchOpeningHoursBlockPt,
   buildBranchOpenStatusLinePt,
@@ -85,6 +87,16 @@ export class WhatsAppService {
         segments: [],
       },
       establishmentAddress: {
+        enabled: true,
+        useDefaultTemplate: true,
+        segments: [],
+      },
+      deliveryPaymentMethods: {
+        enabled: true,
+        useDefaultTemplate: true,
+        segments: [],
+      },
+      productPromotions: {
         enabled: true,
         useDefaultTemplate: true,
         segments: [],
@@ -159,6 +171,32 @@ export class WhatsAppService {
     ];
   }
 
+  private static defaultCrmBootDeliveryPaymentMethodsFallbackSegments(): Array<{
+    body: string;
+    orderIndex: number;
+  }> {
+    return [
+      {
+        orderIndex: 1,
+        body:
+          '{{saudacao_horario}}, {{nome_cliente}}!\n\n{{metodos_pagamento_delivery}}\n\nPedidos pelo delivery online: {{link_pedidos}}',
+      },
+    ];
+  }
+
+  private static defaultCrmBootProductPromotionsFallbackSegments(): Array<{
+    body: string;
+    orderIndex: number;
+  }> {
+    return [
+      {
+        orderIndex: 1,
+        body:
+          '{{saudacao_horario}}, {{nome_cliente}}!\n\n{{lista_promocoes}}\n\nPedidos: {{link_pedidos}}',
+      },
+    ];
+  }
+
   private static bootFlowFallbackBodies(
     flowKey:
       | 'greeting'
@@ -166,14 +204,22 @@ export class WhatsAppService {
       | 'businessHours'
       | 'orderMenuLink'
       | 'productInfo'
-      | 'establishmentAddress',
+      | 'establishmentAddress'
+      | 'deliveryPaymentMethods'
+      | 'productPromotions',
   ): Array<{ body: string; orderIndex: number }> {
     if (flowKey === 'greeting') return WhatsAppService.defaultCrmBootGreetingFallbackSegments();
     if (flowKey === 'operatingStatus') return WhatsAppService.defaultCrmBootOperatingStatusFallbackSegments();
     if (flowKey === 'businessHours') return WhatsAppService.defaultCrmBootBusinessHoursFallbackSegments();
     if (flowKey === 'orderMenuLink') return WhatsAppService.defaultCrmBootOrderMenuLinkFallbackSegments();
     if (flowKey === 'productInfo') return WhatsAppService.defaultCrmBootProductInfoFallbackSegments();
-    return WhatsAppService.defaultCrmBootEstablishmentAddressFallbackSegments();
+    if (flowKey === 'establishmentAddress') {
+      return WhatsAppService.defaultCrmBootEstablishmentAddressFallbackSegments();
+    }
+    if (flowKey === 'deliveryPaymentMethods') {
+      return WhatsAppService.defaultCrmBootDeliveryPaymentMethodsFallbackSegments();
+    }
+    return WhatsAppService.defaultCrmBootProductPromotionsFallbackSegments();
   }
 
   /** `greeting.enabled === false` em `crmBootGreetingFlows` bloqueia só o fluxo de saudação. */
@@ -1554,12 +1600,24 @@ export class WhatsAppService {
       branchAddressFormatted = await resolveBranchAddressFormatted(branchId);
     }
 
+    let deliveryPaymentMethodsFormatted: string | null = null;
+    if (intents.includes('deliveryPaymentMethods')) {
+      deliveryPaymentMethodsFormatted = await resolveDeliveryPaymentMethodsFormatted(branchId);
+    }
+
+    let productPromotionsFormatted: string | null = null;
+    if (intents.includes('productPromotions')) {
+      productPromotionsFormatted = await resolveBranchProductPromotionsFormatted(branchId);
+    }
+
     for (const intent of intents) {
       if (
         intent !== 'businessHours' &&
         intent !== 'orderMenuLink' &&
         intent !== 'productInfo' &&
-        intent !== 'establishmentAddress'
+        intent !== 'establishmentAddress' &&
+        intent !== 'deliveryPaymentMethods' &&
+        intent !== 'productPromotions'
       ) {
         continue;
       }
@@ -1587,6 +1645,10 @@ export class WhatsAppService {
             flowKey === 'productInfo' ? productListFormatted : null,
           branchAddressFormatted:
             flowKey === 'establishmentAddress' ? branchAddressFormatted : null,
+          deliveryPaymentMethodsFormatted:
+            flowKey === 'deliveryPaymentMethods' ? deliveryPaymentMethodsFormatted : null,
+          productPromotionsFormatted:
+            flowKey === 'productPromotions' ? productPromotionsFormatted : null,
         }).trim();
 
         if (!text) continue;
@@ -1631,7 +1693,9 @@ export class WhatsAppService {
       | 'businessHours'
       | 'orderMenuLink'
       | 'productInfo'
-      | 'establishmentAddress',
+      | 'establishmentAddress'
+      | 'deliveryPaymentMethods'
+      | 'productPromotions',
   ): Array<{ body: string; orderIndex: number }> {
     const rec = WhatsAppService.normalizeFlowsInputToRecord(flows);
     if (!rec) {
@@ -1743,6 +1807,8 @@ export class WhatsAppService {
     const blankOrderMenuLink = blank['orderMenuLink'] as Record<string, unknown>;
     const blankProductInfo = blank['productInfo'] as Record<string, unknown>;
     const blankEstablishmentAddress = blank['establishmentAddress'] as Record<string, unknown>;
+    const blankDeliveryPaymentMethods = blank['deliveryPaymentMethods'] as Record<string, unknown>;
+    const blankProductPromotions = blank['productPromotions'] as Record<string, unknown>;
 
     const reservedKeys = new Set([
       'greeting',
@@ -1751,6 +1817,8 @@ export class WhatsAppService {
       'orderMenuLink',
       'productInfo',
       'establishmentAddress',
+      'deliveryPaymentMethods',
+      'productPromotions',
     ]);
     const preserved: Record<string, unknown> = {};
     for (const key of Object.keys(root)) {
@@ -1780,6 +1848,14 @@ export class WhatsAppService {
       establishmentAddress: WhatsAppService.normalizeSingleBootFlow(
         root['establishmentAddress'],
         blankEstablishmentAddress,
+      ),
+      deliveryPaymentMethods: WhatsAppService.normalizeSingleBootFlow(
+        root['deliveryPaymentMethods'],
+        blankDeliveryPaymentMethods,
+      ),
+      productPromotions: WhatsAppService.normalizeSingleBootFlow(
+        root['productPromotions'],
+        blankProductPromotions,
       ),
     };
   }
