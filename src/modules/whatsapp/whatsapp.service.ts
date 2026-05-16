@@ -41,6 +41,7 @@ import {
   CRM_ORDER_STATUS_NOTIFICATIONS_FLOW_KEY,
   legacyFlagsFromOrderStatusNotifications,
   mergeOrderStatusNotificationsIntoFlows,
+  readGranularOrderStatusNotificationsForApi,
   readOrderStatusNotificationsFromFlows,
   resolveCrmOrderStatusNotifications,
   sanitizeCrmOrderStatusNotificationsInput,
@@ -363,7 +364,7 @@ export class WhatsAppService {
     }
 
     const { serverUrl: _s, apiKey: _a, ...safe } = config as any;
-    safe.crmOrderStatusNotifications = resolveCrmOrderStatusNotifications(safe);
+    safe.crmOrderStatusNotifications = readGranularOrderStatusNotificationsForApi(safe);
     return safe;
   }
 

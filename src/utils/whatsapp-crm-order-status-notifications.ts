@@ -75,6 +75,21 @@ function coerceSlice(raw: unknown): CrmOrderStatusNotificationSlice | null {
   };
 }
 
+/** Normaliza JSON persistido sem flags legados (UI / leitura exata do que foi salvo). */
+export function normalizeGranularOrderStatusNotifications(
+  raw: unknown,
+): CrmOrderStatusNotificationsMap {
+  const out = blankCrmOrderStatusNotifications();
+  const root = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+
+  for (const id of CRM_ORDER_STATUS_NOTIFICATION_IDS) {
+    const slice = coerceSlice(root[id]);
+    if (slice) out[id] = slice;
+  }
+
+  return out;
+}
+
 /** Normaliza JSON persistido ou deriva dos flags legados (`orderConfirmationEnabled`, etc.). */
 export function normalizeCrmOrderStatusNotifications(
   raw: unknown,
@@ -96,6 +111,37 @@ export function normalizeCrmOrderStatusNotifications(
   }
 
   return out;
+}
+
+/**
+ * Mapa granular para UI/API: prioriza bloco em `crmBootGreetingFlows`, depois coluna.
+ * Nunca preenche `enabled` a partir de flags legados (evita “ligar todos” ao ativar notifyOrderStatus).
+ */
+export function readGranularOrderStatusNotificationsForApi(config: {
+  crmOrderStatusNotifications?: unknown;
+  crmBootGreetingFlows?: unknown;
+}): CrmOrderStatusNotificationsMap {
+  const flowsRaw = readOrderStatusNotificationsFromFlows(config.crmBootGreetingFlows);
+  const flowsNorm =
+    flowsRaw != null ? normalizeGranularOrderStatusNotifications(flowsRaw) : null;
+
+  const colNorm =
+    config.crmOrderStatusNotifications != null
+      ? normalizeGranularOrderStatusNotifications(config.crmOrderStatusNotifications)
+      : null;
+
+  if (!flowsNorm && !colNorm) return blankCrmOrderStatusNotifications();
+  if (!flowsNorm) return colNorm!;
+  if (!colNorm) return flowsNorm;
+
+  if (
+    isDefaultOrderStatusNotificationsMap(colNorm) &&
+    !orderStatusNotificationsMapsEqual(colNorm, flowsNorm)
+  ) {
+    return flowsNorm;
+  }
+
+  return colNorm;
 }
 
 export function sanitizeCrmOrderStatusNotificationsInput(raw: unknown): CrmOrderStatusNotificationsMap {
