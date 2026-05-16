@@ -11,7 +11,7 @@ import {
   SendCrmMessageDto,
 } from './dto/whatsapp.dto';
 import { UploadService } from '../upload/upload.service';
-import { AiService, type CrmReactiveIntentFlow } from '../ai/ai.service';
+import { AiService } from '../ai/ai.service';
 import { normalizeBrazilPhone } from 'src/utils/normalizePhone';
 import { isGroupJid, safeMessageId } from 'src/utils/reutilizeWhatsapp';
 import {
@@ -142,8 +142,11 @@ export class WhatsAppService {
   /** Cache em memória LID ↔ telefone aprendido via webhook (por instância). */
   private readonly lidMapCache = new Map<string, Map<string, string>>();
 
-  /** cooldown por branch + JID de envio + fluxo (anti-spam de resposta IA na mesma conversa). */
+  /** cooldown por branch + JID de envio + fluxo (`businessHours`). */
   private readonly crmAiReactiveSentAt = new Map<string, number>();
+
+  /** Auto mensagem „fechado“: permite enviar após loja estar em expediente de novo desde o último envio. Ausência ⇒ `true`. */
+  private readonly crmClosedOperatingArmed = new Map<string, boolean>();
 
   constructor(
     private readonly uploadService: UploadService,
@@ -1097,12 +1100,18 @@ export class WhatsAppService {
   }
 
   /**
-   * `CRM_BOOT_AI_REACTIVE_ENABLED=1`: classifica texto inbound (IA/heurística) e envia
-   * fluxos `operatingStatus` e/ou `businessHours` conforme configurados na filial.
+   * `CRM_BOOT_AI_REACTIVE_ENABLED=1`: classifica com Gemini perguntas de horário e envia fluxo `businessHours`.
+   * Mensagens automáticas por loja FECHADA (operating status) ficam em `trySendCrmClosedOperatingAuto`.
    */
   private static isCrmAiReactiveEnabled(): boolean {
     const v = (process.env.CRM_BOOT_AI_REACTIVE_ENABLED ?? '').trim().toLowerCase();
     return v === '1' || v === 'true' || v === 'yes' || v === 'on';
+  }
+
+  /** Automático quando a filial está fora do expediente (mensagem “fechado” só após ciclo fech→abrir). Default: ligado. */
+  private static isCrmClosedAutoOperatingEnabled(): boolean {
+    const v = (process.env.CRM_BOOT_CLOSED_AUTO_OPERATING_ENABLED ?? '1').trim().toLowerCase();
+    return v !== '0' && v !== 'false' && v !== 'no' && v !== 'off';
   }
 
   private static parseCrmAiReactiveCooldownMinutes(): number {
@@ -1118,8 +1127,179 @@ export class WhatsAppService {
   }
 
   /**
-   * Resposta contextual (IA) primeiro: se algo for enviado, não envia a saudação na mesma batida —
-   * evita “bom dia…” + lista de horários na primeira mensagem.
+   * Fora do expediente: envia `operatingStatus` sem esperar IA nem repetir ciclo da saudação.
+   * Só volta a enviar quando a filial tiver ficado efectivamente ABERTA (expediente) ao menos uma vez desde o último envio ao mesmo contato.
+   *
+   * `CRM_BOOT_CLOSED_AUTO_OPERATING_ENABLED=0` desativa.
+   */
+  async trySendCrmClosedOperatingAuto(opts: {
+    branchId: string;
+    syncJids: string[];
+    remoteJid: string;
+    customerPhoneDigits: string;
+    customerDisplayName?: string | null;
+    inboundText?: string | null;
+  }): Promise<boolean> {
+    if (!WhatsAppService.isCrmClosedAutoOperatingEnabled()) return false;
+
+    const { branchId, syncJids, remoteJid, customerPhoneDigits, customerDisplayName } = opts;
+    if (!`${opts.inboundText ?? ''}`.trim()) return false;
+
+    if (syncJids.some((j) => isGroupJid(j))) return false;
+
+    const phoneJidCandidate =
+      syncJids.find((j) => isPhoneJid(j)) ?? (isPhoneJid(remoteJid) ? remoteJid : null);
+    const lidOrCanonical =
+      syncJids.find((j) => isLidJid(j)) ?? (isLidJid(remoteJid) ? remoteJid : null);
+    const sendJid = phoneJidCandidate ?? lidOrCanonical ?? remoteJid;
+    if (!sendJid || isGroupJid(sendJid)) return false;
+
+    const config = (await prisma.whatsAppConfig.findUnique({
+      where: { branchId },
+      select: {
+        status: true,
+        crmBootBotEnabled: true,
+        crmBootGreetingFlows: true,
+        instanceName: true,
+      } as Record<string, boolean>,
+    })) as null | {
+      status: string;
+      crmBootBotEnabled: boolean;
+      crmBootGreetingFlows: unknown;
+      instanceName: string | null;
+    };
+
+    if (!config?.crmBootBotEnabled || config.status !== 'connected' || !config.instanceName) {
+      return false;
+    }
+
+    const flowsRaw = config.crmBootGreetingFlows;
+
+    const digits = (customerPhoneDigits || '').replace(/\D/g, '');
+    const normalized =
+      normalizeBrazilPhone(digits) ||
+      normalizeBrazilPhone(`55${digits}`) ||
+      (digits.startsWith('55') ? normalizeBrazilPhone(digits) : '') ||
+      '';
+    const wo55 = normalized.startsWith('55') ? normalized.slice(2) : normalized;
+
+    const orPhones = [
+      normalized && normalized.length >= 12 ? normalized : '',
+      wo55 && wo55.length >= 10 ? wo55 : '',
+      digits && digits.length >= 10 ? digits : '',
+    ].filter(Boolean);
+
+    if (orPhones.length > 0) {
+      const customer = await prisma.customer
+        .findFirst({
+          where: {
+            branchId,
+            OR: orPhones.map((phone) => ({ phone })),
+          },
+          select: { crmBootBotDisabled: true },
+        })
+        .catch(() => null);
+
+      if (customer?.crmBootBotDisabled) return false;
+    }
+
+    const branch = await prisma.branch.findUnique({
+      where: { id: branchId },
+      select: {
+        companyId: true,
+        subdomain: true,
+        isOpen: true,
+        openingHours: {
+          select: {
+            day: true,
+            open: true,
+            close: true,
+            closed: true,
+            date: true,
+          },
+        },
+      },
+    });
+    if (!branch?.companyId) return false;
+
+    const schedules: BranchScheduleLike[] = (branch.openingHours ?? []).map((row) => ({
+      day: row.day,
+      open: row.open,
+      close: row.close,
+      closed: row.closed,
+      date: row.date ?? null,
+    }));
+
+    const nowSp = getNowInSaoPaulo();
+    const effectivelyClosedNow = isBranchEffectivelyClosedForContactNow({
+      branchIsOpen: branch.isOpen,
+      schedules,
+      refInSaoPaulo: nowSp,
+    });
+    const stateKey = `${branchId}:${sendJid}`;
+    let armedForNextClosure = this.crmClosedOperatingArmed.get(stateKey);
+
+    /** Primeiro contacto: permitir primeira bolha quando fechado. */
+    if (armedForNextClosure === undefined) armedForNextClosure = true;
+
+    if (!effectivelyClosedNow) {
+      this.crmClosedOperatingArmed.set(stateKey, true);
+      return false;
+    }
+
+    if (!armedForNextClosure) return false;
+
+    const branchHoursFormatted = buildBranchOpeningHoursBlockPt(schedules);
+    const branchHoursStatusLine = buildBranchOpenStatusLinePt({
+      branchIsOpen: branch.isOpen,
+      schedules,
+      refInSaoPaulo: nowSp,
+    });
+    const ordersLink = this.buildBranchOrdersMenuUrl(branch.subdomain ?? null);
+    const firstName = `${customerDisplayName ?? ''}`.trim().split(/\s+/)[0] ?? '';
+    const ctxCustomerName = firstName || null;
+
+    const sortedSegs = [...this.extractBootSegmentsForFlow(flowsRaw, 'operatingStatus')]
+      .filter((s) => s.body.trim())
+      .sort((a, b) => a.orderIndex - b.orderIndex);
+
+    if (sortedSegs.length === 0) return false;
+
+    let pauseBetweenBolhas = false;
+    let anySentBubble = false;
+    for (const seg of sortedSegs) {
+      const text = substituteCrmBootTokens(seg.body, {
+        customerName: ctxCustomerName,
+        ordersLink,
+        now: nowSp,
+        branchHoursFormatted,
+        branchHoursStatusLine,
+      }).trim();
+
+      if (!text) continue;
+      if (pauseBetweenBolhas) await this.delayMs(640);
+      pauseBetweenBolhas = true;
+
+      try {
+        await this.evolutionRequest('POST', `/message/sendText/${config.instanceName}`, {
+          number: sendJid,
+          text,
+        });
+        anySentBubble = true;
+      } catch (err: any) {
+        this.logger.warn(
+          `[trySendCrmClosedOperatingAuto] operatingStatus trecho ${seg.orderIndex}: ${err?.message}`,
+        );
+      }
+    }
+
+    if (anySentBubble) this.crmClosedOperatingArmed.set(stateKey, false);
+
+    return anySentBubble;
+  }
+
+  /**
+   * Automático inbound: primeiro aviso quando fechado (sem ciclo da saudação), depois horários por Gemini, senão saudação.
    */
   async handleCrmInboundBootAndReactive(opts: {
     branchId: string;
@@ -1129,8 +1309,9 @@ export class WhatsAppService {
     customerDisplayName?: string | null;
     inboundText?: string | null;
   }): Promise<void> {
+    const closedOperatingSent = await this.trySendCrmClosedOperatingAuto(opts);
     const reactiveHandled = await this.trySendCrmAiReactiveFlows(opts);
-    if (reactiveHandled) return;
+    if (closedOperatingSent || reactiveHandled) return;
 
     await this.trySendCrmBootGreetingSequence({
       branchId: opts.branchId,
@@ -1251,11 +1432,6 @@ export class WhatsAppService {
       schedules,
       refInSaoPaulo: nowSp,
     });
-    const effectivelyClosedNow = isBranchEffectivelyClosedForContactNow({
-      branchIsOpen: branch.isOpen,
-      schedules,
-      refInSaoPaulo: nowSp,
-    });
 
     const ordersLink = this.buildBranchOrdersMenuUrl(branch.subdomain ?? null);
     const firstName = `${customerDisplayName ?? ''}`.trim().split(/\s+/)[0] ?? '';
@@ -1268,11 +1444,8 @@ export class WhatsAppService {
     let pauseBetweenBolhas = false;
 
     for (const intent of intents) {
-      const flowKey = intent as CrmReactiveIntentFlow;
-      if (flowKey !== 'operatingStatus' && flowKey !== 'businessHours') continue;
-
-      /** Fluxo de “status atual”: só faz sentido automático quando a filial está fora do expediente (ou marcada fechada). */
-      if (flowKey === 'operatingStatus' && !effectivelyClosedNow) continue;
+      if (intent !== 'businessHours') continue;
+      const flowKey = 'businessHours' as const;
 
       const throttleKey = `${throttleBase}:${flowKey}`;
       const ts = Date.now();
