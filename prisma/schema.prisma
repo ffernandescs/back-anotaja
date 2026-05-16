@@ -2150,6 +2150,8 @@ model WhatsAppConfig {
 
   // Habilita o fluxo de boot do bot no CRM (mensagens automáticas configuráveis).
   crmBootBotEnabled                                                          Boolean             @default(false)
+  /** JSON { greeting?: { segments: { id?, orderIndex, body }[] } } por filial (branchId ↔ loja ↔ companyId). */
+  crmBootGreetingFlows                                                      Json?
 
   // Templates de mensagens customizáveis
   templateConfirmation      String?  // Template para confirmação de pedido

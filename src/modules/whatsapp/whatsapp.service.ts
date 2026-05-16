@@ -27,6 +27,7 @@ import { buildLidMapFromEvolutionData, normalizeEvolutionList } from 'src/utils/
 import { pickPhoneForLidDeepScan } from 'src/utils/whatsapp-lid-resolve';
 import { fetchChatsForBranch } from './fetch-chats';
 import { loadPersistedLidPairs, persistLidPair } from './whatsapp-lid-pair.store';
+import { substituteCrmBootTokens } from 'src/utils/whatsapp-crm-boot-template';
 
 /**
  * Prefixo usado ao criar instâncias na Evolution API.
@@ -37,6 +38,23 @@ const INSTANCE_PREFIX = 'anotaja_';
 @Injectable()
 export class WhatsAppService {
   private readonly logger = new Logger(WhatsAppService.name);
+
+  /**
+   * Janela mínima (ms) entre duas mensagens inbound do mesmo contato para repetir saudação.
+   * `CRM_BOOT_GREETING_REPEAT_AFTER_HOURS`: horas (decimal ok); **default 24**. Ex.: `0.5` → 30 min (mín. 60s).
+   * `0`, `first-only` ou `first_only` → **só a primeira inbound** registada por contato+fila (comportamento legado).
+   */
+  private static parseCrmBootGreetingRepeatAfterHours(): number | 'first_only' {
+    const raw = (process.env.CRM_BOOT_GREETING_REPEAT_AFTER_HOURS ?? '24').trim();
+    const compact = raw.toLowerCase().replace(/[\s-]+/g, '_');
+    if (compact === '0' || compact === 'first_only') return 'first_only';
+
+    const h = Number.parseFloat(raw.replace(',', '.'));
+    if (!Number.isFinite(h) || h < 0) return 24 * 60 * 60 * 1000;
+
+    const ms = Math.round(h * 60 * 60 * 1000);
+    return Math.max(ms, 60_000);
+  }
 
   /** Cache em memória LID ↔ telefone aprendido via webhook (por instância). */
   private readonly lidMapCache = new Map<string, Map<string, string>>();
@@ -146,6 +164,7 @@ export class WhatsAppService {
         deliveryStartEnabled: true,
         deliveryCancelEnabled: true,
         crmBootBotEnabled: false,
+        crmBootGreetingFlows: null,
       };
     }
 
@@ -154,10 +173,18 @@ export class WhatsAppService {
   }
 
   async updateConfig(branchId: string, dto: UpdateWhatsAppConfigDto) {
+    const rawDto = dto as unknown as Record<string, unknown>;
+    const { crmBootGreetingFlows: rawFlows, ...rest } = rawDto;
+
+    const data: Record<string, unknown> = { ...rest };
+    if ('crmBootGreetingFlows' in rawDto) {
+      data.crmBootGreetingFlows = this.sanitizeBootGreetingFlows(rawFlows as unknown);
+    }
+
     return prisma.whatsAppConfig.upsert({
       where: { branchId },
-      update: dto,
-      create: { branchId, ...dto },
+      update: data as any,
+      create: { branchId, ...(data as any) },
     });
   }
 
@@ -801,6 +828,234 @@ export class WhatsAppService {
       messageId: result?.key?.id ?? null,
       key: result?.key as { id?: string; remoteJid?: string; fromMe?: boolean } | undefined,
     };
+  }
+
+  /**
+   * Dispara mensagens segmentadas quando o cliente manda mensagem(s) inbound e:
+   * - é o **primeiro** registro inbound deste contato na filial; ou
+   * - já houve outbound antes mas passou **`CRM_BOOT_GREETING_REPEAT_AFTER_HOURS`** (default **24**) desde o inbound anterior —
+   *   alinhado à ideia de “nova sessão” após inatividade.
+   * Use **`CRM_BOOT_GREETING_REPEAT_AFTER_HOURS=0`** para manter apenas a primeira vez (comportamento antigo).
+   */
+  async trySendCrmBootGreetingSequence(opts: {
+    branchId: string;
+    syncJids: string[];
+    remoteJid: string;
+    customerPhoneDigits: string;
+    customerDisplayName?: string | null;
+  }): Promise<void> {
+    const { branchId, syncJids, remoteJid, customerPhoneDigits, customerDisplayName } = opts;
+
+    if (syncJids.some((j) => isGroupJid(j))) return;
+
+    const sendJid =
+      syncJids.find((j) => isPhoneJid(j)) ?? (isPhoneJid(remoteJid) ? remoteJid : null);
+    if (!sendJid) return;
+
+    const config = (await prisma.whatsAppConfig.findUnique({
+      where: { branchId },
+      select: {
+        status: true,
+        crmBootBotEnabled: true,
+        crmBootGreetingFlows: true,
+        instanceName: true,
+      } as Record<string, boolean>,
+    })) as null | {
+      status: string;
+      crmBootBotEnabled: boolean;
+      crmBootGreetingFlows: unknown;
+      instanceName: string | null;
+    };
+
+    if (!config?.crmBootBotEnabled || config.status !== 'connected' || !config.instanceName) {
+      return;
+    }
+
+    const segments = this.extractBootSegmentsFromFlowsJson(config.crmBootGreetingFlows);
+    if (segments.length === 0) return;
+
+    const repeatAfterMsOrFirstOnly =
+      WhatsAppService.parseCrmBootGreetingRepeatAfterHours();
+
+    if (repeatAfterMsOrFirstOnly === 'first_only') {
+      const inboundCount = await prisma.whatsAppMessage.count({
+        where: { branchId, fromMe: false, remoteJid: { in: syncJids } },
+      });
+      if (inboundCount !== 1) return;
+    } else {
+      const recentInbound = await prisma.whatsAppMessage.findMany({
+        where: { branchId, fromMe: false, remoteJid: { in: syncJids } },
+        orderBy: { sentAt: 'desc' },
+        take: 2,
+        select: { sentAt: true },
+      });
+      if (recentInbound.length < 1) return;
+      if (recentInbound.length === 1) {
+        /* primeira mensagem inbound registrada */
+      } else {
+        const newest = recentInbound[0].sentAt;
+        const older = recentInbound[1].sentAt;
+        const gapMs = newest.getTime() - older.getTime();
+        if (gapMs < repeatAfterMsOrFirstOnly) return;
+      }
+    }
+
+    const digits = (customerPhoneDigits || '').replace(/\D/g, '');
+    const normalized =
+      normalizeBrazilPhone(digits)
+      || normalizeBrazilPhone(`55${digits}`)
+      || (digits.startsWith('55') ? normalizeBrazilPhone(digits) : '')
+      || '';
+    const wo55 = normalized.startsWith('55') ? normalized.slice(2) : normalized;
+
+    const orPhones = [
+      normalized && normalized.length >= 12 ? normalized : '',
+      wo55 && wo55.length >= 10 ? wo55 : '',
+      digits && digits.length >= 10 ? digits : '',
+    ].filter(Boolean);
+
+    if (orPhones.length > 0) {
+      const customer = await prisma.customer
+        .findFirst({
+          where: {
+            branchId,
+            OR: orPhones.map((phone) => ({ phone })),
+          },
+          select: { crmBootBotDisabled: true },
+        })
+        .catch(() => null);
+
+      if (customer?.crmBootBotDisabled) return;
+    }
+
+    const branch = await prisma.branch.findUnique({
+      where: { id: branchId },
+      select: { companyId: true, subdomain: true },
+    });
+    if (!branch?.companyId) return;
+
+    const ordersLink = this.buildBranchOrdersMenuUrl(branch.subdomain ?? null);
+    const firstName = `${customerDisplayName ?? ''}`.trim().split(/\s+/)[0] ?? '';
+
+    const ctxCustomerName = firstName || null;
+
+    const sorted = [...segments].sort((a, b) => a.orderIndex - b.orderIndex);
+    let first = true;
+    for (const seg of sorted) {
+      const text = substituteCrmBootTokens(seg.body, {
+        customerName: ctxCustomerName,
+        ordersLink,
+        now: new Date(),
+      }).trim();
+
+      if (!text) continue;
+      if (!first) await this.delayMs(640);
+      first = false;
+
+      try {
+        await this.evolutionRequest('POST', `/message/sendText/${config.instanceName}`, {
+          number: sendJid,
+          text,
+        });
+      } catch (err: any) {
+        this.logger.warn(
+          `[trySendCrmBootGreetingSequence] Falha ao enviar trecho (${seg.orderIndex}) para ${sendJid}: ${err?.message}`,
+        );
+      }
+    }
+  }
+
+  /** Normaliza `{ greeting?: { segments? } }` vindo da API/front. */
+  private sanitizeBootGreetingFlows(raw: unknown): Record<string, unknown> {
+    const rec =
+      WhatsAppService.normalizeFlowsInputToRecord(raw) ??
+      WhatsAppService.normalizeFlowsInputToRecord(null);
+    return rec ?? { greeting: { segments: [] } };
+  }
+
+  /** Extrai corpos ordenados do JSON gravado na config para disparo pelo webhook. */
+  private extractBootSegmentsFromFlowsJson(
+    flows: unknown,
+  ): Array<{ body: string; orderIndex: number }> {
+    const rec = WhatsAppService.normalizeFlowsInputToRecord(flows);
+    const greeting = rec?.['greeting'] as Record<string, unknown> | undefined;
+    const segs = greeting?.['segments'];
+
+    const out: Array<{ body: string; orderIndex: number }> = [];
+    if (!Array.isArray(segs)) return out;
+
+    segs.forEach((entry: unknown, i: number) => {
+      if (!entry || typeof entry !== 'object') return;
+      const e = entry as Record<string, unknown>;
+      const body = typeof e['body'] === 'string' ? e['body'] : '';
+      const oiRaw = e['orderIndex'];
+      const orderIndex =
+        typeof oiRaw === 'number' && Number.isFinite(oiRaw) ? oiRaw : i + 1;
+      out.push({ body, orderIndex });
+    });
+    return out;
+  }
+
+  private static normalizeFlowsInputToRecord(flows: unknown): Record<
+    string,
+    unknown
+  > | null {
+    if (flows === null || flows === undefined)
+      return { greeting: { segments: [] as unknown[] } };
+    if (typeof flows !== 'object') return null;
+    const root = flows as Record<string, unknown>;
+    const greeting = root['greeting'];
+    let segments: unknown[] = [];
+    if (greeting !== null && typeof greeting === 'object') {
+      const g = greeting as Record<string, unknown>;
+      segments = Array.isArray(g['segments']) ? [...(g['segments'] as unknown[])] : [];
+    }
+
+    const cleaned = segments
+      .map((entry: unknown, i: number) => {
+        if (!entry || typeof entry !== 'object') return null;
+        const e = entry as Record<string, unknown>;
+        const rawId =
+          typeof e['id'] === 'string' && `${e['id']}`.length > 0 ? (e['id'] as string) : null;
+        const body =
+          typeof e['body'] === 'string' ? (e['body'] as string).slice(0, 4096) : '';
+        const oiRaw = e['orderIndex'];
+        const orderIndex =
+          typeof oiRaw === 'number' && Number.isFinite(oiRaw) ? oiRaw : i + 1;
+        const safeId =
+          rawId && /^[a-zA-Z0-9_-]+$/.test(rawId)
+            ? rawId
+            : `seg_${randomUUID().replace(/-/g, '').slice(0, 10)}`;
+
+        return { id: safeId, orderIndex, body };
+      })
+      .filter(Boolean) as Array<{ id: string; orderIndex: number; body: string }>;
+
+    const numbered = cleaned.map((s, idx) => ({ ...s, orderIndex: idx + 1 }));
+
+    return {
+      greeting: {
+        segments: numbered.map((s) => ({
+          id: s.id,
+          orderIndex: s.orderIndex,
+          body: s.body,
+        })),
+      },
+    };
+  }
+
+  /** URL pública do cardápio (alinha ao `customers.service` / loja quando `FRONTEND_URL` existe). */
+  private buildBranchOrdersMenuUrl(subdomain: string | null): string {
+    const domain = (process.env.FRONTEND_URL || '').replace(/^https?:\/\//, '');
+    const protocol = process.env.NODE_ENV === 'development' ? 'http' : 'https';
+    if (!subdomain || domain.length === 0) {
+      return 'https://suapedida.vaidelli.shop/menu';
+    }
+    return `${protocol}://${subdomain}.${domain}/menu`;
+  }
+
+  private delayMs(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   async sendCrmMedia(branchId: string, jid: string, file: Express.Multer.File, caption?: string) {

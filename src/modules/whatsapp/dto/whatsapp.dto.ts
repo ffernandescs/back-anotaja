@@ -1,4 +1,4 @@
-import { IsBoolean, IsDateString, IsInt, IsOptional, IsString } from 'class-validator';
+import { Allow, IsBoolean, IsDateString, IsInt, IsOptional, IsString } from 'class-validator';
 
 export class UpdateWhatsAppConfigDto {
   @IsOptional()
@@ -41,6 +41,11 @@ export class UpdateWhatsAppConfigDto {
   @IsOptional()
   @IsBoolean()
   crmBootBotEnabled?: boolean;
+
+  /** { greeting?: { segments: [{ id?, orderIndex, body }] } } — validação fina no serviço ao persistir. */
+  @IsOptional()
+  @Allow()
+  crmBootGreetingFlows?: Record<string, unknown>;
 
   // Message templates
   @IsOptional()
