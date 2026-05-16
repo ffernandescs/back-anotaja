@@ -3,6 +3,9 @@
  * Textos customizados continuam em `WhatsAppConfig.template*`; aqui só `enabled` e `useDefaultTemplate`.
  */
 
+/** Chave reservada dentro de `crmBootGreetingFlows` (evita coluna/migração até `prisma generate`). */
+export const CRM_ORDER_STATUS_NOTIFICATIONS_FLOW_KEY = 'orderStatusNotifications';
+
 export const CRM_ORDER_STATUS_NOTIFICATION_IDS = [
   'confirmation',
   'preparing',
@@ -129,6 +132,88 @@ export function isCrmOrderStatusNotificationEnabled(
 ): boolean {
   const normalized = normalizeCrmOrderStatusNotifications(map, legacy);
   return normalized[id].enabled;
+}
+
+/** Mapa igual ao default do banco (tudo ligado + modelo padrão). */
+export function isDefaultOrderStatusNotificationsMap(
+  map: CrmOrderStatusNotificationsMap,
+): boolean {
+  return CRM_ORDER_STATUS_NOTIFICATION_IDS.every(
+    (id) => map[id].enabled === true && map[id].useDefaultTemplate === true,
+  );
+}
+
+export function orderStatusNotificationsMapsEqual(
+  a: CrmOrderStatusNotificationsMap,
+  b: CrmOrderStatusNotificationsMap,
+): boolean {
+  return CRM_ORDER_STATUS_NOTIFICATION_IDS.every(
+    (id) =>
+      a[id].enabled === b[id].enabled && a[id].useDefaultTemplate === b[id].useDefaultTemplate,
+  );
+}
+
+/** Bloco `orderStatusNotifications` dentro de `crmBootGreetingFlows`, se existir. */
+export function readOrderStatusNotificationsFromFlows(flows: unknown): unknown {
+  if (!flows || typeof flows !== 'object' || Array.isArray(flows)) return null;
+  return (flows as Record<string, unknown>)[CRM_ORDER_STATUS_NOTIFICATIONS_FLOW_KEY] ?? null;
+}
+
+/**
+ * Lê meta de notificações unificando coluna dedicada e bloco em `crmBootGreetingFlows`.
+ * A coluna é a fonte principal após qualquer save; o bloco nos fluxos só prevalece se a coluna
+ * ainda estiver no default de fábrica e divergir (instalações antigas só no JSON de fluxos).
+ */
+export function resolveCrmOrderStatusNotifications(
+  config: {
+    crmOrderStatusNotifications?: unknown;
+    crmBootGreetingFlows?: unknown;
+    orderConfirmationEnabled?: boolean;
+    orderReadyEnabled?: boolean;
+    deliveryCancelEnabled?: boolean;
+  },
+): CrmOrderStatusNotificationsMap {
+  const legacy: LegacyWhatsAppNotifyConfig = {
+    orderConfirmationEnabled: config.orderConfirmationEnabled,
+    orderReadyEnabled: config.orderReadyEnabled,
+    deliveryCancelEnabled: config.deliveryCancelEnabled,
+  };
+
+  const flowsRaw = readOrderStatusNotificationsFromFlows(config.crmBootGreetingFlows);
+  const flowsNorm =
+    flowsRaw != null ? normalizeCrmOrderStatusNotifications(flowsRaw, legacy) : null;
+
+  const colNorm =
+    config.crmOrderStatusNotifications != null
+      ? normalizeCrmOrderStatusNotifications(config.crmOrderStatusNotifications, legacy)
+      : null;
+
+  if (!flowsNorm && !colNorm) {
+    return normalizeCrmOrderStatusNotifications(null, legacy);
+  }
+  if (!flowsNorm) return colNorm!;
+  if (!colNorm) return flowsNorm;
+
+  if (
+    isDefaultOrderStatusNotificationsMap(colNorm) &&
+    !orderStatusNotificationsMapsEqual(colNorm, flowsNorm)
+  ) {
+    return flowsNorm;
+  }
+
+  return colNorm;
+}
+
+export function mergeOrderStatusNotificationsIntoFlows(
+  flows: unknown,
+  notifications: CrmOrderStatusNotificationsMap,
+): Record<string, unknown> {
+  const base =
+    flows && typeof flows === 'object' && !Array.isArray(flows)
+      ? { ...(flows as Record<string, unknown>) }
+      : {};
+  base[CRM_ORDER_STATUS_NOTIFICATIONS_FLOW_KEY] = notifications;
+  return base;
 }
 
 export const CRM_ORDER_STATUS_TEMPLATE_FIELD: Record<

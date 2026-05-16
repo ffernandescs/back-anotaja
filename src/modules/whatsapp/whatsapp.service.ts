@@ -38,7 +38,11 @@ import { resolveDeliveryPaymentMethodsFormatted } from 'src/utils/whatsapp-crm-b
 import { resolveBranchProductPromotionsFormatted } from 'src/utils/whatsapp-crm-product-promotions';
 import {
   blankCrmOrderStatusNotifications,
+  CRM_ORDER_STATUS_NOTIFICATIONS_FLOW_KEY,
   legacyFlagsFromOrderStatusNotifications,
+  mergeOrderStatusNotificationsIntoFlows,
+  readOrderStatusNotificationsFromFlows,
+  resolveCrmOrderStatusNotifications,
   sanitizeCrmOrderStatusNotificationsInput,
 } from 'src/utils/whatsapp-crm-order-status-notifications';
 import {
@@ -359,7 +363,17 @@ export class WhatsAppService {
     }
 
     const { serverUrl: _s, apiKey: _a, ...safe } = config as any;
+    safe.crmOrderStatusNotifications = resolveCrmOrderStatusNotifications(safe);
     return safe;
+  }
+
+  /** Remove chaves `undefined` — Prisma rejeita no update/create e o XOR do upsert quebra com `branchId`. */
+  private static omitUndefined<T extends Record<string, unknown>>(obj: T): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj)) {
+      if (value !== undefined) out[key] = value;
+    }
+    return out;
   }
 
   async updateConfig(branchId: string, dto: UpdateWhatsAppConfigDto) {
@@ -368,20 +382,77 @@ export class WhatsAppService {
       rawDto;
 
     const data: Record<string, unknown> = { ...rest };
+
+    let flowsForSave: Record<string, unknown> | undefined;
     if ('crmBootGreetingFlows' in rawDto) {
-      data.crmBootGreetingFlows = this.sanitizeBootGreetingFlows(rawFlows as unknown);
-    }
-    if ('crmOrderStatusNotifications' in rawDto) {
-      const sanitized = sanitizeCrmOrderStatusNotificationsInput(rawStatus);
-      data.crmOrderStatusNotifications = sanitized;
-      Object.assign(data, legacyFlagsFromOrderStatusNotifications(sanitized));
+      flowsForSave = this.sanitizeBootGreetingFlows(rawFlows as unknown);
     }
 
-    return prisma.whatsAppConfig.upsert({
+    let notifications: ReturnType<typeof sanitizeCrmOrderStatusNotificationsInput> | undefined;
+    if ('crmOrderStatusNotifications' in rawDto) {
+      notifications = sanitizeCrmOrderStatusNotificationsInput(rawStatus);
+    } else if (flowsForSave) {
+      const notifBlock = readOrderStatusNotificationsFromFlows(flowsForSave);
+      if (notifBlock != null) {
+        notifications = sanitizeCrmOrderStatusNotificationsInput(notifBlock);
+      }
+    }
+
+    if (notifications) {
+      data.crmOrderStatusNotifications = notifications;
+      Object.assign(data, legacyFlagsFromOrderStatusNotifications(notifications));
+
+      let flowsBase: unknown = flowsForSave;
+      if (!flowsBase) {
+        const row = await prisma.whatsAppConfig.findUnique({
+          where: { branchId },
+          select: { crmBootGreetingFlows: true },
+        });
+        flowsBase = row?.crmBootGreetingFlows ?? WhatsAppService.blankCrmBootGreetingFlows();
+      }
+      flowsForSave = mergeOrderStatusNotificationsIntoFlows(flowsBase, notifications);
+    }
+
+    if (flowsForSave) {
+      data.crmBootGreetingFlows = flowsForSave;
+    }
+
+    const payload = WhatsAppService.omitUndefined(data);
+
+    const existing = await prisma.whatsAppConfig.findUnique({
       where: { branchId },
-      update: data as any,
-      create: { branchId, ...(data as any) },
+      select: { id: true },
     });
+
+    if (existing) {
+      await prisma.whatsAppConfig.update({
+        where: { branchId },
+        data: payload as any,
+      });
+    } else {
+      await prisma.whatsAppConfig.create({
+        data: {
+          branchId,
+          status: 'disconnected',
+          enabled: false,
+          notifyNewOrder: true,
+          notifyOrderStatus: true,
+          notifyDelivery: true,
+          orderConfirmationEnabled: true,
+          orderReadyEnabled: true,
+          deliveryStartEnabled: true,
+          deliveryCancelEnabled: true,
+          crmBootBotEnabled: false,
+          crmBootGreetingFlows: mergeOrderStatusNotificationsIntoFlows(
+            WhatsAppService.blankCrmBootGreetingFlows(),
+            blankCrmOrderStatusNotifications(),
+          ),
+          ...payload,
+        } as any,
+      });
+    }
+
+    return this.getConfig(branchId);
   }
 
   // ─── Instance lifecycle ───────────────────────────────────────────────────────
@@ -1831,6 +1902,7 @@ export class WhatsAppService {
       'establishmentAddress',
       'deliveryPaymentMethods',
       'productPromotions',
+      CRM_ORDER_STATUS_NOTIFICATIONS_FLOW_KEY,
     ]);
     const preserved: Record<string, unknown> = {};
     for (const key of Object.keys(root)) {
@@ -1838,7 +1910,7 @@ export class WhatsAppService {
       if (/^[a-z][a-z0-9_]*$/i.test(key) && key.length <= 64) preserved[key] = root[key];
     }
 
-    return {
+    const normalized: Record<string, unknown> = {
       ...preserved,
       greeting: WhatsAppService.normalizeSingleBootFlow(root['greeting'], blankGreeting),
       operatingStatus: WhatsAppService.normalizeSingleBootFlow(
@@ -1870,6 +1942,14 @@ export class WhatsAppService {
         blankProductPromotions,
       ),
     };
+
+    const notifRaw = root[CRM_ORDER_STATUS_NOTIFICATIONS_FLOW_KEY];
+    if (notifRaw != null) {
+      normalized[CRM_ORDER_STATUS_NOTIFICATIONS_FLOW_KEY] =
+        sanitizeCrmOrderStatusNotificationsInput(notifRaw);
+    }
+
+    return normalized;
   }
 
   /** URL pública da loja (subdomínio + FRONTEND_URL), sem path. */

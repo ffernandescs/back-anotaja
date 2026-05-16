@@ -35,8 +35,7 @@ import { formatCurrency } from 'src/utils/formatCurrency';
 import {
   CRM_ORDER_STATUS_TEMPLATE_FIELD,
   type CrmOrderStatusNotificationId,
-  isCrmOrderStatusNotificationEnabled,
-  normalizeCrmOrderStatusNotifications,
+  resolveCrmOrderStatusNotifications,
 } from 'src/utils/whatsapp-crm-order-status-notifications';
 
 interface PlanLimits {
@@ -4020,17 +4019,15 @@ Se tiver alguma dúvida, entre em contato conosco.`,
   private isOrderStatusWhatsAppEnabled(
     config: {
       crmOrderStatusNotifications?: unknown;
+      crmBootGreetingFlows?: unknown;
       orderConfirmationEnabled?: boolean;
       orderReadyEnabled?: boolean;
       deliveryCancelEnabled?: boolean;
     },
     type: CrmOrderStatusNotificationId,
   ): boolean {
-    return isCrmOrderStatusNotificationEnabled(config.crmOrderStatusNotifications, type, {
-      orderConfirmationEnabled: config.orderConfirmationEnabled,
-      orderReadyEnabled: config.orderReadyEnabled,
-      deliveryCancelEnabled: config.deliveryCancelEnabled,
-    });
+    const map = resolveCrmOrderStatusNotifications(config);
+    return map[type].enabled;
   }
 
   private async getCustomTemplate(branchId: string, type: 'confirmation' |  'preparing' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled'): Promise<string | null> {
@@ -4038,6 +4035,7 @@ Se tiver alguma dúvida, entre em contato conosco.`,
       where: { branchId },
       select: {
         crmOrderStatusNotifications: true,
+        crmBootGreetingFlows: true,
         orderConfirmationEnabled: true,
         orderReadyEnabled: true,
         deliveryCancelEnabled: true,
@@ -4052,11 +4050,7 @@ Se tiver alguma dúvida, entre em contato conosco.`,
 
     if (!config) return null;
 
-    const meta = normalizeCrmOrderStatusNotifications(config.crmOrderStatusNotifications, {
-      orderConfirmationEnabled: config.orderConfirmationEnabled,
-      orderReadyEnabled: config.orderReadyEnabled,
-      deliveryCancelEnabled: config.deliveryCancelEnabled,
-    });
+    const meta = resolveCrmOrderStatusNotifications(config);
 
     if (meta[type].useDefaultTemplate) return null;
 
