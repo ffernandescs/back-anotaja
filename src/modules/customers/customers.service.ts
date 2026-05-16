@@ -23,9 +23,31 @@ import {
 import { PaginatedResponseDto } from '../../common/dto/paginated-response.dto';
 import { Prisma } from '@prisma/client';
 import { buildBranchStorefrontPublicUrl } from '../../utils/storefront-url';
+import { normalizeBrazilPhone } from '../../utils/normalizePhone';
 
 @Injectable()
 export class CustomersService {
+  /** Garante DDI 55 + DDD + número ao persistir (ex.: 5581999998888). */
+  private resolveCustomerPhone(raw: string): string {
+    const normalized = normalizeBrazilPhone(raw);
+    if (!normalized) {
+      throw new BadRequestException('Telefone inválido');
+    }
+    return normalized;
+  }
+
+  private async assertPhoneAvailable(
+    phone: string,
+    branchId: string,
+    excludeCustomerId?: string,
+  ): Promise<void> {
+    const existing = await prisma.customer.findUnique({
+      where: { phone_branchId: { phone, branchId } },
+    });
+    if (existing && existing.id !== excludeCustomerId) {
+      throw new ConflictException('Telefone já cadastrado');
+    }
+  }
   constructor(
     private jwtService: JwtService,
     private readonly geocodingService: GeocodingService,
@@ -33,7 +55,8 @@ export class CustomersService {
   ) {}
 
   async create(dto: CreateCustomerDto, subdomain?: string) {
-    const { name, phone, email, addresses } = dto;
+    const { name, email, addresses } = dto;
+    const phone = this.resolveCustomerPhone(dto.phone);
 
     // Busca a branch pelo subdomain
     const branch = await prisma.branch.findUnique({
@@ -41,11 +64,7 @@ export class CustomersService {
     });
     if (!branch) throw new NotFoundException('Filial não encontrada');
 
-    // Verifica se o telefone já existe na mesma filial
-    const existing = await prisma.customer.findUnique({
-      where: { phone_branchId: { phone, branchId: branch.id } },
-    });
-    if (existing) throw new ConflictException('Telefone já cadastrado');
+    await this.assertPhoneAvailable(phone, branch.id);
 
     const customer = await prisma.customer.create({
       data: {
@@ -71,7 +90,8 @@ export class CustomersService {
   }
 
   async adminCreate(dto: CreateCustomerDto, userId: string) {
-    const { name, phone, email, addresses } = dto;
+    const { name, email, addresses } = dto;
+    const phone = this.resolveCustomerPhone(dto.phone);
 
     // Busca a branch do usuário autenticado
     const user = await prisma.user.findUnique({
@@ -83,11 +103,7 @@ export class CustomersService {
       throw new NotFoundException('Usuário ou filial não encontrada');
     }
 
-    // Verifica se o telefone já existe na mesma filial
-    const existing = await prisma.customer.findUnique({
-      where: { phone_branchId: { phone, branchId: user.branchId } },
-    });
-    if (existing) throw new ConflictException('Telefone já cadastrado');
+    await this.assertPhoneAvailable(phone, user.branchId);
 
     const customer = await prisma.customer.create({
       data: {
@@ -440,14 +456,22 @@ export class CustomersService {
   }
 
   async update(id: string, dto: UpdateCustomerDto, userId: string) {
-    await this.findOne(id, userId);
+    const existing = await this.findOne(id, userId);
 
     const crmBootBotDisabled = dto.crmBootBotDisabled;
+
+    let normalizedPhone: string | undefined;
+    if (dto.phone !== undefined) {
+      normalizedPhone = this.resolveCustomerPhone(dto.phone);
+      if (normalizedPhone !== existing.phone) {
+        await this.assertPhoneAvailable(normalizedPhone, existing.branchId, id);
+      }
+    }
 
     /** Campos sempre presentes no Prisma Client atual (addresses não entram neste PATCH). */
     const data = {
       ...(dto.name !== undefined && { name: dto.name }),
-      ...(dto.phone !== undefined && { phone: dto.phone }),
+      ...(normalizedPhone !== undefined && { phone: normalizedPhone }),
       ...(dto.email !== undefined && { email: dto.email }),
     };
 
@@ -508,10 +532,15 @@ export class CustomersService {
       throw new NotFoundException('Filial não encontrada');
     }
 
+    const phone = normalizeBrazilPhone(dto.phone);
+    if (!phone) {
+      throw new NotFoundException('Cliente não encontrado');
+    }
+
     // Busca o cliente pelo telefone E branchId para garantir associação correta
     const customer = await prisma.customer.findFirst({
       where: {
-        phone: dto.phone,
+        phone,
         branchId: branch.id,
       },
     });

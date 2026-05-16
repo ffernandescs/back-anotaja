@@ -1,6 +1,11 @@
 import bcrypt from 'bcryptjs';
 import { prisma } from '../lib/prisma';
 import { TableStatus } from 'src/modules/tables/types';
+import {
+  categorySlugToProductsKey,
+  segmentComplementsCatalog,
+  type ComplementSeed,
+} from './seed-segment-complements';
 
 interface ProductSeed {
   name: string;
@@ -87,34 +92,6 @@ export type SegmentCategories = {
     | 'cuidadosPessoais';
 };
 
-interface ComplementOptionSeed {
-  name: string;
-  price: number;
-}
-
-interface ComplementSeed {
-  name: string;
-  required: boolean;
-  allowRepeat: boolean;
-  minOptions: number;
-  maxOptions?: number;
-  options: ComplementOptionSeed[];
-}
-
-interface ComplementOptionSeed {
-  name: string;
-  price: number;
-}
-
-interface ComplementSeed {
-  name: string;
-  required: boolean;
-  allowRepeat: boolean;
-  minOptions: number;
-  maxOptions?: number;
-  options: ComplementOptionSeed[];
-}
-
 export type BusinessSegment =
   (typeof BusinessSegment)[keyof typeof BusinessSegment];
 
@@ -128,7 +105,7 @@ function getCategoriesForSegment(segment: BusinessSegmentType): CategorySeed[] {
   return categoriesData[segment] || [];
 }
 
-// Função auxiliar para obter produtos de uma categoria
+// Função auxiliar para obter produtos de uma categoria (slug kebab-case ou chave legada camelCase)
 function getProductsForCategory(
   segment: BusinessSegmentType,
   categorySlug: string,
@@ -136,70 +113,21 @@ function getProductsForCategory(
   const segmentProducts = productsData[segment];
   if (!segmentProducts) return [];
 
-  return segmentProducts[categorySlug] || [];
+  const legacyKey = categorySlugToProductsKey(categorySlug);
+  return (
+    (segmentProducts as Record<string, ProductSeed[]>)[categorySlug] ||
+    segmentProducts[legacyKey as keyof typeof segmentProducts] ||
+    []
+  );
 }
 
-// Mapeamento de slugs de categorias para chaves de complementos
-const categorySlugToComplementKey: Record<string, string> = {
-  // Hamburgueria
-  'hamburgueres': 'hamburgers',
-  'hamburgueres-premium': 'hamburgers',
-  'hamburgueres-artesanais': 'hamburgers',
-  'hamburgueres-veganos': 'hamburgers',
-  'acompanhamentos': 'acompanhamentos',
-  'bebidas': 'bebidas',
-  'sobremesas': 'sobremesas',
-  
-  // Pizzaria
-  'pizzas-salgadas': 'pizzas',
-  'pizzas-doces': 'pizzas',
-  'pizzas-premium': 'pizzas',
-  'pizzas-especiais': 'pizzas',
-  'calzones': 'calzones',
-  
-  // Restaurante
-  'pratos-principais': 'pratosPrincipais',
-  'comida-regional': 'pratosPrincipais',
-  'entradas': 'pratosPrincipais',
-  'peixes-frutos-mar': 'pratosPrincipais',
-  'carnes': 'pratosPrincipais',
-  'massas': 'pratosPrincipais',
-  'saladas': 'pratosPrincipais',
-  
-  // Depósito de Bebidas
-  'cervejas': 'cervejas',
-  'cervejas-especiais': 'cervejas',
-  'vinhos': 'cervejas',
-  'destilados': 'cervejas',
-  'refrigerantes': 'cervejas',
-  'energeticos': 'cervejas',
-  'sucos': 'cervejas',
-  
-  // Perfumaria
-  'perfumes-femininos': 'perfumes',
-  'perfumes-masculinos': 'perfumes',
-  'cosmeticos': 'perfumes',
-  'cuidados-pele': 'perfumes',
-  'maquiagem': 'perfumes',
-  
-  // Canozes
-  'caldos-nordestinos': 'canecas',
-  'canjas': 'canecas',
-  'caldos-frutos-mar': 'canecas',
-};
-
-// Função auxiliar para obter complementos de uma categoria específica
 function getComplementsForCategory(
   segment: BusinessSegmentType,
   categorySlug: string,
 ): ComplementSeed[] {
-  const segmentComplements = complementsData[segment];
+  const segmentComplements = segmentComplementsCatalog[segment];
   if (!segmentComplements) return [];
-  
-  // Mapear o slug da categoria para a chave de complemento
-  const complementKey = categorySlugToComplementKey[categorySlug] || categorySlug;
-  
-  return segmentComplements[complementKey] || [];
+  return segmentComplements[categorySlug] ?? [];
 }
 async function createCategoriesProductsAndComplements(
   segment: BusinessSegmentType,
@@ -270,16 +198,13 @@ async function createCategoriesProductsAndComplements(
         },
       });
 
-      // ✅ APLICAR COMPLEMENTOS ESPECÍFICOS DA CATEGORIA (MÁXIMO 4 POR PRODUTO)
+      // Complementos do segmento/categoria (todos os grupos aplicáveis ao produto)
       if (categoryComplements.length > 0) {
-        // Escolher aleatoriamente entre 1 e 4 complementos
-        const maxComplementsForProduct = Math.floor(Math.random() * 4) + 1; // 1 a 4
-        const shuffledComplements = [...categoryComplements].sort(() => Math.random() - 0.5);
-        const selectedComplements = shuffledComplements.slice(0, maxComplementsForProduct);
-        
-        console.log(`  🔧 Aplicando ${selectedComplements.length} de ${categoryComplements.length} complementos disponíveis para ${productData.name}`);
+        console.log(
+          `  🔧 Aplicando ${categoryComplements.length} complemento(s) de ${categoryData.name} em ${productData.name}`,
+        );
 
-        for (const complementData of selectedComplements) {
+        for (const complementData of categoryComplements) {
           // Verificar se o complemento já existe para este produto
           let complement = await prisma.productComplement.findFirst({
             where: {
@@ -294,27 +219,17 @@ async function createCategoriesProductsAndComplements(
             continue;
           }
 
-          // GERAR VALORES ALEATÓRIOS
-          const allowRepeat = Math.random() > 0.7; // 30% de chance de permitir repetir
-          const totalOptions = complementData.options.length;
-
-          // minOptions: entre 0 e metade das opções disponíveis
-          const minOptions = complementData.required
-            ? Math.max(1, Math.floor(Math.random() * (totalOptions / 2)))
-            : Math.floor(Math.random() * (totalOptions / 2));
-
-          // maxOptions: entre minOptions e total de opções
+          const minOptions = complementData.minOptions;
           const maxOptions =
-            minOptions +
-            Math.floor(Math.random() * (totalOptions - minOptions + 1));
+            complementData.maxOptions ?? complementData.options.length;
 
           complement = await prisma.productComplement.create({
             data: {
               name: complementData.name,
               required: complementData.required,
-              allowRepeat: allowRepeat,
-              minOptions: minOptions,
-              maxOptions: Math.max(maxOptions, minOptions), // garantir que max >= min
+              allowRepeat: complementData.allowRepeat,
+              minOptions,
+              maxOptions: Math.max(maxOptions, minOptions),
               active: true,
               productId: product.id,
               branchId: branchId,
@@ -384,6 +299,8 @@ const SEED_CONFIG = {
   deliveryPerBranch: 2,
   // Quantidade de áreas de entrega por filial
   deliveryAreasPerBranch: 2,
+  /** Raio em metros — cobertura nacional para testes (~6.000 km a partir do centro da filial) */
+  deliveryAreaRadiusMeters: 6_000_000,
   // Mesas (PDV)
   tablesPerBranch: 10,
   numberofpeople: 4,
@@ -425,6 +342,32 @@ async function seedTablesForBranch(branchId: string, userId: string) {
   },
 });
     }
+  }
+}
+
+/** Origens padrão do CRUD (WhatsApp / campanhas) — uma lista por filial. */
+const DEFAULT_ORDER_ORIGINS = [
+  { name: 'Instagram', code: 'insta1' },
+  { name: 'WhatsApp', code: 'wapp1' },
+  { name: 'Chatbot', code: 'chat1' },
+  { name: 'Tráfego Pago', code: 'trafg1' },
+  { name: 'Facebook', code: 'faceb1' },
+] as const;
+
+async function seedOrderOriginsForBranch(branchId: string, branchLabel: string) {
+  console.log(`📣 Verificando origens de pedido para "${branchLabel}"...`);
+  for (const origin of DEFAULT_ORDER_ORIGINS) {
+    await prisma.orderOrigin.upsert({
+      where: {
+        branchId_code: { branchId, code: origin.code },
+      },
+      update: { name: origin.name },
+      create: {
+        branchId,
+        name: origin.name,
+        code: origin.code,
+      },
+    });
   }
 }
 
@@ -511,17 +454,17 @@ const customersData = [
 const companiesData: Record<BusinessSegment, CompanySeed[]> = {
   [BusinessSegment.HAMBURGUERIA]: [
     {
-      name: 'Tio Armênio',
-      companyName: 'Tio Armênio',
+      name: 'Vaidelli',
+      companyName: 'Vaidelli',
       document: '12345678013190',
-      email: 'contato@tioarmenio.com.br',
+      email: 'contato@vaidelli.com.br',
       phone: '81987654321',
-      logo: 'https://tioarmenio.com.br/wp-content/uploads/2023/01/logo-tio-armenio.png',
+      logo: 'https://i.postimg.cc/43KjqDz9/Chat-GPT-Image-May-16-2026-07-40-20-AM.png',
       banner:
-        'https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=1200&h=400&fit=crop&q=80',
+        'https://i.postimg.cc/gkTXmhCx/Chat-GPT-Image-May-16-2026-07-28-25-AM.png',
       branches: [
         {
-          branchName: 'Tio Armênio - Boa Viagem',
+          branchName: 'Vaidelli - Boa Viagem',
           address: 'Av. Conselheiro Aguiar, 3150',
           city: 'Recife',
           state: 'PE',
@@ -533,7 +476,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
           lng: -34.9028,
         },
         {
-          branchName: 'Tio Armênio - Espinheiro',
+          branchName: 'Vaidelli - Espinheiro',
           address: 'Rua Benfica, 234',
           city: 'Recife',
           state: 'PE',
@@ -552,9 +495,9 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
       document: '12345678000191',
       email: 'contato@burgerstation.com.br',
       phone: '81987654323',
-      logo: 'https://burgerstation.com.br/assets/logo.png',
+      logo: 'https://i.postimg.cc/QMrpZ57H/Chat-GPT-Image-May-16-2026-07-43-27-AM.png',
       banner:
-        'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=1200&h=400&fit=crop&q=80',
+        'https://i.postimg.cc/cZTcbbvj/Chat-GPT-Image-May-16-2026-07-44-37-AM.png',
       branches: [
         {
           branchName: 'Burger Station - Recife Antigo',
@@ -3376,731 +3319,6 @@ const productsData: ProductsByCompanyType = {
   },
 };
 
-const complementsData = {
-  // ========== HAMBURGUERIA ==========
-  [BusinessSegment.HAMBURGUERIA]: {
-    // Complementos para Hambúrgueres
-    hamburgers: [
-      {
-        name: 'Tamanho do Pão',
-        required: true,
-        allowRepeat: false,
-        minOptions: 1,
-        maxOptions: 1,
-        options: [
-          { name: 'Pão Tradicional', price: 0 },
-          { name: 'Pão Australiano', price: 2.0 },
-          { name: 'Pão Brioche', price: 3.0 },
-          { name: 'Pão Integral', price: 2.5 },
-        ],
-      },
-      {
-      name: 'Ponto da Carne',
-      required: true,
-      allowRepeat: false,
-      minOptions: 1,
-      maxOptions: 1,
-      options: [
-        { name: 'Mal Passado', price: 0 },
-        { name: 'Ao Ponto', price: 0 },
-        { name: 'Bem Passado', price: 0 },
-      ],
-    },
-    {
-      name: 'Adicionais',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 8,
-      options: [
-        { name: 'Bacon', price: 4.0 },
-        { name: 'Queijo Extra', price: 3.0 },
-        { name: 'Ovo', price: 2.5 },
-        { name: 'Cebola Caramelizada', price: 2.5 },
-        { name: 'Picles', price: 1.5 },
-        { name: 'Catupiry', price: 4.0 },
-        { name: 'Cheddar', price: 3.5 },
-        { name: 'Jalapeño', price: 2.0 },
-      ],
-    },
-    {
-      name: 'Molhos Extras',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 3,
-      options: [
-        { name: 'Barbecue', price: 1.5 },
-        { name: 'Mostarda e Mel', price: 1.5 },
-        { name: 'Maionese Temperada', price: 1.0 },
-        { name: 'Molho Picante', price: 1.5 },
-      ],
-    },
-    {
-      name: 'Retirar Ingredientes',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 5,
-      options: [
-        { name: 'Sem Alface', price: 0 },
-        { name: 'Sem Tomate', price: 0 },
-        { name: 'Sem Cebola', price: 0 },
-        { name: 'Sem Picles', price: 0 },
-        { name: 'Sem Molho', price: 0 },
-      ],
-    },
-    {
-      name: 'Tamanho',
-      required: true,
-      allowRepeat: false,
-      minOptions: 1,
-      maxOptions: 1,
-      options: [
-        { name: 'Pequeno', price: 0 },
-        { name: 'Médio', price: 3.0 },
-        { name: 'Grande', price: 6.0 },
-      ],
-    },
-    {
-      name: 'Adicionais para Acompanhamento',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 3,
-      options: [
-        { name: 'Cheddar', price: 4.0 },
-        { name: 'Bacon', price: 4.0 },
-        { name: 'Catupiry', price: 4.0 },
-      ],
-    },
-    {
-      name: 'Tamanho Bebida',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 1,
-      options: [
-        { name: '350ml', price: 0 },
-        { name: '500ml', price: 2.0 },
-        { name: '1L', price: 4.0 },
-      ],
-    },
-    {
-      name: 'Gelo',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 1,
-      options: [
-        { name: 'Com Gelo', price: 0 },
-        { name: 'Sem Gelo', price: 0 },
-        { name: 'Pouco Gelo', price: 0 },
-      ],
-    },
-    {
-      name: 'Tamanho Milkshake',
-      required: true,
-      allowRepeat: false,
-      minOptions: 1,
-      maxOptions: 1,
-      options: [
-        { name: '300ml', price: 0 },
-        { name: '500ml', price: 4.0 },
-      ],
-    },
-    {
-      name: 'Adicionais para Milkshake',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 3,
-      options: [
-        { name: 'Chantilly', price: 2.0 },
-        { name: 'Calda Extra', price: 2.0 },
-        { name: 'Granulado', price: 1.5 },
-      ],
-    },
-  ],
-  },
-
-  // ========== PIZZARIA ==========
-  [BusinessSegment.PIZZARIA]: {
-    // Complementos para Pizzas
-    pizzas: [
-      {
-        name: 'Tamanho',
-      required: true,
-      allowRepeat: false,
-      minOptions: 1,
-      maxOptions: 1,
-      options: [
-        { name: 'Pequena (4 fatias)', price: 0 },
-        { name: 'Média (6 fatias)', price: 10.0 },
-        { name: 'Grande (8 fatias)', price: 18.0 },
-        { name: 'Família (12 fatias)', price: 30.0 },
-      ],
-    },
-    {
-      name: 'Borda',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 1,
-      options: [
-        { name: 'Borda Normal', price: 0 },
-        { name: 'Borda Recheada Catupiry', price: 6.0 },
-        { name: 'Borda Recheada Cheddar', price: 6.0 },
-        { name: 'Borda Recheada Chocolate', price: 7.0 },
-      ],
-    },
-    {
-      name: 'Massa',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 1,
-      options: [
-        { name: 'Massa Tradicional', price: 0 },
-        { name: 'Massa Fina', price: 0 },
-        { name: 'Massa Integral', price: 3.0 },
-      ],
-    },
-    {
-      name: 'Extras',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 5,
-      options: [
-        { name: 'Bacon Extra', price: 5.0 },
-        { name: 'Queijo Extra', price: 4.0 },
-        { name: 'Azeitona', price: 3.0 },
-        { name: 'Orégano', price: 0 },
-        { name: 'Pimenta Calabresa', price: 1.0 },
-      ],
-    },
-    {
-      name: 'Dividir Sabores',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 1,
-      options: [
-        { name: '2 Sabores', price: 0 },
-        { name: '3 Sabores (só família)', price: 5.0 },
-      ],
-    },
-    {
-      name: 'Adicionais Doces',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 3,
-      options: [
-        { name: 'Chocolate Extra', price: 4.0 },
-        { name: 'Leite Condensado', price: 3.0 },
-        { name: 'Frutas', price: 5.0 },
-      ],
-    },
-    {
-      name: 'Tamanho Calzone',
-      required: true,
-      allowRepeat: false,
-      minOptions: 1,
-      maxOptions: 1,
-      options: [
-        { name: 'Individual', price: 0 },
-        { name: 'Grande', price: 8.0 },
-      ],
-    },
-    {
-      name: 'Extras para Calzone',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 3,
-      options: [
-        { name: 'Queijo Extra', price: 4.0 },
-        { name: 'Bacon', price: 5.0 },
-        { name: 'Catupiry Extra', price: 4.0 },
-      ],
-    },
-    {
-      name: 'Quantidade Esfihas',
-      required: true,
-      allowRepeat: false,
-      minOptions: 1,
-      maxOptions: 1,
-      options: [
-        { name: '6 unidades', price: 0 },
-        { name: '12 unidades', price: 18.0 },
-        { name: '20 unidades', price: 28.0 },
-      ],
-    },
-    {
-      name: 'Tamanho Bebida',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 1,
-      options: [
-        { name: '350ml', price: 0 },
-        { name: '500ml', price: 2.0 },
-        { name: '1L', price: 4.0 },
-        { name: '2L', price: 6.0 },
-      ],
-    },
-    ],
-
-    // Complementos para Calzones
-    calzones: [
-      {
-        name: 'Tamanho',
-        required: true,
-        allowRepeat: false,
-        minOptions: 1,
-        maxOptions: 1,
-        options: [
-          { name: 'Individual', price: 0 },
-          { name: 'Grande', price: 8.0 },
-        ],
-      },
-    ],
-  },
-
-  // ========== RESTAURANTE ==========
-  [BusinessSegment.RESTAURANTE]: {
-    // Complementos para Pratos Principais
-    pratosPrincipais: [
-    {
-      name: 'Acompanhamentos',
-      required: true,
-      allowRepeat: false,
-      minOptions: 2,
-      maxOptions: 3,
-      options: [
-        { name: 'Arroz Branco', price: 0 },
-        { name: 'Arroz Integral', price: 2.0 },
-        { name: 'Feijão', price: 0 },
-        { name: 'Feijão Verde', price: 2.0 },
-        { name: 'Farofa', price: 0 },
-        { name: 'Salada Verde', price: 0 },
-        { name: 'Vinagrete', price: 0 },
-      ],
-    },
-    {
-      name: 'Extras',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 4,
-      options: [
-        { name: 'Arroz Extra', price: 3.0 },
-        { name: 'Feijão Extra', price: 3.0 },
-        { name: 'Farofa Extra', price: 2.0 },
-        { name: 'Salada Extra', price: 4.0 },
-        { name: 'Macaxeira Frita', price: 5.0 },
-      ],
-    },
-    {
-      name: 'Ponto da Carne',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 1,
-      options: [
-        { name: 'Mal Passado', price: 0 },
-        { name: 'Ao Ponto', price: 0 },
-        { name: 'Bem Passado', price: 0 },
-      ],
-    },
-    {
-      name: 'Acompanhamentos Regionais',
-      required: true,
-      allowRepeat: false,
-      minOptions: 1,
-      maxOptions: 3,
-      options: [
-        { name: 'Arroz Branco', price: 0 },
-        { name: 'Feijão Verde', price: 0 },
-        { name: 'Macaxeira Cozida', price: 0 },
-        { name: 'Farofa', price: 0 },
-        { name: 'Pirão', price: 2.0 },
-      ],
-    },
-    {
-      name: 'Extras Regionais',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 3,
-      options: [
-        { name: 'Queijo Coalho', price: 6.0 },
-        { name: 'Carne de Sol Extra', price: 8.0 },
-        { name: 'Linguiça', price: 5.0 },
-      ],
-    },
-    {
-      name: 'Modo de Preparo',
-      required: true,
-      allowRepeat: false,
-      minOptions: 1,
-      maxOptions: 1,
-      options: [
-        { name: 'Grelhado', price: 0 },
-        { name: 'Frito', price: 0 },
-        { name: 'Assado', price: 2.0 },
-      ],
-    },
-    {
-      name: 'Acompanhamentos para Peixe',
-      required: true,
-      allowRepeat: false,
-      minOptions: 2,
-      maxOptions: 3,
-      options: [
-        { name: 'Arroz', price: 0 },
-        { name: 'Pirão', price: 0 },
-        { name: 'Legumes', price: 0 },
-        { name: 'Salada', price: 0 },
-      ],
-    },
-    {
-      name: 'Molho',
-      required: true,
-      allowRepeat: false,
-      minOptions: 1,
-      maxOptions: 1,
-      options: [
-        { name: 'Molho Bolonhesa', price: 0 },
-        { name: 'Molho Branco', price: 2.0 },
-        { name: 'Molho ao Pesto', price: 3.0 },
-        { name: 'Molho Rosé', price: 2.0 },
-      ],
-    },
-    {
-      name: 'Adicionais para Massa',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 3,
-      options: [
-        { name: 'Frango', price: 5.0 },
-        { name: 'Bacon', price: 4.0 },
-        { name: 'Queijo Ralado Extra', price: 2.0 },
-      ],
-    },
-    {
-      name: 'Tamanho Bebida',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 1,
-      options: [
-        { name: '300ml', price: 0 },
-        { name: '500ml', price: 2.0 },
-        { name: '1L', price: 4.0 },
-      ],
-    },
-    {
-      name: 'Gelo',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 1,
-      options: [
-        { name: 'Com Gelo', price: 0 },
-        { name: 'Sem Gelo', price: 0 },
-      ],
-    },
-    ],
-  },
-
-  // ========== DEPÓSITO DE BEBIDAS ==========
-  [BusinessSegment.DEPOSITO_BEBIDAS]: {
-    // Complementos para todas as bebidas
-    cervejas: [
-      {
-        name: 'Temperatura',
-      required: true,
-      allowRepeat: false,
-      minOptions: 1,
-      maxOptions: 1,
-      options: [
-        { name: 'Gelada', price: 0 },
-        { name: 'Natural', price: 0 },
-      ],
-    },
-    {
-      name: 'Quantidade',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 1,
-      options: [
-        { name: '1 unidade', price: 0 },
-        { name: 'Pack 6 unidades', price: -2.0 },
-        { name: 'Pack 12 unidades', price: -5.0 },
-        { name: 'Caixa 24 unidades', price: -12.0 },
-      ],
-    },
-    {
-      name: 'Quantidade Cervejas Especiais',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 1,
-      options: [
-        { name: '1 unidade', price: 0 },
-        { name: 'Pack 6 unidades', price: -3.0 },
-        { name: 'Pack 12 unidades', price: -8.0 },
-      ],
-    },
-    {
-      name: 'Temperatura Vinho',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 1,
-      options: [
-        { name: 'Temperatura Ambiente', price: 0 },
-        { name: 'Gelado', price: 0 },
-      ],
-    },
-    {
-      name: 'Tamanho Gelo',
-      required: true,
-      allowRepeat: false,
-      minOptions: 1,
-      maxOptions: 1,
-      options: [
-        { name: '2kg', price: 0 },
-        { name: '5kg', price: 10.0 },
-        { name: '10kg', price: 18.0 },
-      ],
-    },
-    ],
-  },
-
-  // ========== PERFUMARIA ==========
-  [BusinessSegment.PERFUMARIA]: {
-    // Complementos para perfumes
-    perfumes: [
-      {
-        name: 'Tamanho',
-      required: true,
-      allowRepeat: false,
-      minOptions: 1,
-      maxOptions: 1,
-      options: [
-        { name: '30ml', price: 0 },
-        { name: '50ml', price: 25.0 },
-        { name: '100ml', price: 55.0 },
-      ],
-    },
-    {
-      name: 'Tipo de Fragrância',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 1,
-      options: [
-        { name: 'EDT (Eau de Toilette)', price: 0 },
-        { name: 'EDP (Eau de Parfum)', price: 20.0 },
-        { name: 'Perfume', price: 40.0 },
-      ],
-    },
-    {
-      name: 'Tamanho Natura',
-      required: true,
-      allowRepeat: false,
-      minOptions: 1,
-      maxOptions: 1,
-      options: [
-        { name: '30ml', price: 0 },
-        { name: '50ml', price: 20.0 },
-        { name: '100ml', price: 45.0 },
-      ],
-    },
-    {
-      name: 'Embalagem Presente',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 1,
-      options: [
-        { name: 'Sem Embalagem', price: 0 },
-        { name: 'Caixa Presente', price: 5.0 },
-        { name: 'Embrulho Premium', price: 8.0 },
-      ],
-    },
-    {
-      name: 'Tamanho Avon',
-      required: true,
-      allowRepeat: false,
-      minOptions: 1,
-      maxOptions: 1,
-      options: [
-        { name: '30ml', price: 0 },
-        { name: '50ml', price: 18.0 },
-        { name: '100ml', price: 40.0 },
-      ],
-    },
-    {
-      name: 'Tamanho O Boticário',
-      required: true,
-      allowRepeat: false,
-      minOptions: 1,
-      maxOptions: 1,
-      options: [
-        { name: '30ml', price: 0 },
-        { name: '50ml', price: 28.0 },
-        { name: '100ml', price: 60.0 },
-      ],
-    },
-    {
-      name: 'Embalagem Presente O Boticário',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 1,
-      options: [
-        { name: 'Sem Embalagem', price: 0 },
-        { name: 'Caixa Presente O Boticário', price: 8.0 },
-        { name: 'Embrulho Luxo', price: 12.0 },
-      ],
-    },
-    {
-      name: 'Cor/Tom',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 1,
-      options: [
-        { name: 'Tom Claro', price: 0 },
-        { name: 'Tom Médio', price: 0 },
-        { name: 'Tom Escuro', price: 0 },
-      ],
-    },
-    ],
-  },
-
-  // ========== CANOZES ==========
-  [BusinessSegment.CANOZES]: {
-    // Complementos para canecas/caldos
-    canecas: [
-      {
-        name: 'Tamanho',
-      required: true,
-      allowRepeat: false,
-      minOptions: 1,
-      maxOptions: 1,
-      options: [
-        { name: 'Copo 300ml', price: 0 },
-        { name: 'Caneca 500ml', price: 4.0 },
-        { name: 'Tigela 700ml', price: 8.0 },
-      ],
-    },
-    {
-      name: 'Nível de Tempero',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 1,
-      options: [
-        { name: 'Pouco Temperado', price: 0 },
-        { name: 'Tempero Normal', price: 0 },
-        { name: 'Bem Temperado', price: 0 },
-      ],
-    },
-    {
-      name: 'Pimenta',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 1,
-      options: [
-        { name: 'Sem Pimenta', price: 0 },
-        { name: 'Pouca Pimenta', price: 0 },
-        { name: 'Pimenta Normal', price: 0 },
-        { name: 'Muita Pimenta', price: 0 },
-      ],
-    },
-    {
-      name: 'Adicionais',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 3,
-      options: [
-        { name: 'Limão', price: 0.5 },
-        { name: 'Coentro Extra', price: 1.0 },
-        { name: 'Pimenta de Cheiro', price: 1.0 },
-      ],
-    },
-    {
-      name: 'Tamanho Canja',
-      required: true,
-      allowRepeat: false,
-      minOptions: 1,
-      maxOptions: 1,
-      options: [
-        { name: 'Copo 300ml', price: 0 },
-        { name: 'Caneca 500ml', price: 3.0 },
-        { name: 'Tigela 700ml', price: 6.0 },
-      ],
-    },
-    {
-      name: 'Adicionais para Canja',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 2,
-      options: [
-        { name: 'Frango Extra', price: 4.0 },
-        { name: 'Arroz Extra', price: 2.0 },
-      ],
-    },
-    {
-      name: 'Tamanho Caldos Frutos do Mar',
-      required: true,
-      allowRepeat: false,
-      minOptions: 1,
-      maxOptions: 1,
-      options: [
-        { name: 'Copo 300ml', price: 0 },
-        { name: 'Caneca 500ml', price: 5.0 },
-        { name: 'Tigela 700ml', price: 10.0 },
-      ],
-    },
-    {
-      name: 'Adicionais para Frutos do Mar',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 3,
-      options: [
-        { name: 'Camarão Extra', price: 8.0 },
-        { name: 'Peixe Extra', price: 6.0 },
-        { name: 'Limão', price: 0.5 },
-      ],
-    },
-    {
-      name: 'Quantidade Acompanhamentos',
-      required: false,
-      allowRepeat: false,
-      minOptions: 0,
-      maxOptions: 1,
-      options: [
-        { name: '1 unidade', price: 0 },
-        { name: '2 unidades', price: 3.0 },
-        { name: '3 unidades', price: 5.0 },
-      ],
-    },
-  ],
-  },
-};
 
 // Nomes de entregadores
 const deliveryNames = [
@@ -4173,6 +3391,7 @@ export async function main() {
             email: `teste${userCounter}@vaidelli.com`,
             phone: generateUniquePhone(),
             onboardingStep: "COMPLETED",
+            onboardingCompleted: true,
             active: true,
           },
         });
@@ -4304,6 +3523,9 @@ export async function main() {
             },
           });
         }
+
+        await seedOrderOriginsForBranch(branch.id, branchName);
+
         // Verificar e criar clientes
         console.log('🔄 Verificando clientes para a filial...');
         for (const customerData of customersData) {
@@ -4441,7 +3663,7 @@ if (existing) {
         // Criar áreas de entrega para a filial matriz
         console.log('🔄 Criando áreas de entrega para a filial matriz...');
         for (let i = 0; i < SEED_CONFIG.deliveryAreasPerBranch; i++) {
-          const radius = 5000 + i * 2000;
+          const radius = SEED_CONFIG.deliveryAreaRadiusMeters;
           const deliveryFee = 5.0 + i * 2.0;
           const deliveryFeeData = Math.round(Number(deliveryFee) * 100);
           const minOrderValue = Math.round(20.0 + Math.random() * 10);
