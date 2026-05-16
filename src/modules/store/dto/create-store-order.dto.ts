@@ -152,4 +152,14 @@ export class CreateStoreOrderDto {
   @IsOptional()
   @IsBoolean()
   pixPaid?: boolean;
+
+  /** Código da origem do cardápio (?origem=) — opcional, para rastreio de campanha. */
+  @IsOptional()
+  @IsString()
+  orderOriginCode?: string;
+
+  /** ID da campanha (?campanha=) — opcional, vincula o pedido ao disparo específico. */
+  @IsOptional()
+  @IsString()
+  orderChannelCampaignId?: string;
 }

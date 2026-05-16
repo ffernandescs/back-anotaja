@@ -1,4 +1,13 @@
-import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  forwardRef,
+  Inject,
+  Injectable,
+  Logger,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
+import type { OrderChannelCampaignWsEmitter } from '../websocket/order-channel-campaign-ws.types';
+import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
 import type { OrderChannelCampaign, OrderOrigin, Prisma } from '@prisma/client';
 import { prisma } from '../../../lib/prisma';
 import ffmpeg from 'fluent-ffmpeg';
@@ -100,7 +109,18 @@ export interface OrderChannelCampaignListItem {
   sentCount: number;
   readCount: number;
   failedCount: number;
+  orderCount: number;
   orderOrigin?: { id: string; name: string; code: string };
+}
+
+export interface OrderChannelCampaignOrderListItem {
+  id: string;
+  orderNumber: number | null;
+  status: string;
+  total: number;
+  createdAt: Date;
+  customerName: string | null;
+  customerPhone: string | null;
 }
 
 export type OrderChannelCampaignSaveResponse = OrderChannelCampaignListItem & {
@@ -323,6 +343,8 @@ export class WhatsAppService {
   constructor(
     private readonly uploadService: UploadService,
     private readonly aiService: AiService,
+    @Inject(forwardRef(() => OrdersWebSocketGateway))
+    private readonly wsGateway: OrderChannelCampaignWsEmitter,
   ) {}
 
   rememberLidPair(
@@ -2362,15 +2384,22 @@ export class WhatsAppService {
     if (!origin) return;
 
     const menuBaseUrl = await this.resolveBranchMenuBaseUrl(branchId);
-    const linkUrl = buildOrderChannelCampaignLink({
-      menuBaseUrl,
-      originCode: origin.code,
+    const campaigns = await prisma.orderChannelCampaign.findMany({
+      where: { branchId, orderOriginId },
+      select: { id: true },
     });
 
-    await prisma.orderChannelCampaign.updateMany({
-      where: { branchId, orderOriginId },
-      data: { linkUrl, orderChannelCode: origin.code },
-    });
+    for (const c of campaigns) {
+      const linkUrl = buildOrderChannelCampaignLink({
+        menuBaseUrl,
+        originCode: origin.code,
+        campaignId: c.id,
+      });
+      await prisma.orderChannelCampaign.update({
+        where: { id: c.id },
+        data: { linkUrl, orderChannelCode: origin.code },
+      });
+    }
   }
 
   private async requireOrderOrigin(branchId: string, orderOriginId: string) {
@@ -2435,13 +2464,31 @@ export class WhatsAppService {
       orderBy: { dispatchedAt: 'desc' },
     });
 
-    return rows.map((c) => this.toOrderChannelCampaignListItem(c));
+    const campaignIds = rows.map((r) => r.id);
+    const orderCountByCampaign = new Map<string, number>();
+    if (campaignIds.length) {
+      const grouped = await prisma.order.groupBy({
+        by: ['orderChannelCampaignId'],
+        where: { branchId, orderChannelCampaignId: { in: campaignIds } },
+        _count: { id: true },
+      });
+      for (const g of grouped) {
+        if (g.orderChannelCampaignId) {
+          orderCountByCampaign.set(g.orderChannelCampaignId, g._count.id);
+        }
+      }
+    }
+
+    return rows.map((c) =>
+      this.toOrderChannelCampaignListItem(c, orderCountByCampaign.get(c.id) ?? 0),
+    );
   }
 
   private toOrderChannelCampaignListItem(
     c: OrderChannelCampaign & {
       orderOrigin?: { id: string; name: string; code: string } | null;
     },
+    orderCount = 0,
   ): OrderChannelCampaignListItem {
     const parsedRecipients = parseOrderCampaignRecipientsJson(c.recipients);
     return {
@@ -2465,8 +2512,75 @@ export class WhatsAppService {
       sentCount: c.sentCount,
       readCount: c.readCount,
       failedCount: c.failedCount,
+      orderCount,
       orderOrigin: c.orderOrigin ?? undefined,
     };
+  }
+
+  private parseOrderChannelCampaignPagination(query: {
+    page?: number | string;
+    limit?: number | string;
+  }): { page: number; limit: number } {
+    const page = Math.max(1, parseInt(String(query.page ?? 1), 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(String(query.limit ?? 20), 10) || 20));
+    return { page, limit };
+  }
+
+  private async countOrdersForCampaign(
+    branchId: string,
+    campaignId: string,
+  ): Promise<number> {
+    return prisma.order.count({
+      where: { branchId, orderChannelCampaignId: campaignId },
+    });
+  }
+
+  async getOrderChannelCampaignOrders(
+    branchId: string,
+    campaignId: string,
+    query: { page?: number; limit?: number },
+  ): Promise<PaginatedResponseDto<OrderChannelCampaignOrderListItem>> {
+    const campaign = await prisma.orderChannelCampaign.findFirst({
+      where: { id: campaignId, branchId },
+      select: { id: true },
+    });
+    if (!campaign) throw new NotFoundException('Campanha não encontrada');
+    const { page, limit } = this.parseOrderChannelCampaignPagination(query);
+
+    const where: Prisma.OrderWhereInput = {
+      branchId,
+      orderChannelCampaignId: campaignId,
+    };
+
+    const [total, rows] = await Promise.all([
+      prisma.order.count({ where }),
+      prisma.order.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true,
+          orderNumber: true,
+          status: true,
+          total: true,
+          createdAt: true,
+          customer: { select: { name: true, phone: true } },
+        },
+      }),
+    ]);
+
+    const data: OrderChannelCampaignOrderListItem[] = rows.map((o) => ({
+      id: o.id,
+      orderNumber: o.orderNumber,
+      status: o.status,
+      total: o.total,
+      createdAt: o.createdAt,
+      customerName: o.customer?.name ?? null,
+      customerPhone: o.customer?.phone ?? null,
+    }));
+
+    return new PaginatedResponseDto(data, total, page, limit);
   }
 
   private async findOrderChannelCampaignForResponse(campaignId: string, branchId: string) {
@@ -2475,7 +2589,8 @@ export class WhatsAppService {
       include: this.orderOriginInclude,
     });
     if (!row) throw new NotFoundException('Campanha não encontrada');
-    return this.toOrderChannelCampaignListItem(row);
+    const orderCount = await this.countOrdersForCampaign(branchId, row.id);
+    return this.toOrderChannelCampaignListItem(row, orderCount);
   }
 
   private async syncOrderChannelCampaignStats(campaignId: string): Promise<void> {
@@ -2520,6 +2635,21 @@ export class WhatsAppService {
         readCount,
         failedCount,
       },
+    });
+
+    await this.emitOrderChannelCampaignUpdate(campaignId);
+  }
+
+  private async emitOrderChannelCampaignUpdate(campaignId: string): Promise<void> {
+    const row = await prisma.orderChannelCampaign.findUnique({
+      where: { id: campaignId },
+      select: { id: true, branchId: true, orderOriginId: true },
+    });
+    if (!row) return;
+
+    this.wsGateway.emitOrderChannelCampaignUpdate(row.branchId, {
+      campaignId: row.id,
+      orderOriginId: row.orderOriginId ?? undefined,
     });
   }
 
@@ -2862,14 +2992,180 @@ export class WhatsAppService {
     );
   }
 
+  /** Baixa imagem da URL pública (S3/R2) e prepara payload base64 para Evolution sendMedia. */
+  private async loadCampaignImagePayload(
+    imageUrl: string,
+  ): Promise<{ base64: string; mimetype: string; fileName: string } | null> {
+    const url = imageUrl.trim();
+    if (!url) return null;
+
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const buffer = Buffer.from(await res.arrayBuffer());
+      if (!buffer.length) {
+        throw new Error('Arquivo vazio');
+      }
+      const mimetype =
+        res.headers.get('content-type')?.split(';')[0]?.trim() || 'image/jpeg';
+      const ext =
+        mimetype === 'image/png'
+          ? 'png'
+          : mimetype === 'image/webp'
+            ? 'webp'
+            : mimetype === 'image/gif'
+              ? 'gif'
+              : 'jpg';
+      return {
+        base64: buffer.toString('base64'),
+        mimetype,
+        fileName: `campanha.${ext}`,
+      };
+    } catch (err) {
+      this.logger.error(
+        `[loadCampaignImagePayload] Falha ao carregar ${url}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return null;
+    }
+  }
+
+  /** Envia imagem (base64) pela instância conectada — mensagem de mídia no WhatsApp, não link. */
+  private async sendImageViaConnectedInstance(
+    branchId: string,
+    instanceName: string,
+    phone: string,
+    image: { base64: string; mimetype: string; fileName: string },
+    caption: string,
+    meta?: {
+      customerId?: string;
+      customerName?: string;
+      lidMap?: Map<string, string>;
+      campaignMessageId?: string;
+    },
+  ): Promise<{ evolutionMessageId: string | null; storedPhone: string }> {
+    const targets =
+      meta?.customerId && meta.lidMap
+        ? await this.resolveOrderCampaignSendTargets(
+            branchId,
+            instanceName,
+            meta.customerId,
+            phone,
+            meta.lidMap,
+          )
+        : [];
+
+    if (!targets.length) {
+      const fallbackDigits = this.buildEvolutionSendNumberCandidates(phone);
+      for (const d of fallbackDigits) {
+        targets.push(`${d}@s.whatsapp.net`, d);
+      }
+    }
+
+    if (!targets.length) {
+      throw new BadRequestException(`Telefone inválido: ${phone}`);
+    }
+
+    const mediatype = this.mimeToMediaType(image.mimetype);
+    let lastError: unknown;
+
+    for (const target of targets) {
+      const number = this.toEvolutionSendNumber(target);
+      try {
+        const apiResult = await this.evolutionRequest(
+          'POST',
+          `/message/sendMedia/${instanceName}`,
+          {
+            number,
+            mediatype,
+            media: image.base64,
+            mimetype: image.mimetype,
+            fileName: image.fileName,
+            caption: caption ?? '',
+          },
+        );
+        const evolutionMessageId = this.extractEvolutionMessageId(apiResult);
+        const storedPhone = number.includes('@')
+          ? phoneFromJid(number) || this.formatPhone(phone)
+          : number;
+
+        if (meta?.campaignMessageId) {
+          await prisma.orderChannelCampaignMessage.update({
+            where: { id: meta.campaignMessageId },
+            data: {
+              evolutionMessageId: evolutionMessageId ?? undefined,
+              status: evolutionMessageId ? 'sent' : 'processed',
+              sentAt: new Date(),
+              errorMessage: null,
+            },
+          });
+        }
+
+        await this.recordMessage({
+          branchId,
+          customerId: meta?.customerId,
+          customerName: meta?.customerName,
+          phone: storedPhone,
+          text: caption?.trim() ? `[imagem] ${caption}` : '[imagem]',
+          status: 'sent',
+          remoteJid: number.includes('@') ? number : undefined,
+        });
+
+        return { evolutionMessageId, storedPhone };
+      } catch (err) {
+        lastError = err;
+        if (!this.isEvolutionExistsFalseError(err)) {
+          this.logger.warn(
+            `[sendImageViaConnectedInstance] Falha (${instanceName} → ${number}): ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
+      }
+    }
+
+    const failPhone = this.formatPhone(phone);
+    const failMsg =
+      lastError instanceof Error
+        ? lastError.message
+        : String(lastError ?? 'Falha ao enviar imagem');
+
+    if (meta?.campaignMessageId) {
+      await prisma.orderChannelCampaignMessage.update({
+        where: { id: meta.campaignMessageId },
+        data: { status: 'failed', errorMessage: failMsg.slice(0, 500) },
+      });
+    }
+
+    await this.recordMessage({
+      branchId,
+      customerId: meta?.customerId,
+      customerName: meta?.customerName,
+      phone: failPhone,
+      text: '[imagem]',
+      status: 'failed',
+    });
+
+    const tried = this.buildEvolutionSendNumberCandidates(phone).join(', ') || '—';
+    throw new BadRequestException(
+      `Não foi possível enviar a imagem para ${phone}. Formatos tentados (com 55): ${tried}.`,
+    );
+  }
+
   private async dispatchOrderChannelCampaignMessages(
     branchId: string,
     campaign: OrderChannelCampaign & {
       orderOrigin?: { name: string; code: string } | null;
     },
   ): Promise<OrderChannelCampaignDispatchResult | null> {
-    const template = campaign.description?.trim();
-    if (!template) return null;
+    const template = campaign.description?.trim() ?? '';
+    const imageUrl = campaign.imageUrl?.trim() || '';
+    const hasImage = imageUrl.length > 0;
+
+    if (!template && !hasImage) return null;
 
     const recipients = parseOrderCampaignRecipientsJson(campaign.recipients);
     if (!recipients.length) return null;
@@ -2929,25 +3225,52 @@ export class WhatsAppService {
       ),
     );
 
+    const imagePayload = hasImage ? await this.loadCampaignImagePayload(imageUrl) : null;
+    if (hasImage && !imagePayload) {
+      this.logger.warn(
+        `[dispatchOrderChannelCampaign] Não foi possível carregar imagem: ${imageUrl}`,
+      );
+    }
+
     const result: OrderChannelCampaignDispatchResult = { sent: 0, failed: 0, errors: [] };
 
     for (let i = 0; i < recipients.length; i++) {
       const recipient = recipients[i];
       const dispatchRow = dispatchRows[i];
       const text = substituteOrderCampaignMessage(template, ctx, recipient);
+      const sendMeta = {
+        customerId: recipient.customerId,
+        customerName: recipient.name,
+        lidMap,
+        campaignMessageId: dispatchRow.id,
+      };
       try {
-        await this.sendTextViaConnectedInstance(
-          branchId,
-          config.instanceName!,
-          recipient.phone,
-          text,
-          {
-            customerId: recipient.customerId,
-            customerName: recipient.name,
-            lidMap,
-            campaignMessageId: dispatchRow.id,
-          },
-        );
+        if (imagePayload) {
+          await this.sendImageViaConnectedInstance(
+            branchId,
+            config.instanceName!,
+            recipient.phone,
+            imagePayload,
+            '',
+            sendMeta,
+          );
+          await this.delayMs(500);
+        }
+
+        if (template) {
+          await this.sendTextViaConnectedInstance(
+            branchId,
+            config.instanceName!,
+            recipient.phone,
+            text,
+            sendMeta,
+          );
+        }
+
+        if (!imagePayload && !template) {
+          throw new BadRequestException('Nada para enviar nesta campanha.');
+        }
+
         result.sent++;
       } catch (err: unknown) {
         result.failed++;
@@ -2979,17 +3302,17 @@ export class WhatsAppService {
     },
   ): Promise<OrderChannelCampaignSaveResponse> {
     const recipients = this.sanitizeOrderCampaignRecipients(dto.recipients);
-    if (dto.description?.trim() && Array.isArray(recipients) && recipients.length > 0) {
+    const willDispatch =
+      Array.isArray(recipients) &&
+      recipients.length > 0 &&
+      (Boolean(dto.description?.trim()) || Boolean(dto.imageUrl?.trim()));
+    if (willDispatch) {
       await this.requireConnectedConfig(branchId);
     }
 
     const origin = await this.requireOrderOrigin(branchId, dto.orderOriginId);
 
     const menuBaseUrl = await this.resolveBranchMenuBaseUrl(branchId);
-    const linkUrl = buildOrderChannelCampaignLink({
-      menuBaseUrl,
-      originCode: origin.code,
-    });
 
     const campaign = await prisma.orderChannelCampaign.create({
       data: {
@@ -3001,13 +3324,27 @@ export class WhatsAppService {
         imageUrl: dto.imageUrl?.trim() || null,
         recipients,
         orderChannelCode: origin.code,
-        linkUrl,
+        linkUrl: buildOrderChannelCampaignLink({
+          menuBaseUrl,
+          originCode: origin.code,
+        }),
       },
       include: this.orderOriginInclude,
     });
 
-    const dispatch = await this.dispatchOrderChannelCampaignMessages(branchId, campaign);
-    const item = await this.findOrderChannelCampaignForResponse(campaign.id, branchId);
+    const linkUrl = buildOrderChannelCampaignLink({
+      menuBaseUrl,
+      originCode: origin.code,
+      campaignId: campaign.id,
+    });
+    const campaignWithLink = await prisma.orderChannelCampaign.update({
+      where: { id: campaign.id },
+      data: { linkUrl },
+      include: this.orderOriginInclude,
+    });
+
+    const dispatch = await this.dispatchOrderChannelCampaignMessages(branchId, campaignWithLink);
+    const item = await this.findOrderChannelCampaignForResponse(campaignWithLink.id, branchId);
     return { ...item, dispatch };
   }
 
@@ -3065,7 +3402,9 @@ export class WhatsAppService {
         ? this.sanitizeOrderCampaignRecipients(dto.recipients)
         : existing.recipients;
     const nextRecipientCount = parseOrderCampaignRecipientsJson(nextRecipientsRaw).length;
-    if (nextDescription && nextRecipientCount > 0) {
+    const nextImageUrl =
+      dto.imageUrl !== undefined ? dto.imageUrl.trim() : existing.imageUrl?.trim();
+    if (nextRecipientCount > 0 && (nextDescription || nextImageUrl)) {
       await this.requireConnectedConfig(branchId);
     }
 
@@ -3080,6 +3419,7 @@ export class WhatsAppService {
     const linkUrl = buildOrderChannelCampaignLink({
       menuBaseUrl,
       originCode: origin.code,
+      campaignId: id,
     });
 
     const description =
@@ -3193,8 +3533,10 @@ export class WhatsAppService {
       );
     }
 
+    const orderCount = await this.countOrdersForCampaign(branchId, campaign.id);
+
     return {
-      campaign: this.toOrderChannelCampaignListItem(campaign),
+      campaign: this.toOrderChannelCampaignListItem(campaign, orderCount),
       messagePreview,
     };
   }
@@ -3210,8 +3552,7 @@ export class WhatsAppService {
     });
     if (!exists) throw new NotFoundException('Campanha não encontrada');
 
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 20;
+    const { page, limit } = this.parseOrderChannelCampaignPagination(query);
     const search = query.search?.trim();
 
     const where: Prisma.OrderChannelCampaignMessageWhereInput = {

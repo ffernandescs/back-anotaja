@@ -79,9 +79,17 @@ export function suggestOrderOriginCode(name: string, existing: string[] = []): s
 export interface BuildOrderChannelCampaignLinkParams {
   menuBaseUrl: string;
   originCode: string;
+  /** ID da campanha — query ?campanha= para atribuir o pedido ao disparo correto */
+  campaignId?: string;
 }
 
-/** URL do cardápio: apenas ?origem={codigo} */
+/** ID de campanha (cuid) aceito na query ?campanha= */
+export function isValidOrderChannelCampaignId(id: string): boolean {
+  const v = id.trim();
+  return /^c[a-z0-9]{20,}$/i.test(v);
+}
+
+/** URL do cardápio: ?origem={codigo}&campanha={id} */
 export function buildOrderChannelCampaignLink(params: BuildOrderChannelCampaignLinkParams): string {
   const base = (params.menuBaseUrl ?? '').trim();
   const code = (params.originCode ?? '').trim().toLowerCase();
@@ -89,5 +97,9 @@ export function buildOrderChannelCampaignLink(params: BuildOrderChannelCampaignL
 
   const url = new URL(base.includes('://') ? base : `https://${base}`);
   url.searchParams.set('origem', code);
+  const campaignId = params.campaignId?.trim();
+  if (campaignId && isValidOrderChannelCampaignId(campaignId)) {
+    url.searchParams.set('campanha', campaignId);
+  }
   return url.toString();
 }

@@ -14,6 +14,15 @@ import { prisma } from '../../../lib/prisma';
 import { RedisService, LocationUpdate } from './redis.service';
 import { UploadService } from '../upload/upload.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import type {
+  OrderChannelCampaignWsEmitter,
+  OrderChannelCampaignWsPayload,
+} from './order-channel-campaign-ws.types';
+
+export type {
+  OrderChannelCampaignWsEmitter,
+  OrderChannelCampaignWsPayload,
+} from './order-channel-campaign-ws.types';
 
 interface AuthenticatedSocket extends Socket {
   user?: {
@@ -35,7 +44,7 @@ interface AuthenticatedSocket extends Socket {
   path: '/socket.io',
 })
 export class OrdersWebSocketGateway
-  implements OnGatewayConnection, OnGatewayDisconnect
+  implements OnGatewayConnection, OnGatewayDisconnect, OrderChannelCampaignWsEmitter
 {
   @WebSocketServer()
   server!: Server;
@@ -542,6 +551,31 @@ export class OrdersWebSocketGateway
     const orderRoom = `order:${order.id}`;
     this.server.to(orderRoom).emit('order:new', eventData);
     this.logger.debug(`📤 Emitted order:new to order room ${orderRoom}`);
+  }
+
+  /** Atualiza listagem/dashboard de campanhas WhatsApp (mensagens, pedidos por origem). */
+  emitOrderChannelCampaignUpdate(
+    branchId: string,
+    payload: OrderChannelCampaignWsPayload,
+  ): void {
+    if (!this.server?.sockets) {
+      this.logger.warn(
+        'WebSocket server not initialized, cannot emit order-channel-campaign:update',
+      );
+      return;
+    }
+
+    const branchRoom = `branch:${branchId}`;
+    const eventData = {
+      event: 'order-channel-campaign:update',
+      branchId,
+      ...payload,
+    };
+
+    this.server.to(branchRoom).emit('order-channel-campaign:update', eventData);
+    this.logger.debug(
+      `📤 order-channel-campaign:update → ${branchRoom} campaign=${payload.campaignId ?? '—'} origin=${payload.orderOriginId ?? '—'}`,
+    );
   }
 
   /**

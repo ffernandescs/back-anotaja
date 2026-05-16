@@ -72,7 +72,7 @@ export class UpdateOrderChannelCampaignDto {
   recipients?: OrderChannelCampaignRecipientDto[];
 }
 
-export class QueryOrderChannelCampaignMessagesDto {
+export class QueryOrderChannelCampaignPaginationDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -84,11 +84,16 @@ export class QueryOrderChannelCampaignMessagesDto {
   @IsInt()
   @Min(1)
   limit?: number;
+}
 
+export class QueryOrderChannelCampaignMessagesDto extends QueryOrderChannelCampaignPaginationDto {
   @IsOptional()
   @IsString()
   search?: string;
 }
+
+/** Mesma paginação de mensagens, sem busca — GET order-campaigns/:id/orders */
+export class QueryOrderChannelCampaignOrdersDto extends QueryOrderChannelCampaignPaginationDto {}
 
 export class BulkCreateOrderChannelCampaignsDto {
   @IsString()

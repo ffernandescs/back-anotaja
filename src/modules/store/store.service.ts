@@ -33,6 +33,10 @@ import { OrderSurveyService } from '../order-survey/order-survey.service';
 import { formatPhone } from 'src/utils/formatPhone';
 import { formatCurrency } from 'src/utils/formatCurrency';
 import {
+  isValidOrderChannelCampaignId,
+  isValidOrderOriginCode,
+} from '../../utils/order-channel-campaign';
+import {
   CRM_ORDER_STATUS_TEMPLATE_FIELD,
   type CrmOrderStatusNotificationId,
   canSendCrmOrderStatusNotification,
@@ -1825,6 +1829,48 @@ private async validateCustomer(
     return { deliveryFee, serviceFee, estimatedTime };
   }
 
+  /** Resolve origem do cardápio pelo código (?origem=) — opcional, não bloqueia o pedido se inválido. */
+  private async resolveOrderOriginIdForBranch(
+    branchId: string,
+    orderOriginCode?: string | null,
+  ): Promise<string | null> {
+    const code = orderOriginCode?.trim().toLowerCase() ?? '';
+    if (!code || !isValidOrderOriginCode(code)) return null;
+
+    const origin = await prisma.orderOrigin.findFirst({
+      where: { branchId, code },
+      select: { id: true },
+    });
+    return origin?.id ?? null;
+  }
+
+  /**
+   * Resolve campanha (?campanha=) e origem do pedido.
+   * Se a campanha for válida, usa a origem vinculada a ela (prioridade sobre só ?origem=).
+   */
+  private async resolveOrderCampaignAttribution(
+    branchId: string,
+    orderOriginCode?: string | null,
+    orderChannelCampaignId?: string | null,
+  ): Promise<{ orderOriginId: string | null; orderChannelCampaignId: string | null }> {
+    const campaignId = orderChannelCampaignId?.trim() ?? '';
+    if (campaignId && isValidOrderChannelCampaignId(campaignId)) {
+      const campaign = await prisma.orderChannelCampaign.findFirst({
+        where: { id: campaignId, branchId },
+        select: { id: true, orderOriginId: true },
+      });
+      if (campaign) {
+        return {
+          orderChannelCampaignId: campaign.id,
+          orderOriginId: campaign.orderOriginId,
+        };
+      }
+    }
+
+    const orderOriginId = await this.resolveOrderOriginIdForBranch(branchId, orderOriginCode);
+    return { orderOriginId, orderChannelCampaignId: null };
+  }
+
   /**
    * Criar pedido na loja (checkout)
    */
@@ -1892,6 +1938,12 @@ async createOrder(
     );
 
   const total = subtotal + deliveryFee + serviceFee - discount;
+
+  const { orderOriginId, orderChannelCampaignId } = await this.resolveOrderCampaignAttribution(
+    branch.id,
+    createOrderDto.orderOriginCode,
+    createOrderDto.orderChannelCampaignId,
+  );
 
   if (payments?.length) {
     await this.validatePaymentMethods(payments, branch.id);
@@ -2002,6 +2054,8 @@ async createOrder(
 
         couponId: appliedCouponId,
         customerAddressId: addressId,
+        orderOriginId,
+        orderChannelCampaignId,
 
         items: {
                          create: itemsData.map((item) => ({
@@ -2136,6 +2190,13 @@ async createOrder(
     },
     'order:created',
   );
+
+  if (finalOrder.orderChannelCampaignId || finalOrder.orderOriginId) {
+    this.webSocketGateway.emitOrderChannelCampaignUpdate(finalOrder.branchId, {
+      campaignId: finalOrder.orderChannelCampaignId ?? undefined,
+      orderOriginId: finalOrder.orderOriginId ?? undefined,
+    });
+  }
 
   // ─── WhatsApp Notifications ─────────────────────────────────────
   // Notify restaurant about new order

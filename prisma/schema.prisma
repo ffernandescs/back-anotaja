@@ -1091,6 +1091,12 @@ model Order {
   deliveryAssignmentId                                                    String?
   billSplitId                                                             String?
   billSplit                                                               BillSplit?          @relation(fields: [billSplitId], references: [id], onDelete: SetNull)
+  /// Origem do cardápio (?origem=codigo) — rastreio de campanhas WhatsApp
+  orderOriginId                                                           String?
+  orderOrigin                                                             OrderOrigin?        @relation(fields: [orderOriginId], references: [id], onDelete: SetNull)
+  /// Campanha específica (?campanha=id) — disparo WhatsApp que gerou o pedido
+  orderChannelCampaignId                                                  String?
+  orderChannelCampaign                                                    OrderChannelCampaign? @relation(fields: [orderChannelCampaignId], references: [id], onDelete: SetNull)
   items                                                                   OrderItem[]
   payments             OrderPayment[] // Pagamentos realizados
   cashMovements                                                           CashMovement[]
@@ -1100,6 +1106,8 @@ model Order {
   orderSurveyTokens    OrderSurveyToken[]
   surveyResponses OrderSurveyResponse[]
   @@unique([orderNumber, branchId]) // Número único por filial
+  @@index([branchId, orderOriginId])
+  @@index([branchId, orderChannelCampaignId])
 }
 
 enum PaymentStatus {
@@ -2282,6 +2290,7 @@ model OrderOrigin {
 
   branch    Branch                 @relation(fields: [branchId], references: [id], onDelete: Cascade)
   campaigns OrderChannelCampaign[]
+  orders    Order[]
 
   @@unique([branchId, code])
   @@map("order_origins")
@@ -2314,6 +2323,7 @@ model OrderChannelCampaign {
   branch            Branch                       @relation(fields: [branchId], references: [id], onDelete: Cascade)
   orderOrigin       OrderOrigin                  @relation(fields: [orderOriginId], references: [id], onDelete: Restrict)
   dispatchMessages  OrderChannelCampaignMessage[]
+  orders            Order[]
 
   @@map("order_channel_campaigns")
   @@index([branchId])

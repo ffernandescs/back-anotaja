@@ -206,5 +206,6 @@ export {
   CreateOrderChannelCampaignDto,
   UpdateOrderChannelCampaignDto,
   QueryOrderChannelCampaignMessagesDto,
+  QueryOrderChannelCampaignOrdersDto,
   BulkCreateOrderChannelCampaignsDto,
 } from './order-channel-campaign.dto';
