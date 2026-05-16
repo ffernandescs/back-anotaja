@@ -19,7 +19,7 @@ import { CalculateDeliveryFeeDto } from '../store/dto/calculate-delivery-fee.dto
 import { LatLng } from '../store/types';
 import { StoreService } from '../store/store.service';
 import { OrderStateMachineService } from '../store/store-state-machine.service';
-import { resolveCrmOrderStatusNotifications } from 'src/utils/whatsapp-crm-order-status-notifications';
+import { canSendCrmOrderStatusNotification } from 'src/utils/whatsapp-crm-order-status-notifications';
 
 const isValidCoord = (v: unknown): v is number =>
   typeof v === 'number' && !isNaN(v);
@@ -1381,28 +1381,26 @@ Se tiver alguma dúvida, entre em contato conosco.`;
     let shouldSend = false;
     let messageType: 'confirmation' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled' = 'confirmation';
 
-    const statusMap = resolveCrmOrderStatusNotifications(config);
-
     switch (status) {
       case OrderStatus.CONFIRMED:
         messageType = 'confirmation';
-        shouldSend = statusMap.confirmation.enabled;
+        shouldSend = canSendCrmOrderStatusNotification(config, 'confirmation');
         break;
       case OrderStatus.READY:
         messageType = 'ready';
-        shouldSend = statusMap.ready.enabled;
+        shouldSend = canSendCrmOrderStatusNotification(config, 'ready');
         break;
       case OrderStatus.DELIVERING:
         messageType = 'out_for_delivery';
-        shouldSend = statusMap.out_for_delivery.enabled;
+        shouldSend = canSendCrmOrderStatusNotification(config, 'out_for_delivery');
         break;
       case OrderStatus.DELIVERED:
         messageType = 'delivered';
-        shouldSend = statusMap.delivered.enabled;
+        shouldSend = canSendCrmOrderStatusNotification(config, 'delivered');
         break;
       case OrderStatus.CANCELLED:
         messageType = 'cancelled';
-        shouldSend = statusMap.cancelled.enabled;
+        shouldSend = canSendCrmOrderStatusNotification(config, 'cancelled');
         break;
       default:
         shouldSend = false;

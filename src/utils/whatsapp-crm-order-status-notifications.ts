@@ -134,6 +134,41 @@ export function isCrmOrderStatusNotificationEnabled(
   return normalized[id].enabled;
 }
 
+/** Bot global do CRM (`crmBootBotEnabled`). */
+export function isCrmGlobalBotEnabled(config: { crmBootBotEnabled?: boolean }): boolean {
+  return config.crmBootBotEnabled === true;
+}
+
+/** Bot de notificações ao cliente (`notifyOrderStatus` — default true no banco). */
+export function isCrmClientOrderNotificationsEnabled(config: {
+  notifyOrderStatus?: boolean;
+}): boolean {
+  return config.notifyOrderStatus !== false;
+}
+
+export type CrmOrderStatusNotificationGateConfig = {
+  crmBootBotEnabled?: boolean;
+  notifyOrderStatus?: boolean;
+  crmOrderStatusNotifications?: unknown;
+  crmBootGreetingFlows?: unknown;
+  orderConfirmationEnabled?: boolean;
+  orderReadyEnabled?: boolean;
+  deliveryCancelEnabled?: boolean;
+};
+
+/**
+ * Hierarquia para envio: bot global → notificações ao cliente → status individual.
+ */
+export function canSendCrmOrderStatusNotification(
+  config: CrmOrderStatusNotificationGateConfig,
+  id: CrmOrderStatusNotificationId,
+): boolean {
+  if (!isCrmGlobalBotEnabled(config)) return false;
+  if (!isCrmClientOrderNotificationsEnabled(config)) return false;
+  const map = resolveCrmOrderStatusNotifications(config);
+  return map[id].enabled;
+}
+
 /** Mapa igual ao default do banco (tudo ligado + modelo padrão). */
 export function isDefaultOrderStatusNotificationsMap(
   map: CrmOrderStatusNotificationsMap,

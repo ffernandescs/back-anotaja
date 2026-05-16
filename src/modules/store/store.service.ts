@@ -35,6 +35,7 @@ import { formatCurrency } from 'src/utils/formatCurrency';
 import {
   CRM_ORDER_STATUS_TEMPLATE_FIELD,
   type CrmOrderStatusNotificationId,
+  canSendCrmOrderStatusNotification,
   resolveCrmOrderStatusNotifications,
 } from 'src/utils/whatsapp-crm-order-status-notifications';
 
@@ -4018,6 +4019,8 @@ Se tiver alguma dúvida, entre em contato conosco.`,
 
   private isOrderStatusWhatsAppEnabled(
     config: {
+      crmBootBotEnabled?: boolean;
+      notifyOrderStatus?: boolean;
       crmOrderStatusNotifications?: unknown;
       crmBootGreetingFlows?: unknown;
       orderConfirmationEnabled?: boolean;
@@ -4026,8 +4029,7 @@ Se tiver alguma dúvida, entre em contato conosco.`,
     },
     type: CrmOrderStatusNotificationId,
   ): boolean {
-    const map = resolveCrmOrderStatusNotifications(config);
-    return map[type].enabled;
+    return canSendCrmOrderStatusNotification(config, type);
   }
 
   private async getCustomTemplate(branchId: string, type: 'confirmation' |  'preparing' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled'): Promise<string | null> {
