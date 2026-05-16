@@ -32,6 +32,7 @@ import { substituteCrmBootTokens } from 'src/utils/whatsapp-crm-boot-template';
 import {
   buildBranchOpeningHoursBlockPt,
   buildBranchOpenStatusLinePt,
+  formatDateYmdInSaoPaulo,
   getNowInSaoPaulo,
   isBranchEffectivelyClosedForContactNow,
   type BranchScheduleLike,
@@ -69,23 +70,6 @@ export class WhatsAppService {
         segments: [],
       },
     };
-  }
-
-  /**
-   * Janela mínima (ms) entre duas mensagens inbound do mesmo contato para repetir saudação.
-   * `CRM_BOOT_GREETING_REPEAT_AFTER_HOURS`: horas (decimal ok); **default 24**. Ex.: `0.5` → 30 min (mín. 60s).
-   * `0`, `first-only` ou `first_only` → **só a primeira inbound** registada por contato+fila (comportamento legado).
-   */
-  private static parseCrmBootGreetingRepeatAfterHours(): number | 'first_only' {
-    const raw = (process.env.CRM_BOOT_GREETING_REPEAT_AFTER_HOURS ?? '24').trim();
-    const compact = raw.toLowerCase().replace(/[\s-]+/g, '_');
-    if (compact === '0' || compact === 'first_only') return 'first_only';
-
-    const h = Number.parseFloat(raw.replace(',', '.'));
-    if (!Number.isFinite(h) || h < 0) return 24 * 60 * 60 * 1000;
-
-    const ms = Math.round(h * 60 * 60 * 1000);
-    return Math.max(ms, 60_000);
   }
 
   /**
@@ -955,11 +939,18 @@ export class WhatsAppService {
   }
 
   /**
-   * Dispara mensagens segmentadas quando o cliente manda mensagem(s) inbound e:
-   * - é o **primeiro** registro inbound deste contato na filial; ou
-   * - já houve outbound antes mas passou **`CRM_BOOT_GREETING_REPEAT_AFTER_HOURS`** (default **24**) desde o inbound anterior —
-   *   alinhado à ideia de “nova sessão” após inatividade.
-   * Use **`CRM_BOOT_GREETING_REPEAT_AFTER_HOURS=0`** para manter apenas a primeira vez (comportamento antigo).
+   * Chave estável por contato (telefone normalizado ou identidade do JID) para estado de saudação diária.
+   */
+  private static buildCrmBootGreetingContactKey(sendJid: string, wo55: string): string {
+    const digits = `${wo55 || ''}`.replace(/\D/g, '');
+    if (digits.length >= 10) return `ph:${digits}`;
+    const local = `${sendJid}`.split('@')[0] ?? '';
+    return `jid:${local.toLowerCase()}`;
+  }
+
+  /**
+   * Dispara a saudação segmentada **no máximo uma vez por dia civil** (America/Sao_Paulo)
+   * **por contato e filial**, e **só quando a filial está em expediente efectivo** (aberta para atendimento agora).
    */
   async trySendCrmBootGreetingSequence(opts: {
     branchId: string;
@@ -1006,32 +997,6 @@ export class WhatsAppService {
     let segments = this.extractBootSegmentsForFlow(flowsRaw, 'greeting');
     if (segments.length === 0) {
       segments = WhatsAppService.defaultCrmBootGreetingFallbackSegments();
-    }
-
-    const repeatAfterMsOrFirstOnly =
-      WhatsAppService.parseCrmBootGreetingRepeatAfterHours();
-
-    if (repeatAfterMsOrFirstOnly === 'first_only') {
-      const inboundCount = await prisma.whatsAppMessage.count({
-        where: { branchId, fromMe: false, remoteJid: { in: syncJids } },
-      });
-      if (inboundCount !== 1) return;
-    } else {
-      const recentInbound = await prisma.whatsAppMessage.findMany({
-        where: { branchId, fromMe: false, remoteJid: { in: syncJids } },
-        orderBy: { sentAt: 'desc' },
-        take: 2,
-        select: { sentAt: true },
-      });
-      if (recentInbound.length < 1) return;
-      if (recentInbound.length === 1) {
-        /* primeira mensagem inbound registrada */
-      } else {
-        const newest = recentInbound[0].sentAt;
-        const older = recentInbound[1].sentAt;
-        const gapMs = newest.getTime() - older.getTime();
-        if (gapMs < repeatAfterMsOrFirstOnly) return;
-      }
     }
 
     const digits = (customerPhoneDigits || '').replace(/\D/g, '');
@@ -1091,6 +1056,27 @@ export class WhatsAppService {
     }));
 
     const nowSp = getNowInSaoPaulo();
+    const effectivelyClosed = isBranchEffectivelyClosedForContactNow({
+      branchIsOpen: branch.isOpen,
+      schedules,
+      refInSaoPaulo: nowSp,
+    });
+    if (effectivelyClosed) return;
+
+    const todaySp = formatDateYmdInSaoPaulo(nowSp);
+    const contactKey = WhatsAppService.buildCrmBootGreetingContactKey(sendJid, wo55);
+
+    const dayState = await prisma.crmBootGreetingDayState
+      .findUnique({
+        where: {
+          branchId_contactKey: { branchId, contactKey },
+        },
+        select: { sentOnDate: true },
+      })
+      .catch(() => null);
+
+    if (dayState?.sentOnDate === todaySp) return;
+
     const branchHoursFormatted = buildBranchOpeningHoursBlockPt(schedules);
     const branchHoursStatusLine = buildBranchOpenStatusLinePt({
       branchIsOpen: branch.isOpen,
@@ -1105,6 +1091,7 @@ export class WhatsAppService {
 
     const sorted = [...segments].sort((a, b) => a.orderIndex - b.orderIndex);
     let first = true;
+    let anySegmentSent = false;
     for (const seg of sorted) {
       const text = substituteCrmBootTokens(seg.body, {
         customerName: ctxCustomerName,
@@ -1123,11 +1110,24 @@ export class WhatsAppService {
           number: sendJid,
           text,
         });
+        anySegmentSent = true;
       } catch (err: any) {
         this.logger.warn(
           `[trySendCrmBootGreetingSequence] Falha ao enviar trecho (${seg.orderIndex}) para ${sendJid}: ${err?.message}`,
         );
       }
+    }
+
+    if (anySegmentSent) {
+      await prisma.crmBootGreetingDayState
+        .upsert({
+          where: { branchId_contactKey: { branchId, contactKey } },
+          create: { branchId, contactKey, sentOnDate: todaySp },
+          update: { sentOnDate: todaySp },
+        })
+        .catch((err) =>
+          this.logger.warn(`[trySendCrmBootGreetingSequence] Falha ao gravar dia de saudação: ${err?.message}`),
+        );
     }
   }
 

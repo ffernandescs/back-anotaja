@@ -634,6 +634,22 @@ model Branch {
   surveyResponses            SurveyResponse[]
   orderSurveyTokens    OrderSurveyToken[]
   orderSurveyResponses OrderSurveyResponse[]
+  crmBootGreetingDayStates CrmBootGreetingDayState[]
+}
+
+/// Último dia civil (YYYY-MM-DD, America/Sao_Paulo) em que a saudação boot CRM foi enviada a este contato nesta filial.
+model CrmBootGreetingDayState {
+  id         String   @id @default(cuid())
+  branchId   String
+  contactKey String
+  sentOnDate String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([branchId, contactKey])
 }
 
 

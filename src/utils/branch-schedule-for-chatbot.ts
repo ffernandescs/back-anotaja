@@ -29,6 +29,11 @@ export function getNowInSaoPaulo(): Date {
   return new Date(s);
 }
 
+/** Data civil `YYYY-MM-DD` no fuso America/Sao_Paulo (para “1 saudação por dia”). */
+export function formatDateYmdInSaoPaulo(refInSaoPaulo: Date): string {
+  return refInSaoPaulo.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+}
+
 function pad2(n: number): string {
   return `${n}`.padStart(2, '0');
 }
