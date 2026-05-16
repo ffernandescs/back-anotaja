@@ -2151,10 +2151,10 @@ model WhatsAppConfig {
   // Única flag global CRM: quando false (padrão), nenhuma automação do bot roda nesta conta.
   crmBootBotEnabled                                                          Boolean             @default(false)
   /**
-   * Fluxos por filial: `greeting` e futuros IDs. Padrão = saudação ativa (`enabled: true`) porém sem texto
-   * até edição na UI — demais booleans relacionados ficam ligados quando existem linha/cadastro.
+   * Fluxos por filial: chaves estáveis (`greeting`, `operatingStatus`, `businessHours`, …). Por fluxo:
+   * `enabled`, `useDefaultTemplate`, `segments`. Segmentos vazios com modelo padrão usam texto de fallback na UI e no envío de saudação.
    */
-  crmBootGreetingFlows                                                       Json?                @default("{\"greeting\":{\"enabled\":true,\"segments\":[]}}")
+  crmBootGreetingFlows                                                       Json?                @default("{\"greeting\":{\"enabled\":true,\"useDefaultTemplate\":true,\"segments\":[]},\"operatingStatus\":{\"enabled\":true,\"useDefaultTemplate\":true,\"segments\":[]},\"businessHours\":{\"enabled\":true,\"useDefaultTemplate\":true,\"segments\":[]}}")
 
   // Templates de mensagens customizáveis
   templateConfirmation      String?  // Template para confirmação de pedido

@@ -28,6 +28,12 @@ import { pickPhoneForLidDeepScan } from 'src/utils/whatsapp-lid-resolve';
 import { fetchChatsForBranch } from './fetch-chats';
 import { loadPersistedLidPairs, persistLidPair } from './whatsapp-lid-pair.store';
 import { substituteCrmBootTokens } from 'src/utils/whatsapp-crm-boot-template';
+import {
+  buildBranchOpeningHoursBlockPt,
+  buildBranchOpenStatusLinePt,
+  getNowInSaoPaulo,
+  type BranchScheduleLike,
+} from 'src/utils/branch-schedule-for-chatbot';
 
 /**
  * Prefixo usado ao criar instâncias na Evolution API.
@@ -39,9 +45,27 @@ const INSTANCE_PREFIX = 'anotaja_';
 export class WhatsAppService {
   private readonly logger = new Logger(WhatsAppService.name);
 
-  /** Novas configs / antes do INSERT na tabela: saudação ativa (`enabled:true`) sem texto até edição na UI; bot global (`crmBootBotEnabled`) permanece false. */
+  /**
+   * Novas configs / INSERT: fluxos conhecidos com `useDefaultTemplate` true; `greeting.segments` vazio até edição — fallback no envío de saudação alinha ao modelo padrão.
+   */
   private static blankCrmBootGreetingFlows(): Record<string, unknown> {
-    return { greeting: { enabled: true, segments: [] } };
+    return {
+      greeting: {
+        enabled: true,
+        useDefaultTemplate: true,
+        segments: [],
+      },
+      operatingStatus: {
+        enabled: true,
+        useDefaultTemplate: true,
+        segments: [],
+      },
+      businessHours: {
+        enabled: true,
+        useDefaultTemplate: true,
+        segments: [],
+      },
+    };
   }
 
   /**
@@ -969,9 +993,38 @@ export class WhatsAppService {
 
     const branch = await prisma.branch.findUnique({
       where: { id: branchId },
-      select: { companyId: true, subdomain: true },
+      select: {
+        companyId: true,
+        subdomain: true,
+        isOpen: true,
+        openingHours: {
+          select: {
+            day: true,
+            open: true,
+            close: true,
+            closed: true,
+            date: true,
+          },
+        },
+      },
     });
     if (!branch?.companyId) return;
+
+    const schedules: BranchScheduleLike[] = (branch.openingHours ?? []).map((row) => ({
+      day: row.day,
+      open: row.open,
+      close: row.close,
+      closed: row.closed,
+      date: row.date ?? null,
+    }));
+
+    const nowSp = getNowInSaoPaulo();
+    const branchHoursFormatted = buildBranchOpeningHoursBlockPt(schedules);
+    const branchHoursStatusLine = buildBranchOpenStatusLinePt({
+      branchIsOpen: branch.isOpen,
+      schedules,
+      refInSaoPaulo: nowSp,
+    });
 
     const ordersLink = this.buildBranchOrdersMenuUrl(branch.subdomain ?? null);
     const firstName = `${customerDisplayName ?? ''}`.trim().split(/\s+/)[0] ?? '';
@@ -984,7 +1037,9 @@ export class WhatsAppService {
       const text = substituteCrmBootTokens(seg.body, {
         customerName: ctxCustomerName,
         ordersLink,
-        now: new Date(),
+        now: nowSp,
+        branchHoursFormatted,
+        branchHoursStatusLine,
       }).trim();
 
       if (!text) continue;
@@ -1004,7 +1059,7 @@ export class WhatsAppService {
     }
   }
 
-  /** Normaliza `crmBootGreetingFlows`: mantém outros fluxos (chaves não-`greeting`) para escalonamento futuro. */
+  /** Normaliza `crmBootGreetingFlows`: preserva chaves desconhecidas; higieniza `greeting`, `operatingStatus` e `businessHours`. */
   private sanitizeBootGreetingFlows(raw: unknown): Record<string, unknown> {
     const rec =
       WhatsAppService.normalizeFlowsInputToRecord(raw) ??
@@ -1035,30 +1090,41 @@ export class WhatsAppService {
     return out;
   }
 
-  private static normalizeFlowsInputToRecord(flows: unknown): Record<
-    string,
-    unknown
-  > | null {
-    if (flows === null || flows === undefined) return WhatsAppService.blankCrmBootGreetingFlows();
-    if (typeof flows !== 'object' || Array.isArray(flows)) return null;
-    const root = flows as Record<string, unknown>;
-
-    const preserved: Record<string, unknown> = {};
-    for (const key of Object.keys(root)) {
-      if (key === 'greeting') continue;
-      if (/^[a-z][a-z0-9_]*$/i.test(key) && key.length <= 64) preserved[key] = root[key];
-    }
-
-    const greeting = root['greeting'];
-    let enabled = true;
+  private static normalizeSingleBootFlow(
+    rawSlice: unknown,
+    blankSlice: Record<string, unknown>,
+  ): Record<string, unknown> {
+    let enabled = typeof blankSlice['enabled'] === 'boolean' ? (blankSlice['enabled'] as boolean) : true;
+    let useDefaultTemplate =
+      typeof blankSlice['useDefaultTemplate'] === 'boolean'
+        ? (blankSlice['useDefaultTemplate'] as boolean)
+        : true;
     let segments: unknown[] = [];
-    if (greeting !== null && typeof greeting === 'object' && !Array.isArray(greeting)) {
-      const g = greeting as Record<string, unknown>;
-      if (typeof g['enabled'] === 'boolean') enabled = g['enabled'];
-      segments = Array.isArray(g['segments']) ? [...(g['segments'] as unknown[])] : [];
+
+    if (rawSlice !== null && typeof rawSlice === 'object' && !Array.isArray(rawSlice)) {
+      const o = rawSlice as Record<string, unknown>;
+      if (typeof o['enabled'] === 'boolean') enabled = o['enabled'];
+      if (typeof o['useDefaultTemplate'] === 'boolean')
+        useDefaultTemplate = o['useDefaultTemplate'] as boolean;
+      segments = Array.isArray(o['segments']) ? [...(o['segments'] as unknown[])] : [];
     }
 
-    const cleaned = segments
+    const numbered = WhatsAppService.cleanBootFlowSegmentEntries(segments);
+    return {
+      enabled,
+      useDefaultTemplate,
+      segments: numbered.map((s) => ({
+        id: s.id,
+        orderIndex: s.orderIndex,
+        body: s.body,
+      })),
+    };
+  }
+
+  private static cleanBootFlowSegmentEntries(
+    segmentsInput: unknown[],
+  ): Array<{ id: string; orderIndex: number; body: string }> {
+    const cleaned = segmentsInput
       .map((entry: unknown, i: number) => {
         if (!entry || typeof entry !== 'object') return null;
         const e = entry as Record<string, unknown>;
@@ -1078,18 +1144,35 @@ export class WhatsAppService {
       })
       .filter(Boolean) as Array<{ id: string; orderIndex: number; body: string }>;
 
-    const numbered = cleaned.map((s, idx) => ({ ...s, orderIndex: idx + 1 }));
+    return cleaned.map((s, idx) => ({ ...s, orderIndex: idx + 1 }));
+  }
+
+  private static normalizeFlowsInputToRecord(flows: unknown): Record<
+    string,
+    unknown
+  > | null {
+    if (flows === null || flows === undefined) return WhatsAppService.blankCrmBootGreetingFlows();
+    if (typeof flows !== 'object' || Array.isArray(flows)) return null;
+    const root = flows as Record<string, unknown>;
+    const blank = WhatsAppService.blankCrmBootGreetingFlows();
+    const blankGreeting = blank['greeting'] as Record<string, unknown>;
+    const blankOperating = blank['operatingStatus'] as Record<string, unknown>;
+    const blankBusinessHours = blank['businessHours'] as Record<string, unknown>;
+
+    const reservedKeys = new Set(['greeting', 'operatingStatus', 'businessHours']);
+    const preserved: Record<string, unknown> = {};
+    for (const key of Object.keys(root)) {
+      if (reservedKeys.has(key)) continue;
+      if (/^[a-z][a-z0-9_]*$/i.test(key) && key.length <= 64) preserved[key] = root[key];
+    }
 
     return {
       ...preserved,
-      greeting: {
-        enabled,
-        segments: numbered.map((s) => ({
-          id: s.id,
-          orderIndex: s.orderIndex,
-          body: s.body,
-        })),
-      },
+      greeting: WhatsAppService.normalizeSingleBootFlow(root['greeting'], blankGreeting),
+      operatingStatus: WhatsAppService.normalizeSingleBootFlow(
+        root['operatingStatus'],
+        blankOperating,
+      ),
     };
   }
 
@@ -1098,9 +1181,9 @@ export class WhatsAppService {
     const domain = (process.env.FRONTEND_URL || '').replace(/^https?:\/\//, '');
     const protocol = process.env.NODE_ENV === 'development' ? 'http' : 'https';
     if (!subdomain || domain.length === 0) {
-      return 'https://suapedida.vaidelli.shop/menu';
+      return '';
     }
-    return `${protocol}://${subdomain}.${domain}/menu`;
+    return `${protocol}://${subdomain}.${domain}`;
   }
 
   private delayMs(ms: number): Promise<void> {
