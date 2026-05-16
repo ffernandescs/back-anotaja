@@ -19,6 +19,7 @@ import { CalculateDeliveryFeeDto } from '../store/dto/calculate-delivery-fee.dto
 import { LatLng } from '../store/types';
 import { StoreService } from '../store/store.service';
 import { OrderStateMachineService } from '../store/store-state-machine.service';
+import { isCrmOrderStatusNotificationEnabled } from 'src/utils/whatsapp-crm-order-status-notifications';
 
 const isValidCoord = (v: unknown): v is number =>
   typeof v === 'number' && !isNaN(v);
@@ -1380,26 +1381,52 @@ Se tiver alguma dúvida, entre em contato conosco.`;
     let shouldSend = false;
     let messageType: 'confirmation' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled' = 'confirmation';
 
+    const legacy = {
+      orderConfirmationEnabled: config.orderConfirmationEnabled,
+      orderReadyEnabled: config.orderReadyEnabled,
+      deliveryCancelEnabled: config.deliveryCancelEnabled,
+    };
+
     switch (status) {
       case OrderStatus.CONFIRMED:
-        shouldSend = config.orderConfirmationEnabled;
         messageType = 'confirmation';
+        shouldSend = isCrmOrderStatusNotificationEnabled(
+          config.crmOrderStatusNotifications,
+          'confirmation',
+          legacy,
+        );
         break;
       case OrderStatus.READY:
-        shouldSend = config.orderReadyEnabled;
         messageType = 'ready';
+        shouldSend = isCrmOrderStatusNotificationEnabled(
+          config.crmOrderStatusNotifications,
+          'ready',
+          legacy,
+        );
         break;
       case OrderStatus.DELIVERING:
-        shouldSend = config.orderReadyEnabled;
         messageType = 'out_for_delivery';
+        shouldSend = isCrmOrderStatusNotificationEnabled(
+          config.crmOrderStatusNotifications,
+          'out_for_delivery',
+          legacy,
+        );
         break;
       case OrderStatus.DELIVERED:
-        shouldSend = config.orderReadyEnabled;
         messageType = 'delivered';
+        shouldSend = isCrmOrderStatusNotificationEnabled(
+          config.crmOrderStatusNotifications,
+          'delivered',
+          legacy,
+        );
         break;
       case OrderStatus.CANCELLED:
-        shouldSend = config.deliveryCancelEnabled;
         messageType = 'cancelled';
+        shouldSend = isCrmOrderStatusNotificationEnabled(
+          config.crmOrderStatusNotifications,
+          'cancelled',
+          legacy,
+        );
         break;
       default:
         shouldSend = false;

@@ -32,6 +32,12 @@ import { StoreSurveyService } from './store-survey.service';
 import { OrderSurveyService } from '../order-survey/order-survey.service';
 import { formatPhone } from 'src/utils/formatPhone';
 import { formatCurrency } from 'src/utils/formatCurrency';
+import {
+  CRM_ORDER_STATUS_TEMPLATE_FIELD,
+  type CrmOrderStatusNotificationId,
+  isCrmOrderStatusNotificationEnabled,
+  normalizeCrmOrderStatusNotifications,
+} from 'src/utils/whatsapp-crm-order-status-notifications';
 
 interface PlanLimits {
   branches: number;
@@ -101,19 +107,19 @@ export class StoreService {
 
     switch (status) {
       case OrderStatus.CONFIRMED:
-        shouldSend = config.orderConfirmationEnabled;
         messageType = 'confirmation';
+        shouldSend = this.isOrderStatusWhatsAppEnabled(config, 'confirmation');
         break;
 
       case OrderStatus.IN_PROGRESS:
-        shouldSend = config.orderConfirmationEnabled;
         messageType = 'preparing';
+        shouldSend = this.isOrderStatusWhatsAppEnabled(config, 'preparing');
         break;
       case OrderStatus.READY:
         // Don't send notification for DELIVERY orders when ready (only when delivering)
         if (!isDelivery) {
-          shouldSend = config.orderReadyEnabled;
           messageType = 'ready';
+          shouldSend = this.isOrderStatusWhatsAppEnabled(config, 'ready');
         } else {
           shouldSend = false;
         }
@@ -121,19 +127,19 @@ export class StoreService {
       case OrderStatus.DELIVERING:
         // Only send out_for_delivery for delivery orders
         if (isDelivery) {
-          shouldSend = config.orderReadyEnabled;
           messageType = 'out_for_delivery';
+          shouldSend = this.isOrderStatusWhatsAppEnabled(config, 'out_for_delivery');
         } else {
           shouldSend = false;
         }
         break;
       case OrderStatus.DELIVERED:
-        shouldSend = config.orderReadyEnabled;
         messageType = 'delivered';
+        shouldSend = this.isOrderStatusWhatsAppEnabled(config, 'delivered');
         break;
       case OrderStatus.CANCELLED:
-        shouldSend = config.deliveryCancelEnabled;
         messageType = 'cancelled';
+        shouldSend = this.isOrderStatusWhatsAppEnabled(config, 'cancelled');
         break;
       default:
         shouldSend = false;
@@ -3961,6 +3967,15 @@ ${items}
 📍 ${branchName}
 
 Agradecemos pela preferência!`,
+      preparing: `👨‍🍳 *Pedido em Preparo!*
+
+Olá ${customerName}!
+
+Seu pedido #${orderNumber} já está sendo preparado.
+
+📍 ${branchName}
+
+Em breve avisamos quando estiver pronto!`,
       ready: `✅ *Pedido Pronto!*
 
 Olá ${customerName}!
@@ -4002,10 +4017,30 @@ Se tiver alguma dúvida, entre em contato conosco.`,
     return defaultMessages[type] || '';
   }
 
+  private isOrderStatusWhatsAppEnabled(
+    config: {
+      crmOrderStatusNotifications?: unknown;
+      orderConfirmationEnabled?: boolean;
+      orderReadyEnabled?: boolean;
+      deliveryCancelEnabled?: boolean;
+    },
+    type: CrmOrderStatusNotificationId,
+  ): boolean {
+    return isCrmOrderStatusNotificationEnabled(config.crmOrderStatusNotifications, type, {
+      orderConfirmationEnabled: config.orderConfirmationEnabled,
+      orderReadyEnabled: config.orderReadyEnabled,
+      deliveryCancelEnabled: config.deliveryCancelEnabled,
+    });
+  }
+
   private async getCustomTemplate(branchId: string, type: 'confirmation' |  'preparing' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled'): Promise<string | null> {
     const config = await (prisma as any).whatsAppConfig.findUnique({
       where: { branchId },
       select: {
+        crmOrderStatusNotifications: true,
+        orderConfirmationEnabled: true,
+        orderReadyEnabled: true,
+        deliveryCancelEnabled: true,
         templateConfirmation: true,
         templatePreparing: true,
         templateReady: true,
@@ -4017,16 +4052,18 @@ Se tiver alguma dúvida, entre em contato conosco.`,
 
     if (!config) return null;
 
-    const templateMap: Record<string, string | null> = {
-      confirmation: config.templateConfirmation,
-      preparing: config.templatePreparing,
-      ready: config.templateReady,
-      out_for_delivery: config.templateOutForDelivery,
-      delivered: config.templateDelivered,
-      cancelled: config.templateCancelled,
-    };
+    const meta = normalizeCrmOrderStatusNotifications(config.crmOrderStatusNotifications, {
+      orderConfirmationEnabled: config.orderConfirmationEnabled,
+      orderReadyEnabled: config.orderReadyEnabled,
+      deliveryCancelEnabled: config.deliveryCancelEnabled,
+    });
 
-    return templateMap[type] || null;
+    if (meta[type].useDefaultTemplate) return null;
+
+    const field = CRM_ORDER_STATUS_TEMPLATE_FIELD[type];
+    const raw = config[field];
+    const trimmed = typeof raw === 'string' ? raw.trim() : '';
+    return trimmed.length > 0 ? trimmed : null;
   }
 
   private async formatOrderMessageWithTemplate(order: any, type: 'confirmation' | 'preparing' | 'ready' | 'out_for_delivery' | 'delivered' | 'cancelled', branchId: string): Promise<string> {

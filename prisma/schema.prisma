@@ -2171,6 +2171,8 @@ model WhatsAppConfig {
    * `enabled`, `useDefaultTemplate`, `segments`. Segmentos vazios com modelo padrão usam texto de fallback na UI e no envío de saudação.
    */
   crmBootGreetingFlows                                                       Json?                @default("{\"greeting\":{\"enabled\":true,\"useDefaultTemplate\":true,\"segments\":[]},\"operatingStatus\":{\"enabled\":true,\"useDefaultTemplate\":true,\"segments\":[]},\"businessHours\":{\"enabled\":true,\"useDefaultTemplate\":true,\"segments\":[]},\"orderMenuLink\":{\"enabled\":true,\"useDefaultTemplate\":true,\"segments\":[]},\"productInfo\":{\"enabled\":true,\"useDefaultTemplate\":true,\"segments\":[]},\"establishmentAddress\":{\"enabled\":true,\"useDefaultTemplate\":true,\"segments\":[]},\"deliveryPaymentMethods\":{\"enabled\":true,\"useDefaultTemplate\":true,\"segments\":[]},\"productPromotions\":{\"enabled\":true,\"useDefaultTemplate\":true,\"segments\":[]}}")
+  /** Por status de pedido: `enabled` e `useDefaultTemplate` (texto em `template*`). */
+  crmOrderStatusNotifications                                                Json?                @default("{\"confirmation\":{\"enabled\":true,\"useDefaultTemplate\":true},\"preparing\":{\"enabled\":true,\"useDefaultTemplate\":true},\"ready\":{\"enabled\":true,\"useDefaultTemplate\":true},\"out_for_delivery\":{\"enabled\":true,\"useDefaultTemplate\":true},\"delivered\":{\"enabled\":true,\"useDefaultTemplate\":true},\"cancelled\":{\"enabled\":true,\"useDefaultTemplate\":true}}")
 
   // Templates de mensagens customizáveis
   templateConfirmation      String?  // Template para confirmação de pedido

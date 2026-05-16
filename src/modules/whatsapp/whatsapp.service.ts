@@ -37,6 +37,11 @@ import { resolveBranchAddressFormatted } from 'src/utils/whatsapp-crm-branch-add
 import { resolveDeliveryPaymentMethodsFormatted } from 'src/utils/whatsapp-crm-branch-payment-methods';
 import { resolveBranchProductPromotionsFormatted } from 'src/utils/whatsapp-crm-product-promotions';
 import {
+  blankCrmOrderStatusNotifications,
+  legacyFlagsFromOrderStatusNotifications,
+  sanitizeCrmOrderStatusNotificationsInput,
+} from 'src/utils/whatsapp-crm-order-status-notifications';
+import {
   buildBranchOpeningHoursBlockPt,
   buildBranchOpenStatusLinePt,
   formatDateYmdInSaoPaulo,
@@ -349,6 +354,7 @@ export class WhatsAppService {
         deliveryCancelEnabled: true,
         crmBootBotEnabled: false,
         crmBootGreetingFlows: WhatsAppService.blankCrmBootGreetingFlows(),
+        crmOrderStatusNotifications: blankCrmOrderStatusNotifications(),
       };
     }
 
@@ -358,11 +364,17 @@ export class WhatsAppService {
 
   async updateConfig(branchId: string, dto: UpdateWhatsAppConfigDto) {
     const rawDto = dto as unknown as Record<string, unknown>;
-    const { crmBootGreetingFlows: rawFlows, ...rest } = rawDto;
+    const { crmBootGreetingFlows: rawFlows, crmOrderStatusNotifications: rawStatus, ...rest } =
+      rawDto;
 
     const data: Record<string, unknown> = { ...rest };
     if ('crmBootGreetingFlows' in rawDto) {
       data.crmBootGreetingFlows = this.sanitizeBootGreetingFlows(rawFlows as unknown);
+    }
+    if ('crmOrderStatusNotifications' in rawDto) {
+      const sanitized = sanitizeCrmOrderStatusNotificationsInput(rawStatus);
+      data.crmOrderStatusNotifications = sanitized;
+      Object.assign(data, legacyFlagsFromOrderStatusNotifications(sanitized));
     }
 
     return prisma.whatsAppConfig.upsert({

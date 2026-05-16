@@ -47,6 +47,11 @@ export class UpdateWhatsAppConfigDto {
   @Allow()
   crmBootGreetingFlows?: Record<string, unknown>;
 
+  /** Por status de pedido: `{ confirmation?: { enabled, useDefaultTemplate }, ... }`. */
+  @IsOptional()
+  @Allow()
+  crmOrderStatusNotifications?: Record<string, unknown>;
+
   // Message templates
   @IsOptional()
   @IsString()
