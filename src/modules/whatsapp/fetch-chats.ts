@@ -118,6 +118,26 @@ export interface FetchChatsResult {
       completed: number;
     };
     totalOrders: number;
+    /** Pedidos não finalizados (pipeline). */
+    openOrders?: Array<{
+      id: string;
+      orderNumber: number | null;
+      total: number;
+      status: string;
+      deliveryType: string;
+      createdAt: string;
+      updatedAt: string;
+    }>;
+    /** Pedidos finalizados (entregues ou concluídos no sistema). */
+    completedOrders?: Array<{
+      id: string;
+      orderNumber: number | null;
+      total: number;
+      status: string;
+      deliveryType: string;
+      createdAt: string;
+      updatedAt: string;
+    }>;
   }>;
   globalSummary: {
     new: number;
@@ -895,6 +915,7 @@ export async function fetchChatsForBranch(deps: FetchChatsDeps): Promise<FetchCh
             branchId,
             OR: nameOrParts,
           },
+          include: { addresses: { where: { isDefault: true } } },
         })
       : [];
 
@@ -1001,10 +1022,20 @@ export async function fetchChatsForBranch(deps: FetchChatsDeps): Promise<FetchCh
     include: { addresses: { where: { isDefault: true } } },
   });
 
+  /** Por telefone (variantes das conversas) + por nome (@lid lookup). Une IDs para garantir pedidos mesmo quando só o match por nome carregou o cliente. */
+  const unifiedCustomersById = new Map<string, (typeof customers)[0]>();
+  for (const c of customers) unifiedCustomersById.set(c.id, c);
+  for (const c of customersByName) {
+    if (!unifiedCustomersById.has(c.id)) {
+      unifiedCustomersById.set(c.id, c as (typeof customers)[0]);
+    }
+  }
+  const unifiedCustomerList = [...unifiedCustomersById.values()];
+
   const customerByVariant = new Map<string, (typeof customers)[0]>();
-  for (const cust of customers) {
+  for (const cust of unifiedCustomerList) {
     for (const v of phoneVariants(cust.phone)) {
-      customerByVariant.set(v, cust);
+      if (!customerByVariant.has(v)) customerByVariant.set(v, cust);
     }
   }
 
@@ -1013,15 +1044,27 @@ export async function fetchChatsForBranch(deps: FetchChatsDeps): Promise<FetchCh
       phoneToLocal.get(chat.remoteJid) ??
       (chat.lidJid ? phoneToLocal.get(chat.lidJid) : '') ??
       jidToLocalPhone(chat.remoteJid);
-    if (!local || digitsLookLikeLidId(local)) return null;
-    for (const v of phoneVariants(local)) {
-      const found = customerByVariant.get(v);
-      if (found) return found;
+
+    if (local && !digitsLookLikeLidId(local)) {
+      for (const v of phoneVariants(local)) {
+        const found = customerByVariant.get(v);
+        if (found) return found;
+      }
+      return null;
     }
-    return null;
+
+    const byName = matchCustomerByWhatsPushName(chat.pushName, unifiedCustomerList);
+    if (!byName) return null;
+    return (
+      unifiedCustomerList.find(
+        (row) =>
+          row.phone.replace(/\D/g, '') === byName.phone.replace(/\D/g, '') &&
+          row.name.trim().toLowerCase() === byName.name.trim().toLowerCase(),
+      ) ?? null
+    );
   };
 
-  const customerIds = customers.map((c) => c.id);
+  const customerIds = unifiedCustomerList.map((c) => c.id);
   const orders = customerIds.length
     ? await prisma.order.findMany({
         where: { branchId, customerId: { in: customerIds } },
@@ -1086,6 +1129,7 @@ export async function fetchChatsForBranch(deps: FetchChatsDeps): Promise<FetchCh
       customer,
       ordersSummary: summarizeOrders(customerOrders),
       totalOrders: customerOrders.length,
+      openOrders: snippetOpenOrders(customerOrders),
     };
   });
 
@@ -1136,4 +1180,85 @@ function buildGlobalSummary(orders: Array<{ status: string }>) {
     outForDelivery: orders.filter((o) => ['READY', 'DELIVERING'].includes(o.status)).length,
     completed: orders.filter((o) => ['DELIVERED', 'COMPLETED'].includes(o.status)).length,
   };
+}
+
+/** Pedidos que ainda não encerraram o fluxo (exclui entregue, concluído e cancelado). */
+const TERMINAL_ORDER_STATUSES = new Set(['DELIVERED', 'COMPLETED', 'CANCELLED']);
+
+const COMPLETED_PIPELINE_STATUSES = new Set(['DELIVERED', 'COMPLETED']);
+
+function snippetCompletedOrders(
+  customerOrders: Array<{
+    id: string;
+    orderNumber: number | null;
+    total: number;
+    status: string;
+    deliveryType: string;
+    createdAt: Date;
+    updatedAt: Date;
+  }>,
+): Array<{
+  id: string;
+  orderNumber: number | null;
+  total: number;
+  status: string;
+  deliveryType: string;
+  createdAt: string;
+  updatedAt: string;
+}> {
+  const completed = customerOrders.filter((o) => {
+    const st = typeof o.status === 'string' ? o.status.toUpperCase().trim() : '';
+    return st && COMPLETED_PIPELINE_STATUSES.has(st);
+  });
+  const activityMs = (o: { updatedAt: Date; createdAt: Date }) =>
+    Math.max(o.updatedAt?.getTime?.() ?? 0, o.createdAt?.getTime?.() ?? 0);
+  return [...completed]
+    .sort((a, b) => activityMs(b) - activityMs(a))
+    .map((o) => ({
+      id: o.id,
+      orderNumber: o.orderNumber ?? null,
+      total: o.total,
+      status: typeof o.status === 'string' ? o.status.toUpperCase().trim() : String(o.status ?? ''),
+      deliveryType: o.deliveryType,
+      createdAt: o.createdAt.toISOString(),
+      updatedAt: o.updatedAt.toISOString(),
+    }));
+}
+
+function snippetOpenOrders(
+  customerOrders: Array<{
+    id: string;
+    orderNumber: number | null;
+    total: number;
+    status: string;
+    deliveryType: string;
+    createdAt: Date;
+    updatedAt: Date;
+  }>,
+): Array<{
+  id: string;
+  orderNumber: number | null;
+  total: number;
+  status: string;
+  deliveryType: string;
+  createdAt: string;
+  updatedAt: string;
+}> {
+  const open = customerOrders.filter((o) => {
+    const st = typeof o.status === 'string' ? o.status.toUpperCase().trim() : '';
+    return st && !TERMINAL_ORDER_STATUSES.has(st);
+  });
+  const activityMs = (o: { updatedAt: Date; createdAt: Date }) =>
+    Math.max(o.updatedAt?.getTime?.() ?? 0, o.createdAt?.getTime?.() ?? 0);
+  return [...open]
+    .sort((a, b) => activityMs(b) - activityMs(a))
+    .map((o) => ({
+      id: o.id,
+      orderNumber: o.orderNumber ?? null,
+      total: o.total,
+      status: typeof o.status === 'string' ? o.status.toUpperCase().trim() : String(o.status ?? ''),
+      deliveryType: o.deliveryType,
+      createdAt: o.createdAt.toISOString(),
+      updatedAt: o.updatedAt.toISOString(),
+    }));
 }

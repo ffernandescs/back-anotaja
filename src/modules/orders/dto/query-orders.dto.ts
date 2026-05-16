@@ -51,4 +51,9 @@ export class QueryOrdersDto {
   @IsOptional()
   @IsString()
   deliveryType?: string;
+
+  /** Filtrar por cliente (ex.: painel CRM WhatsApp) */
+  @IsOptional()
+  @IsString()
+  customerId?: string;
 }

@@ -145,6 +145,7 @@ export class WhatsAppService {
         orderReadyEnabled: true,
         deliveryStartEnabled: true,
         deliveryCancelEnabled: true,
+        crmBootBotEnabled: false,
       };
     }
 
@@ -361,7 +362,26 @@ export class WhatsAppService {
     const where = this.configWhere(branchId, partnerId);
     const config = await prisma.whatsAppConfig.findFirst({ where });
 
-    if (!config?.instanceName) return { status: 'disconnected' };
+    if (!config) {
+      return { status: 'disconnected' as const, crmBootBotEnabled: false };
+    }
+
+    const baseMeta = {
+      crmBootBotEnabled: !!config.crmBootBotEnabled,
+      phoneNumber: config.phoneNumber ?? null,
+      profileName: config.profileName ?? null,
+      profilePicUrl: config.profilePicUrl ?? null,
+      instanceName: config.instanceName ?? null,
+      branchId: config.branchId ?? null,
+      partnerId: config.partnerId ?? null,
+    };
+
+    if (!config.instanceName) {
+      return {
+        status: (config.status ?? 'disconnected') as string,
+        ...baseMeta,
+      };
+    }
 
     try {
       const res = await this.evolutionRequest('GET', `/instance/connectionState/${config.instanceName}`);
@@ -384,14 +404,13 @@ export class WhatsAppService {
 
       return {
         status,
-        phoneNumber: config.phoneNumber,
-        profileName: config.profileName,
-        profilePicUrl: config.profilePicUrl,
-        instanceName: config.instanceName,
-        branchId: config.branchId,
+        ...baseMeta,
       };
     } catch {
-      return { status: config.status ?? 'disconnected' };
+      return {
+        status: config.status ?? 'disconnected',
+        ...baseMeta,
+      };
     }
   }
 

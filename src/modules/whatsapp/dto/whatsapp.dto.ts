@@ -37,6 +37,11 @@ export class UpdateWhatsAppConfigDto {
   @IsBoolean()
   deliveryCancelEnabled?: boolean;
 
+  /** Ativa o fluxo de boot do bot no CRM (mensagens automáticas; expandir posteriormente). */
+  @IsOptional()
+  @IsBoolean()
+  crmBootBotEnabled?: boolean;
+
   // Message templates
   @IsOptional()
   @IsString()

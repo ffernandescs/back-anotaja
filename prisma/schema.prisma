@@ -940,6 +940,9 @@ model Customer {
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
 
+  /// Quando true, o fluxo de boot/mensagens automáticas do bot no CRM fica desligado só para este cliente.
+  crmBootBotDisabled Boolean          @default(false)
+
   addresses        CustomerAddress[]
   orders           Order[]
   branch           Branch            @relation(fields: [branchId], references: [id], onDelete: Cascade)
@@ -2144,6 +2147,9 @@ model WhatsAppConfig {
   orderReadyEnabled                                                           Boolean             @default(true) // Aviso de pedido pronto
   deliveryStartEnabled                                                        Boolean             @default(true) // Aviso de saída para entrega
   deliveryCancelEnabled                                                       Boolean             @default(true) // Aviso de cancelamento
+
+  // Habilita o fluxo de boot do bot no CRM (mensagens automáticas configuráveis).
+  crmBootBotEnabled                                                          Boolean             @default(false)
 
   // Templates de mensagens customizáveis
   templateConfirmation      String?  // Template para confirmação de pedido

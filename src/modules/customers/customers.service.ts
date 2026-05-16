@@ -374,18 +374,54 @@ export class CustomersService {
   }
 
   async update(id: string, dto: UpdateCustomerDto, userId: string) {
-    const customer = await this.findOne(id, userId);
+    await this.findOne(id, userId);
 
-    return prisma.customer.update({
-      where: { id },
-      data: {
-        name: dto.name,
-        phone: dto.phone,
-        email: dto.email,
-        branchId: customer.branchId,
-      },
-      include: { addresses: true },
-    });
+    const crmBootBotDisabled = dto.crmBootBotDisabled;
+
+    /** Campos sempre presentes no Prisma Client atual (addresses não entram neste PATCH). */
+    const data = {
+      ...(dto.name !== undefined && { name: dto.name }),
+      ...(dto.phone !== undefined && { phone: dto.phone }),
+      ...(dto.email !== undefined && { email: dto.email }),
+    };
+
+    let customer =
+      Object.keys(data).length > 0
+        ? await prisma.customer.update({
+            where: { id },
+            data,
+            include: { addresses: true },
+          })
+        : await prisma.customer.findUnique({
+            where: { id },
+            include: { addresses: true },
+          });
+
+    if (!customer) {
+      throw new NotFoundException('Cliente não encontrado');
+    }
+
+    /**
+     * `crmBootBotDisabled` pode existir só no schema/SQL quando o cliente Prisma não foi
+     * regenerado (`prisma generate`). Atualização via SQL evita ValidationError até o CI rodar generate.
+     */
+    if (crmBootBotDisabled !== undefined) {
+      await prisma.$executeRaw`
+        UPDATE "Customer"
+        SET "crmBootBotDisabled" = ${crmBootBotDisabled}, "updatedAt" = CURRENT_TIMESTAMP
+        WHERE "id" = ${id}
+      `;
+      customer = await prisma.customer.findUnique({
+        where: { id },
+        include: { addresses: true },
+      });
+      if (!customer) {
+        throw new NotFoundException('Cliente não encontrado');
+      }
+      return { ...customer, crmBootBotDisabled };
+    }
+
+    return customer;
   }
 
   async remove(id: string, userId: string) {

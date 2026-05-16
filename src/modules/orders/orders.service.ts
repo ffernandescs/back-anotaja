@@ -18,6 +18,7 @@ import { CreatePaymentDto } from './dto/create-payment.dto';
 import { CalculateDeliveryFeeDto } from '../store/dto/calculate-delivery-fee.dto';
 import { LatLng } from '../store/types';
 import { StoreService } from '../store/store.service';
+import { OrderStateMachineService } from '../store/store-state-machine.service';
 
 const isValidCoord = (v: unknown): v is number =>
   typeof v === 'number' && !isNaN(v);
@@ -95,6 +96,10 @@ export class OrdersService {
     const where: Prisma.OrderWhereInput = {
       branchId: user.branchId,
     };
+
+    if (query.customerId?.trim()) {
+      where.customerId = query.customerId.trim();
+    }
 
     // Status único ou múltiplos
     if (query.status) {
@@ -403,10 +408,14 @@ export class OrdersService {
       couponCode: order.coupon?.code as string | undefined,
     };
 
-    return orderWithCouponType;
+    const stateMachine = new OrderStateMachineService();
+    return {
+      ...orderWithCouponType,
+      availableTransitions: stateMachine.getAvailableTransitions(order),
+    };
   }
 
-  
+
   async calculateDeliveryFee(
       calculateFeeDto: CalculateDeliveryFeeDto,
       branchId?: string,
