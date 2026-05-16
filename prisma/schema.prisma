@@ -940,7 +940,7 @@ model Customer {
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
 
-  /// Quando true, o fluxo de boot/mensagens automáticas do bot no CRM fica desligado só para este cliente.
+  /// Por padrão false (= bot CRM permitido neste cadastro). true corta todas as automações só para este cliente.
   crmBootBotDisabled Boolean          @default(false)
 
   addresses        CustomerAddress[]
@@ -2148,10 +2148,13 @@ model WhatsAppConfig {
   deliveryStartEnabled                                                        Boolean             @default(true) // Aviso de saída para entrega
   deliveryCancelEnabled                                                       Boolean             @default(true) // Aviso de cancelamento
 
-  // Habilita o fluxo de boot do bot no CRM (mensagens automáticas configuráveis).
+  // Única flag global CRM: quando false (padrão), nenhuma automação do bot roda nesta conta.
   crmBootBotEnabled                                                          Boolean             @default(false)
-  /** JSON { greeting?: { segments: { id?, orderIndex, body }[] } } por filial (branchId ↔ loja ↔ companyId). */
-  crmBootGreetingFlows                                                      Json?
+  /**
+   * Fluxos por filial: `greeting` e futuros IDs. Padrão = saudação ativa (`enabled: true`) porém sem texto
+   * até edição na UI — demais booleans relacionados ficam ligados quando existem linha/cadastro.
+   */
+  crmBootGreetingFlows                                                       Json?                @default("{\"greeting\":{\"enabled\":true,\"segments\":[]}}")
 
   // Templates de mensagens customizáveis
   templateConfirmation      String?  // Template para confirmação de pedido

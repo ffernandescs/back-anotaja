@@ -39,6 +39,11 @@ const INSTANCE_PREFIX = 'anotaja_';
 export class WhatsAppService {
   private readonly logger = new Logger(WhatsAppService.name);
 
+  /** Novas configs / antes do INSERT na tabela: saudação ativa (`enabled:true`) sem texto até edição na UI; bot global (`crmBootBotEnabled`) permanece false. */
+  private static blankCrmBootGreetingFlows(): Record<string, unknown> {
+    return { greeting: { enabled: true, segments: [] } };
+  }
+
   /**
    * Janela mínima (ms) entre duas mensagens inbound do mesmo contato para repetir saudação.
    * `CRM_BOOT_GREETING_REPEAT_AFTER_HOURS`: horas (decimal ok); **default 24**. Ex.: `0.5` → 30 min (mín. 60s).
@@ -54,6 +59,29 @@ export class WhatsAppService {
 
     const ms = Math.round(h * 60 * 60 * 1000);
     return Math.max(ms, 60_000);
+  }
+
+  /**
+   * Fallback quando `crmBootGreetingFlows` é `null`/vazio na filial —
+   * mantém mesmo texto-base que `defaultGreetingSegments()` no front (`anotaja`).
+   */
+  private static defaultCrmBootGreetingFallbackSegments(): Array<{ body: string; orderIndex: number }> {
+    return [
+      {
+        orderIndex: 1,
+        body:
+          '{{saudacao_horario}}, {{nome_cliente}}!\nSomos felizes em ter você aqui. Para pedir acesse {{link_pedidos}} — também podemos tirar suas dúvidas por aqui.',
+      },
+    ];
+  }
+
+  /** `greeting.enabled === false` em `crmBootGreetingFlows` bloqueia só o fluxo de saudação. */
+  private static isBootGreetingFlowDisabled(flows: unknown): boolean {
+    if (flows === null || flows === undefined) return false;
+    if (typeof flows !== 'object' || Array.isArray(flows)) return false;
+    const g = (flows as Record<string, unknown>)['greeting'];
+    if (!g || typeof g !== 'object' || Array.isArray(g)) return false;
+    return (g as Record<string, unknown>)['enabled'] === false;
   }
 
   /** Cache em memória LID ↔ telefone aprendido via webhook (por instância). */
@@ -164,7 +192,7 @@ export class WhatsAppService {
         deliveryStartEnabled: true,
         deliveryCancelEnabled: true,
         crmBootBotEnabled: false,
-        crmBootGreetingFlows: null,
+        crmBootGreetingFlows: WhatsAppService.blankCrmBootGreetingFlows(),
       };
     }
 
@@ -848,9 +876,12 @@ export class WhatsAppService {
 
     if (syncJids.some((j) => isGroupJid(j))) return;
 
-    const sendJid =
+    const phoneJidCandidate =
       syncJids.find((j) => isPhoneJid(j)) ?? (isPhoneJid(remoteJid) ? remoteJid : null);
-    if (!sendJid) return;
+    const lidOrCanonical =
+      syncJids.find((j) => isLidJid(j)) ?? (isLidJid(remoteJid) ? remoteJid : null);
+    const sendJid = phoneJidCandidate ?? lidOrCanonical ?? remoteJid;
+    if (!sendJid || isGroupJid(sendJid)) return;
 
     const config = (await prisma.whatsAppConfig.findUnique({
       where: { branchId },
@@ -871,8 +902,15 @@ export class WhatsAppService {
       return;
     }
 
-    const segments = this.extractBootSegmentsFromFlowsJson(config.crmBootGreetingFlows);
-    if (segments.length === 0) return;
+    const flowsRaw = config.crmBootGreetingFlows;
+    if (WhatsAppService.isBootGreetingFlowDisabled(flowsRaw)) {
+      return;
+    }
+
+    let segments = this.extractBootSegmentsFromFlowsJson(flowsRaw);
+    if (segments.length === 0) {
+      segments = WhatsAppService.defaultCrmBootGreetingFallbackSegments();
+    }
 
     const repeatAfterMsOrFirstOnly =
       WhatsAppService.parseCrmBootGreetingRepeatAfterHours();
@@ -925,6 +963,7 @@ export class WhatsAppService {
         })
         .catch(() => null);
 
+      /** `crmBootBotDisabled`: sem automações do bot só neste cadastro (gatilho atual: boot/saudação; futuros fluxos devem repetir esta verificação). */
       if (customer?.crmBootBotDisabled) return;
     }
 
@@ -965,12 +1004,12 @@ export class WhatsAppService {
     }
   }
 
-  /** Normaliza `{ greeting?: { segments? } }` vindo da API/front. */
+  /** Normaliza `crmBootGreetingFlows`: mantém outros fluxos (chaves não-`greeting`) para escalonamento futuro. */
   private sanitizeBootGreetingFlows(raw: unknown): Record<string, unknown> {
     const rec =
       WhatsAppService.normalizeFlowsInputToRecord(raw) ??
       WhatsAppService.normalizeFlowsInputToRecord(null);
-    return rec ?? { greeting: { segments: [] } };
+    return rec ?? WhatsAppService.blankCrmBootGreetingFlows();
   }
 
   /** Extrai corpos ordenados do JSON gravado na config para disparo pelo webhook. */
@@ -1000,14 +1039,22 @@ export class WhatsAppService {
     string,
     unknown
   > | null {
-    if (flows === null || flows === undefined)
-      return { greeting: { segments: [] as unknown[] } };
-    if (typeof flows !== 'object') return null;
+    if (flows === null || flows === undefined) return WhatsAppService.blankCrmBootGreetingFlows();
+    if (typeof flows !== 'object' || Array.isArray(flows)) return null;
     const root = flows as Record<string, unknown>;
+
+    const preserved: Record<string, unknown> = {};
+    for (const key of Object.keys(root)) {
+      if (key === 'greeting') continue;
+      if (/^[a-z][a-z0-9_]*$/i.test(key) && key.length <= 64) preserved[key] = root[key];
+    }
+
     const greeting = root['greeting'];
+    let enabled = true;
     let segments: unknown[] = [];
-    if (greeting !== null && typeof greeting === 'object') {
+    if (greeting !== null && typeof greeting === 'object' && !Array.isArray(greeting)) {
       const g = greeting as Record<string, unknown>;
+      if (typeof g['enabled'] === 'boolean') enabled = g['enabled'];
       segments = Array.isArray(g['segments']) ? [...(g['segments'] as unknown[])] : [];
     }
 
@@ -1034,7 +1081,9 @@ export class WhatsAppService {
     const numbered = cleaned.map((s, idx) => ({ ...s, orderIndex: idx + 1 }));
 
     return {
+      ...preserved,
       greeting: {
+        enabled,
         segments: numbered.map((s) => ({
           id: s.id,
           orderIndex: s.orderIndex,

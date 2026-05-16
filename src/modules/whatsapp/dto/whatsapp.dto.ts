@@ -42,7 +42,7 @@ export class UpdateWhatsAppConfigDto {
   @IsBoolean()
   crmBootBotEnabled?: boolean;
 
-  /** { greeting?: { segments: [{ id?, orderIndex, body }] } } — validação fina no serviço ao persistir. */
+  /** Fluxos escaláveis: `{ greeting?: { enabled?: boolean; segments?: [...] }, [outrosIds]?: {...} }` — normalização fina em `sanitizeBootGreetingFlows`. */
   @IsOptional()
   @Allow()
   crmBootGreetingFlows?: Record<string, unknown>;
