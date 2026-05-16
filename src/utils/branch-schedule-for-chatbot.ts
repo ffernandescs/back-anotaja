@@ -162,3 +162,32 @@ export function buildBranchOpenStatusLinePt(opts: {
 
   return `Estamos dentro do horário de atendimento de hoje (${today.open} às ${today.close}).`;
 }
+
+/**
+ * `true` quando não há contato no expediente de hoje: loja marcada fechada no painel,
+ * dia inteiro fechado no cadastro, antes de abrir, ou após encerrar.
+ * Sem agenda ou sem linha para o dia ⇒ `false` (evita automatizar “fechados” sem base).
+ */
+export function isBranchEffectivelyClosedForContactNow(opts: {
+  branchIsOpen: boolean;
+  schedules: BranchScheduleLike[];
+  refInSaoPaulo: Date;
+}): boolean {
+  const { branchIsOpen, schedules, refInSaoPaulo } = opts;
+
+  if (!branchIsOpen) return true;
+
+  if (schedules.length === 0) return false;
+
+  const today = resolveTodaySchedule(schedules, refInSaoPaulo);
+  if (!today) return false;
+
+  if (today.closed) return true;
+
+  const currentTime = `${pad2(refInSaoPaulo.getHours())}:${pad2(refInSaoPaulo.getMinutes())}`;
+
+  if (currentTime < today.open) return true;
+  if (currentTime > today.close) return true;
+
+  return false;
+}

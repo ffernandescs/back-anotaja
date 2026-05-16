@@ -33,8 +33,9 @@ import {
   buildBranchOpeningHoursBlockPt,
   buildBranchOpenStatusLinePt,
   getNowInSaoPaulo,
+  isBranchEffectivelyClosedForContactNow,
   type BranchScheduleLike,
-} from 'src/utils/branch-schedule-for-chatbot';
+} from '../../utils/branch-schedule-for-chatbot';
 import { buildBranchStorefrontPublicUrl } from 'src/utils/storefront-url';
 
 /**
@@ -1250,6 +1251,11 @@ export class WhatsAppService {
       schedules,
       refInSaoPaulo: nowSp,
     });
+    const effectivelyClosedNow = isBranchEffectivelyClosedForContactNow({
+      branchIsOpen: branch.isOpen,
+      schedules,
+      refInSaoPaulo: nowSp,
+    });
 
     const ordersLink = this.buildBranchOrdersMenuUrl(branch.subdomain ?? null);
     const firstName = `${customerDisplayName ?? ''}`.trim().split(/\s+/)[0] ?? '';
@@ -1264,6 +1270,9 @@ export class WhatsAppService {
     for (const intent of intents) {
       const flowKey = intent as CrmReactiveIntentFlow;
       if (flowKey !== 'operatingStatus' && flowKey !== 'businessHours') continue;
+
+      /** Fluxo de “status atual”: só faz sentido automático quando a filial está fora do expediente (ou marcada fechada). */
+      if (flowKey === 'operatingStatus' && !effectivelyClosedNow) continue;
 
       const throttleKey = `${throttleBase}:${flowKey}`;
       const ts = Date.now();
