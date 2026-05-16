@@ -33,13 +33,16 @@ import {
   CreateMessageTemplateDto,
   UpdateMessageTemplateDto,
   CreateCampaignRecordDto,
-  CreateOrderChannelCampaignDto,
-  UpdateOrderChannelCampaignDto,
-  BulkCreateOrderChannelCampaignsDto,
   CreateOrderOriginDto,
   UpdateOrderOriginDto,
   SuggestOrderOriginCodeDto,
 } from './dto/whatsapp.dto';
+import {
+  BulkCreateOrderChannelCampaignsDto,
+  CreateOrderChannelCampaignDto,
+  QueryOrderChannelCampaignMessagesDto,
+  UpdateOrderChannelCampaignDto,
+} from './dto/order-channel-campaign.dto';
 
 @Controller('whatsapp')
 export class WhatsAppController {
@@ -526,6 +529,26 @@ export class WhatsAppController {
     const branchId = req.user?.branchId;
     if (!branchId) throw new BadRequestException('Filial não identificada');
     return this.whatsappService.bulkCreateOrderChannelCampaigns(branchId, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('order-campaigns/:id/dashboard')
+  async getOrderChannelCampaignDashboard(@Request() req, @Param('id') id: string) {
+    const branchId = req.user?.branchId;
+    if (!branchId) throw new BadRequestException('Filial não identificada');
+    return this.whatsappService.getOrderChannelCampaignDashboard(branchId, id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('order-campaigns/:id/messages')
+  async getOrderChannelCampaignMessages(
+    @Request() req,
+    @Param('id') id: string,
+    @Query() query: QueryOrderChannelCampaignMessagesDto,
+  ) {
+    const branchId = req.user?.branchId;
+    if (!branchId) throw new BadRequestException('Filial não identificada');
+    return this.whatsappService.getOrderChannelCampaignMessages(branchId, id, query);
   }
 
   @UseGuards(JwtAuthGuard)

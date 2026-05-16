@@ -613,7 +613,13 @@ if (order.status !== updatedOrder.status && updatedOrder.branchId) {
         ratingsCount: branch.ratingsCount,
         productsCount: branch._count.products,
         categoriesCount: branch._count.categories,
-        generalConfig: generalConfig || undefined,
+        generalConfig: generalConfig
+          ? {
+              ...generalConfig,
+              customerLoginWithPassword:
+                generalConfig.customerLoginWithPassword ?? false,
+            }
+          : undefined,
         isOpen: branch.isOpen,
       },
       subscription: subscription ? {

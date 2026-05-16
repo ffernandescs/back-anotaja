@@ -1,33 +1,12 @@
 import { PartialType } from '@nestjs/mapped-types';
+import { Type } from 'class-transformer';
+import { IsOptional, ValidateNested } from 'class-validator';
+import { UpdateGeneralConfigDto } from '../../general-config/dto/general-config.dto';
 import { CreateBranchDto } from './create-branch.dto';
-import { IsOptional } from 'class-validator';
 
 export class UpdateBranchDto extends PartialType(CreateBranchDto) {
   @IsOptional()
-  generalConfig?: {
-    enableDelivery?: boolean;
-    enableDineIn?: boolean;
-    enablePickup?: boolean;
-    sendOrdersByWhatsApp?: boolean;
-    showPromotionsScreen?: boolean;
-    showMenuFooter?: boolean;
-    verifyNewCustomerPhone?: boolean;
-    hideOrderStatus?: boolean;
-    hideStoreAddress?: boolean;
-    simplifiedAddressInput?: boolean;
-    referencePointRequired?: boolean;
-    showCategoriesScreen?: boolean;
-    hideFreightCalculation?: boolean;
-    autoCompleteOrders?: boolean;
-    tableCount?: number;
-    soundEnabled?: boolean;
-    notificationSound?: string;
-    browserNotificationsEnabled?: boolean;
-    // PIX-related fields
-    pixMode?: 'disabled' | 'manual' | 'automatic';
-    pixKeyType?: string;
-    pixKey?: string;
-    pixHolderName?: string;
-    mercadoPagoAccessToken?: string;
-  };
+  @ValidateNested()
+  @Type(() => UpdateGeneralConfigDto)
+  generalConfig?: UpdateGeneralConfigDto;
 }

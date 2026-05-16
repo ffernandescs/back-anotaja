@@ -56,6 +56,7 @@ import {
   type BranchScheduleLike,
 } from '../../utils/branch-schedule-for-chatbot';
 import { buildBranchStorefrontPublicUrl } from 'src/utils/storefront-url';
+import { PaginatedResponseDto } from '../../common/dto/paginated-response.dto';
 import {
   buildOrderChannelCampaignLink,
   isValidOrderOriginCode,
@@ -105,6 +106,25 @@ export interface OrderChannelCampaignListItem {
 export type OrderChannelCampaignSaveResponse = OrderChannelCampaignListItem & {
   dispatch?: OrderChannelCampaignDispatchResult | null;
 };
+
+export interface OrderChannelCampaignDashboardResponse {
+  campaign: OrderChannelCampaignListItem;
+  messagePreview: string | null;
+}
+
+export type OrderChannelCampaignMessageDisplayStatus = 'pending' | 'sent' | 'failed';
+
+export interface OrderChannelCampaignMessageListItem {
+  id: string;
+  customerId: string | null;
+  name: string;
+  phone: string;
+  status: OrderChannelCampaignMessageDisplayStatus;
+  statusLabel: string;
+  sentAt: Date | null;
+  readAt: Date | null;
+  errorMessage: string | null;
+}
 
 /**
  * Prefixo usado ao criar instâncias na Evolution API.
@@ -3097,6 +3117,150 @@ export class WhatsAppService {
     });
     if (!existing) throw new NotFoundException('Campanha não encontrada');
     return prisma.orderChannelCampaign.delete({ where: { id } });
+  }
+
+  private mapCampaignMessageDisplayStatus(
+    status: string,
+  ): { status: OrderChannelCampaignMessageDisplayStatus; statusLabel: string } {
+    if (status === 'failed') {
+      return { status: 'failed', statusLabel: 'Falhou' };
+    }
+    if (status === 'pending') {
+      return { status: 'pending', statusLabel: 'Aguardando' };
+    }
+    return { status: 'sent', statusLabel: 'Enviado' };
+  }
+
+  private toOrderChannelCampaignMessageListItem(row: {
+    id: string;
+    customerId: string | null;
+    customerName: string | null;
+    customerPhone: string;
+    status: string;
+    sentAt: Date | null;
+    readAt: Date | null;
+    errorMessage: string | null;
+  }): OrderChannelCampaignMessageListItem {
+    const mapped = this.mapCampaignMessageDisplayStatus(row.status);
+    return {
+      id: row.id,
+      customerId: row.customerId,
+      name: row.customerName?.trim() || 'Sem nome',
+      phone: row.customerPhone,
+      status: mapped.status,
+      statusLabel: mapped.statusLabel,
+      sentAt: row.sentAt,
+      readAt: row.readAt,
+      errorMessage: row.errorMessage,
+    };
+  }
+
+  async getOrderChannelCampaignDashboard(
+    branchId: string,
+    campaignId: string,
+  ): Promise<OrderChannelCampaignDashboardResponse> {
+    const campaign = await prisma.orderChannelCampaign.findFirst({
+      where: { id: campaignId, branchId },
+      include: this.orderOriginInclude,
+    });
+    if (!campaign) throw new NotFoundException('Campanha não encontrada');
+
+    const branch = await prisma.branch.findUnique({
+      where: { id: branchId },
+      select: { branchName: true },
+    });
+
+    const template = campaign.description?.trim() ?? '';
+    let messagePreview: string | null = null;
+
+    if (template) {
+      const recipients = parseOrderCampaignRecipientsJson(campaign.recipients);
+      const sample = recipients[0] ?? {
+        customerId: '',
+        name: 'Cliente',
+        phone: campaign.phoneNumber,
+      };
+      messagePreview = substituteOrderCampaignMessage(
+        template,
+        {
+          menuLink: campaign.linkUrl,
+          originName: campaign.orderOrigin?.name,
+          originCode: campaign.orderOrigin?.code ?? campaign.orderChannelCode,
+          campaignTitle: campaign.title,
+          branchName: branch?.branchName ?? '',
+        },
+        sample,
+      );
+    }
+
+    return {
+      campaign: this.toOrderChannelCampaignListItem(campaign),
+      messagePreview,
+    };
+  }
+
+  async getOrderChannelCampaignMessages(
+    branchId: string,
+    campaignId: string,
+    query: { page?: number; limit?: number; search?: string },
+  ): Promise<PaginatedResponseDto<OrderChannelCampaignMessageListItem>> {
+    const exists = await prisma.orderChannelCampaign.findFirst({
+      where: { id: campaignId, branchId },
+      select: { id: true },
+    });
+    if (!exists) throw new NotFoundException('Campanha não encontrada');
+
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const search = query.search?.trim();
+
+    const where: Prisma.OrderChannelCampaignMessageWhereInput = {
+      orderChannelCampaignId: campaignId,
+    };
+
+    if (search) {
+      const digits = search.replace(/\D/g, '');
+      where.OR = [
+        { customerName: { contains: search, mode: 'insensitive' } },
+        ...(digits ? [{ customerPhone: { contains: digits } }] : []),
+      ];
+    }
+
+    let total = await prisma.orderChannelCampaignMessage.count({ where });
+
+    if (total === 0 && !search) {
+      const campaign = await prisma.orderChannelCampaign.findFirst({
+        where: { id: campaignId, branchId },
+        select: { recipients: true },
+      });
+      const legacy = parseOrderCampaignRecipientsJson(campaign?.recipients ?? null);
+      if (legacy.length) {
+        const start = (page - 1) * limit;
+        const slice = legacy.slice(start, start + limit);
+        const data: OrderChannelCampaignMessageListItem[] = slice.map((r, idx) => ({
+          id: `legacy-${start + idx}-${r.customerId}`,
+          customerId: r.customerId,
+          name: r.name,
+          phone: r.phone,
+          status: 'pending',
+          statusLabel: 'Aguardando',
+          sentAt: null,
+          readAt: null,
+          errorMessage: null,
+        }));
+        return new PaginatedResponseDto(data, legacy.length, page, limit);
+      }
+    }
+
+    const rows = await prisma.orderChannelCampaignMessage.findMany({
+      where,
+      orderBy: [{ sentAt: 'desc' }, { createdAt: 'desc' }],
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    const data = rows.map((row) => this.toOrderChannelCampaignMessageListItem(row));
+    return new PaginatedResponseDto(data, total, page, limit);
   }
 
   // ─── Outros helpers públicos ──────────────────────────────────────────────────

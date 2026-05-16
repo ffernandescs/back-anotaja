@@ -7,6 +7,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Min,
   ValidateNested,
 } from 'class-validator';
 
@@ -200,89 +201,10 @@ export class SuggestOrderOriginCodeDto {
 }
 
 // ─── Campanhas de links de pedido ────────────────────────────────
-
-export class OrderChannelCampaignRecipientDto {
-  @IsString()
-  customerId!: string;
-
-  @IsString()
-  name!: string;
-
-  @IsString()
-  phone!: string;
-}
-
-export class CreateOrderChannelCampaignDto {
-  @IsString()
-  title!: string;
-
-  @IsString()
-  phoneNumber!: string;
-
-  @IsString()
-  orderOriginId!: string;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsOptional()
-  @IsString()
-  imageUrl?: string;
-
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => OrderChannelCampaignRecipientDto)
-  recipients?: OrderChannelCampaignRecipientDto[];
-}
-
-export class UpdateOrderChannelCampaignDto {
-  @IsOptional()
-  @IsString()
-  title?: string;
-
-  @IsOptional()
-  @IsString()
-  phoneNumber?: string;
-
-  @IsOptional()
-  @IsString()
-  orderOriginId?: string;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsOptional()
-  @IsString()
-  imageUrl?: string;
-
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => OrderChannelCampaignRecipientDto)
-  recipients?: OrderChannelCampaignRecipientDto[];
-}
-
-export class BulkCreateOrderChannelCampaignsDto {
-  @IsString()
-  title!: string;
-
-  @IsString()
-  phoneNumber!: string;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsOptional()
-  @IsString()
-  imageUrl?: string;
-
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => OrderChannelCampaignRecipientDto)
-  recipients?: OrderChannelCampaignRecipientDto[];
-}
+export {
+  OrderChannelCampaignRecipientDto,
+  CreateOrderChannelCampaignDto,
+  UpdateOrderChannelCampaignDto,
+  QueryOrderChannelCampaignMessagesDto,
+  BulkCreateOrderChannelCampaignsDto,
+} from './order-channel-campaign.dto';

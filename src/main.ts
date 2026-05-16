@@ -28,7 +28,9 @@ async function bootstrap() {
       const allowedOrigins = [
         /^https?:\/\/([a-z0-9-]+\.)*vaidelli\.com\.br$/i,
         /^https?:\/\/([a-z0-9-]+\.)*vercel\.app$/i,
-        /^http:\/\/localhost:\d+$/i,
+        /^https?:\/\/localhost(:\d+)?$/i,
+        /^https?:\/\/([a-z0-9-]+\.)+localhost(:\d+)?$/i,
+        /^https?:\/\/127\.0\.0\.1(:\d+)?$/i,
       ];
 
       const allowed = allowedOrigins.some((r) => r.test(origin));

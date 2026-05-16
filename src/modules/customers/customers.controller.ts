@@ -23,6 +23,8 @@ import { JwtCustomerAuthGuard } from '../../common/guards/jwt-customer.guard';
 import { CreateCustomerAddressDto } from './dto/create-customer-address.dto';
 import { QueryCustomersDto } from './dto/query-customers.dto';
 import { SegmentCustomersDto } from './dto/segment-customers.dto';
+import { UpdateCustomerProfileDto } from './dto/update-customer-profile.dto';
+import { ChangeCustomerPasswordDto } from './dto/change-customer-password.dto';
 
 interface RequestWithUser extends Request {
   user: {
@@ -102,6 +104,26 @@ export class CustomersController {
     return this.customersService.getCustomerById(req.user.userId);
   }
 
+  @Public()
+  @UseGuards(JwtCustomerAuthGuard)
+  @Patch('me')
+  async updateMe(
+    @Req() req: RequestWithUser,
+    @Body() dto: UpdateCustomerProfileDto,
+  ) {
+    return this.customersService.updateProfile(req.user.userId, dto);
+  }
+
+  @Public()
+  @UseGuards(JwtCustomerAuthGuard)
+  @Patch('me/password')
+  async changeMyPassword(
+    @Req() req: RequestWithUser,
+    @Body() dto: ChangeCustomerPasswordDto,
+  ) {
+    return this.customersService.changePassword(req.user.userId, dto);
+  }
+
   @Get('addresses-admin')
   async getAllAddressesAdmin(@Req() req: RequestWithUser) {
     return this.customersService.findAllCustomerAddresses(req.user.userId);
@@ -179,8 +201,8 @@ export class CustomersController {
     @Req() req?: RequestWithUser & Request,
   ) {
     const hostname = req?.headers?.host || '';
-    const { subdomain } = this.extractSubdomain(hostname, xTenant);
-    return this.customersService.login(dto, subdomain);
+    const { subdomain, branchId } = this.extractSubdomain(hostname, xTenant);
+    return this.customersService.login(dto, subdomain, branchId);
   }
 
   @Get('for-campaign')

@@ -1,8 +1,12 @@
-import { IsEmail, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
 
-// customer/dto/login-customer.dto.ts
 export class LoginCustomerDto {
   @IsNotEmpty()
   @IsString()
   phone!: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(6, { message: 'Senha deve ter no mínimo 6 caracteres' })
+  password?: string;
 }

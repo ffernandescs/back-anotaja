@@ -6,6 +6,7 @@ import {
   segmentComplementsCatalog,
   type ComplementSeed,
 } from './seed-segment-complements';
+import { normalizeBrazilPhone } from '../src/utils/normalizePhone';
 
 interface ProductSeed {
   name: string;
@@ -31,6 +32,7 @@ export interface BranchSeed {
   state: string;
   zipCode: string;
   document: string;
+  primaryColor?: string
   phone: string;
   subdomain: string;
   lat: number;
@@ -150,18 +152,34 @@ async function createCategoriesProductsAndComplements(
   const createdCategories: any[] = [];
 
   for (const categoryData of categories) {
-    console.log(`🔄 Criando categoria: ${categoryData.name}`);
-
-    const category = await prisma.category.create({
-      data: {
-        name: categoryData.name,
-        slug: categoryData.slug,
-        image: categoryData.image,
-        featured: categoryData.featured,
-        branchId: branchId,
-        active: true,
-      },
+    let category = await prisma.category.findFirst({
+      where: { branchId, slug: categoryData.slug },
     });
+
+    if (category) {
+      console.log(`🔄 Atualizando categoria: ${categoryData.name}`);
+      category = await prisma.category.update({
+        where: { id: category.id },
+        data: {
+          name: categoryData.name,
+          image: categoryData.image,
+          featured: categoryData.featured,
+          active: true,
+        },
+      });
+    } else {
+      console.log(`🔄 Criando categoria: ${categoryData.name}`);
+      category = await prisma.category.create({
+        data: {
+          name: categoryData.name,
+          slug: categoryData.slug,
+          image: categoryData.image,
+          featured: categoryData.featured,
+          branchId: branchId,
+          active: true,
+        },
+      });
+    }
     createdCategories.push(category);
 
     const products = getProductsForCategory(segment, categoryData.slug);
@@ -173,30 +191,49 @@ async function createCategoriesProductsAndComplements(
     const categoryComplements = getComplementsForCategory(segment, categoryData.slug);
 
     for (const productData of products) {
-      console.log(`  🔄 Criando produto: ${productData.name}`);
-
       const priceInCents = Math.round(Number(productData.price) * 100);
 
-      const product = await prisma.product.create({
-        data: {
-          name: productData.name,
-          description: productData.description,
-          price: priceInCents,
-          image: productData.image,
-          featured: productData.featured || false,
-          active: true,
+      let product = await prisma.product.findFirst({
+        where: {
+          branchId,
           categoryId: category.id,
-          branchId: branchId,
-          companyId: branch.companyId,
-          preparationTime:
-            segment === BusinessSegment.PERFUMARIA
-              ? null
-              : Math.floor(Math.random() * 30) + 15,
-          filterMetadata: productData.filterMetadata
-            ? JSON.stringify(productData.filterMetadata)
-            : null,
+          name: productData.name,
         },
       });
+
+      const productPayload = {
+        description: productData.description,
+        price: priceInCents,
+        image: productData.image,
+        featured: productData.featured || false,
+        active: true,
+        preparationTime:
+          segment === BusinessSegment.PERFUMARIA
+            ? null
+            : Math.floor(Math.random() * 30) + 15,
+        filterMetadata: productData.filterMetadata
+          ? JSON.stringify(productData.filterMetadata)
+          : null,
+      };
+
+      if (product) {
+        console.log(`  🔄 Atualizando produto: ${productData.name}`);
+        product = await prisma.product.update({
+          where: { id: product.id },
+          data: productPayload,
+        });
+      } else {
+        console.log(`  🔄 Criando produto: ${productData.name}`);
+        product = await prisma.product.create({
+          data: {
+            name: productData.name,
+            ...productPayload,
+            categoryId: category.id,
+            branchId: branchId,
+            companyId: branch.companyId,
+          },
+        });
+      }
 
       // Complementos do segmento/categoria (todos os grupos aplicáveis ao produto)
       if (categoryComplements.length > 0) {
@@ -214,27 +251,32 @@ async function createCategoriesProductsAndComplements(
             },
           });
 
-          if (complement) {
-            console.log(`    ✅ Complemento "${complementData.name}" já existe, pulando...`);
-            continue;
-          }
-
           const minOptions = complementData.minOptions;
           const maxOptions =
             complementData.maxOptions ?? complementData.options.length;
+          const complementPayload = {
+            required: complementData.required,
+            allowRepeat: complementData.allowRepeat,
+            minOptions,
+            maxOptions: Math.max(maxOptions, minOptions),
+            active: true,
+          };
 
-          complement = await prisma.productComplement.create({
-            data: {
-              name: complementData.name,
-              required: complementData.required,
-              allowRepeat: complementData.allowRepeat,
-              minOptions,
-              maxOptions: Math.max(maxOptions, minOptions),
-              active: true,
-              productId: product.id,
-              branchId: branchId,
-            },
-          });
+          if (complement) {
+            complement = await prisma.productComplement.update({
+              where: { id: complement.id },
+              data: complementPayload,
+            });
+          } else {
+            complement = await prisma.productComplement.create({
+              data: {
+                name: complementData.name,
+                ...complementPayload,
+                productId: product.id,
+                branchId: branchId,
+              },
+            });
+          }
 
           for (const optionData of complementData.options) {
             const priceInCents = Math.round(Number(optionData.price) * 100);
@@ -253,6 +295,13 @@ async function createCategoriesProductsAndComplements(
             });
 
             if (existingOption) {
+              await prisma.complementOption.update({
+                where: { id: existingOption.id },
+                data: {
+                  price: priceInCents,
+                  active: true,
+                },
+              });
               continue;
             }
 
@@ -330,17 +379,26 @@ async function seedTablesForBranch(branchId: string, userId: string) {
       },
     });
 
-    if (!existingTable) {
+    if (existingTable) {
+      await prisma.table.update({
+        where: { id: existingTable.id },
+        data: {
+          numberofpeople: tables[i].numberofpeople,
+          identification: tables[i].identification,
+          userId: tables[i].userId,
+        },
+      });
+    } else {
       await prisma.table.create({
-  data: {
-    branchId: tables[i].branchId,
-    number: tables[i].number,
-    numberofpeople: tables[i].numberofpeople,
-    identification: tables[i].identification,
-    status: "AVAILABLE",
-    userId: tables[i].userId,
-  },
-});
+        data: {
+          branchId: tables[i].branchId,
+          number: tables[i].number,
+          numberofpeople: tables[i].numberofpeople,
+          identification: tables[i].identification,
+          status: 'AVAILABLE',
+          userId: tables[i].userId,
+        },
+      });
     }
   }
 }
@@ -461,7 +519,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
       phone: '81987654321',
       logo: 'https://i.postimg.cc/43KjqDz9/Chat-GPT-Image-May-16-2026-07-40-20-AM.png',
       banner:
-        'https://i.postimg.cc/gkTXmhCx/Chat-GPT-Image-May-16-2026-07-28-25-AM.png',
+        'https://i.postimg.cc/prh6174B/Chat-GPT-Image-May-16-2026-08-42-28-AM.png',
       branches: [
         {
           branchName: 'Vaidelli - Boa Viagem',
@@ -472,6 +530,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
           document: '123421781012190',
           phone: '8132657070',
           subdomain: 'tioarmenioboaviagem',
+          primaryColor: "000000",
           lat: -8.1223,
           lng: -34.9028,
         },
@@ -484,6 +543,7 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
           zipCode: '52020-080',
           phone: '8132418585',
           subdomain: 'tioarmenioespinheiro',
+          primaryColor: "000000",
           lat: -8.0423,
           lng: -34.8951,
         },
@@ -3355,47 +3415,241 @@ function generateUniquePhone() {
   return `11${Math.floor(900000000 + Math.random() * 99999999)}`;
 }
 
-export async function main() {
-  console.log('🌱 Iniciando seed do banco de dados...');
+function seedSlug(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
 
-  // Limpar banco de dados
-  console.log('🧹 Limpando banco de dados...');
+function onlyDigits(value: string): string {
+  return value.replace(/\D/g, '');
+}
+
+function isPrismaUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code: string }).code === 'P2002'
+  );
+}
+
+/** Variantes de telefone/documento para achar registros antigos no banco. */
+function uniqueLookupVariants(value: string): string[] {
+  const digits = onlyDigits(value);
+  const variants = new Set<string>([value, digits]);
+  if (digits.length >= 10 && digits.length <= 11 && !digits.startsWith('55')) {
+    variants.add(`55${digits}`);
+  }
+  if (digits.startsWith('55') && digits.length > 11) {
+    variants.add(digits.slice(2));
+  }
+  return [...variants];
+}
+
+function buildBranchPhoneOr(phones: string[]): Array<{ phone: string }> {
+  const or: Array<{ phone: string }> = [];
+  for (const phone of phones) {
+    for (const variant of uniqueLookupVariants(phone)) {
+      or.push({ phone: variant });
+    }
+  }
+  return or;
+}
+
+function buildBranchDocumentOr(document: string): Array<{ document: string }> {
+  return uniqueLookupVariants(document).map((d) => ({ document: d }));
+}
+
+/**
+ * Busca filial existente sem reutilizar a mesma branch em iterações do seed.
+ * Prioriza a empresa; telefone/documento/subdomínio são únicos globais.
+ */
+async function findExistingBranch(params: {
+  companyId: string;
+  branchName: string;
+  legacyBranchName?: string;
+  document: string;
+  phones: string[];
+  email: string;
+  subdomain: string | null;
+  excludeBranchIds?: string[];
+}) {
+  const exclude = params.excludeBranchIds ?? [];
+  const excludeFilter =
+    exclude.length > 0 ? { id: { notIn: exclude } } : undefined;
+
+  const uniqueOr = [
+    ...buildBranchPhoneOr(params.phones),
+    ...buildBranchDocumentOr(params.document),
+    ...(params.email ? [{ email: params.email }] : []),
+    ...(params.subdomain ? [{ subdomain: params.subdomain }] : []),
+  ];
+
+  const nameOr = [
+    { branchName: params.branchName },
+    ...(params.legacyBranchName
+      ? [{ branchName: params.legacyBranchName }]
+      : []),
+  ];
+
+  // 1) Mesma empresa + identificadores únicos ou nome
+  const inCompany = await prisma.branch.findFirst({
+    where: {
+      companyId: params.companyId,
+      ...excludeFilter,
+      OR: [...nameOr, ...uniqueOr],
+    },
+  });
+  if (inCompany) return inCompany;
+
+  // 2) Global por campos únicos (só reutiliza se for da mesma empresa)
+  if (uniqueOr.length === 0) return null;
+
+  const globalMatch = await prisma.branch.findFirst({
+    where: {
+      ...excludeFilter,
+      OR: uniqueOr,
+    },
+  });
+
+  if (globalMatch && globalMatch.companyId === params.companyId) {
+    return globalMatch;
+  }
+
+  return null;
+}
+
+async function upsertBranchAddress(
+  branch: { id: string; addressId: string | null },
+  branchData: BranchSeed,
+) {
+  const addressData = {
+    street: branchData.address || branchData.state,
+    city: branchData.city,
+    state: branchData.state,
+    zipCode: branchData.zipCode,
+  };
+
+  if (branch.addressId) {
+    await prisma.branchAddress.update({
+      where: { id: branch.addressId },
+      data: addressData,
+    });
+    return;
+  }
+
+  const address = await prisma.branchAddress.create({
+    data: {
+      ...addressData,
+      number: Math.floor(Math.random() * 1000).toString(),
+      complement: '',
+      neighborhood: '',
+    },
+  });
+  await prisma.branch.update({
+    where: { id: branch.id },
+    data: { addressId: address.id },
+  });
+}
+
+/** Empresa: busca por nome/documento/e-mail do seed; cria ou atualiza sem resetar o banco. */
+async function findOrUpsertCompany(companyData: CompanySeed) {
+  const document = onlyDigits(companyData.document);
+  const email =
+    companyData.email?.trim().toLowerCase() ||
+    `seed+${seedSlug(companyData.name)}@vaidelli.com`;
+  const phone = onlyDigits(companyData.phone);
+
+  const lookupOr = [
+    { name: companyData.name },
+    { email },
+    ...uniqueLookupVariants(document).map((d) => ({ document: d })),
+    ...uniqueLookupVariants(phone).map((p) => ({ phone: p })),
+  ];
+
+  let company = await prisma.company.findFirst({
+    where: { OR: lookupOr },
+  });
+
+  const shared = {
+    companyName: companyData.companyName,
+    name: companyData.name,
+    active: true,
+    onboardingStep: 'COMPLETED' as const,
+    onboardingCompleted: true,
+  };
+
+  if (company) {
+    console.log(`🔄 Atualizando empresa "${companyData.name}"...`);
+    return prisma.company.update({
+      where: { id: company.id },
+      data: shared,
+    });
+  }
+
+  console.log(`🏢 Criando empresa - ${companyData.name}`);
+  try {
+    return await prisma.company.create({
+      data: {
+        ...shared,
+        document,
+        email,
+        phone,
+      },
+    });
+  } catch (error: unknown) {
+    if (!isPrismaUniqueViolation(error)) throw error;
+
+    company = await prisma.company.findFirst({ where: { OR: lookupOr } });
+    if (!company) throw error;
+
+    console.log(`🔄 Empresa já existia, atualizando "${companyData.name}"...`);
+    return prisma.company.update({
+      where: { id: company.id },
+      data: shared,
+    });
+  }
+}
+
+function branchPrimaryColor(type: string): string {
+  if (type === 'hamburgueria') return '#FF6B35';
+  if (type === 'pizzaria') return '#E63946';
+  if (type === 'restaurante') return '#2A9D8F';
+  if (type === 'depositoBebidas') return '#F77F00';
+  if (type === 'perfumaria') return '#9B59B6';
+  return '#3B82F6';
+}
+
+/** Telefone único e estável por filial (distinto do telefone da branch). */
+function seedAdminPhone(companyName: string, branchName: string): string {
+  const key = `${seedSlug(companyName)}-${seedSlug(branchName)}`;
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) {
+    hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
+  }
+  return `5581999${String(1000000 + (hash % 9000000)).slice(-7)}`;
+}
+
+export async function main() {
+  console.log('🌱 Iniciando seed do banco de dados (modo incremental)...');
+  console.log('ℹ️  Registros existentes serão atualizados; novos serão criados.');
 
   const hashedPassword = await generateHashedPassword('123456');
 
   // Criar empresas
-  console.log('🏢 Criando empresas...');
+  console.log('🏢 Criando/atualizando empresas...');
   const allCompanies: any[] = [];
-  let userCounter = 0; // Contador global para garantir emails e telefones únicos
+  let deliverySeedCounter = 0;
 
   for (const [type, companies] of Object.entries(companiesData)) {
     for (const companyData of companies) {
       console.log(`🏢 Verificando empresa - ${companyData.name}`);
-
-      // Verificar se a empresa já existe pelo nome
-      let company = await prisma.company.findFirst({
-        where: {
-          name: companyData.name,
-        },
-      });
-
-      if (company) {
-        console.log(`✅ Empresa "${companyData.name}" já existe, pulando criação...`);
-      } else {
-        console.log(`🏢 Criando empresa - ${companyData.name}`);
-        company = await prisma.company.create({
-          data: {
-            companyName: companyData.name,
-            name: companyData.name,
-            document: generateRandomDocument(14),
-            email: `teste${userCounter}@vaidelli.com`,
-            phone: generateUniquePhone(),
-            onboardingStep: "COMPLETED",
-            onboardingCompleted: true,
-            active: true,
-          },
-        });
-      }
+      const company = await findOrUpsertCompany(companyData);
 
       // Buscar plano trial e criar assinatura se não existir
       const trialPlan = await prisma.plan.findFirst({
@@ -3414,7 +3668,21 @@ export async function main() {
         });
 
         if (existingSubscription) {
-          console.log(`✅ Subscription já existe para "${companyData.name}", pulando...`);
+          console.log(`🔄 Atualizando subscription para "${companyData.name}"...`);
+          const now = new Date();
+          const trialEndDate = new Date(now);
+          trialEndDate.setDate(trialEndDate.getDate() + (trialPlan.trialDays ?? 7));
+          trialEndDate.setHours(23, 59, 59, 999);
+
+          await prisma.subscription.update({
+            where: { companyId: company.id },
+            data: {
+              planId: trialPlan.id,
+              status: 'ACTIVE',
+              billingPeriod: trialPlan.billingPeriod,
+              trialEndsAt: trialEndDate,
+            },
+          });
         } else {
           console.log(`📝 Criando subscription para "${companyData.name}"...`);
           const now = new Date();
@@ -3430,7 +3698,6 @@ export async function main() {
               billingPeriod: trialPlan.billingPeriod,
               startDate: now,
               trialEndsAt: trialEndDate,
-              nextBillingDate: trialEndDate,
               notes: `Trial de ${trialPlan.trialDays ?? 7} dias - Criado automaticamente no seed`,
             },
           });
@@ -3447,28 +3714,73 @@ export async function main() {
       });
 
       const branches = companyData.branches;
+      const usedBranchIds: string[] = [];
+
       for (const [index, branchData] of branches.entries()) {
         const isMatriz = index === 0;
         const branchName = isMatriz
           ? `Matriz - ${companyData.companyName}`
           : branchData.branchName;
 
-        // Verificar se a branch já existe
-        let branch = await prisma.branch.findFirst({
-          where: {
-            branchName: branchName,
-            companyId: company.id,
-          },
+        // Sempre usa CNPJ/telefone da entrada do seed (evita colidir com a empresa)
+        const branchDocument = onlyDigits(branchData.document);
+        const branchPhone = onlyDigits(branchData.phone);
+        const branchSubdomain = branchData.subdomain?.trim() || null;
+        const branchEmail = `seed.branch+${seedSlug(companyData.name)}+${seedSlug(branchName)}@vaidelli.com`;
+
+        let branch = await findExistingBranch({
+          companyId: company.id,
+          branchName,
+          legacyBranchName: branchData.branchName,
+          document: branchDocument,
+          phones: [branchPhone],
+          email: branchEmail,
+          subdomain: branchSubdomain,
+          excludeBranchIds: usedBranchIds,
         });
 
+        const branchDisplayPayload = {
+          logoUrl: companyData.logo || null,
+          bannerUrl: companyData.banner || null,
+          active: true,
+          primaryColor:branchData ? branchData.primaryColor:  branchPrimaryColor(type),
+          socialMedia: defaultSocialMedia,
+          description: `A melhor ${
+            type === 'hamburgueria'
+              ? 'hamburgueria'
+              : type === 'pizzaria'
+                ? 'pizzaria'
+                : type === 'restaurante'
+                  ? 'experiência gastronômica'
+                  : type === 'depositoBebidas'
+                    ? 'seleção de bebidas'
+                    : 'perfumaria'
+          } de ${branchData.city}!`,
+          instagram: `@${companyData.name.toLowerCase().replace(/[^a-z0-9]+/g, '')}`,
+          minOrderValue: money(type === 'perfumaria' ? 50.0 : 20.0),
+          checkoutMessage:
+            'Obrigado por escolher nossa loja! Seu pedido será preparado com muito carinho.',
+          latitude: branchData.lat,
+          longitude: branchData.lng,
+        };
+
         if (branch) {
-          console.log(`✅ Branch "${branchName}" já existe, pulando criação...`);
+          console.log(`🔄 Atualizando branch "${branch.branchName}" → "${branchName}"...`);
+          branch = await prisma.branch.update({
+            where: { id: branch.id },
+            data: {
+              ...branchDisplayPayload,
+              branchName,
+              companyId: company.id,
+            },
+          });
+          await upsertBranchAddress(branch, branchData);
         } else {
           console.log(`🏪 Criando branch - ${branchName}`);
 
           const createBranchAddress = await prisma.branchAddress.create({
             data: {
-              street: branchData.state,
+              street: branchData.address || branchData.state,
               number: Math.floor(Math.random() * 1000).toString(),
               complement: '',
               neighborhood: '',
@@ -3478,78 +3790,94 @@ export async function main() {
             },
           });
 
-          branch = await prisma.branch.create({
-            data: {
-              branchName: branchName,
-              document: isMatriz ? companyData.document : branchData.document,
-              addressId: createBranchAddress.id,
-              phone: branchData.phone,
-            email: `teste${userCounter}@vaidelli.com`,
-              subdomain: null,
-              logoUrl: companyData.logo || null,
-              bannerUrl: companyData.banner || null,
+          try {
+            branch = await prisma.branch.create({
+              data: {
+                branchName,
+                document: branchDocument,
+                phone: branchPhone,
+                addressId: createBranchAddress.id,
+                email: branchEmail,
+                subdomain: branchSubdomain,
+                companyId: company.id,
+                ...branchDisplayPayload,
+              },
+            });
+          } catch (error: unknown) {
+            if (!isPrismaUniqueViolation(error)) throw error;
+
+            console.log(
+              `⚠️ Branch já existia (constraint única), buscando para atualizar...`,
+            );
+            branch = await findExistingBranch({
               companyId: company.id,
-              active: true,
-              primaryColor:
-                type === 'hamburgueria'
-                  ? '#FF6B35'
-                  : type === 'pizzaria'
-                    ? '#E63946'
-                    : type === 'restaurante'
-                      ? '#2A9D8F'
-                      : type === 'depositoBebidas'
-                        ? '#F77F00'
-                        : type === 'perfumaria'
-                          ? '#9B59B6'
-                          : '#3B82F6',
-              socialMedia: defaultSocialMedia,
-              description: `A melhor ${
-                type === 'hamburgueria'
-                  ? 'hamburgueria'
-                  : type === 'pizzaria'
-                    ? 'pizzaria'
-                    : type === 'restaurante'
-                      ? 'experiência gastronômica'
-                      : type === 'depositoBebidas'
-                        ? 'seleção de bebidas'
-                        : 'perfumaria'
-              } de ${branchData.city}!`,
-              instagram: `@${companyData.name.toLowerCase().replace(/[^a-z0-9]+/g, '')}`,
-              minOrderValue: money(type === 'perfumaria' ? 50.0 : 20.0),
-              checkoutMessage:
-                'Obrigado por escolher nossa loja! Seu pedido será preparado com muito carinho.',
-              latitude: branchData.lat,
-              longitude: branchData.lng,
-            },
-          });
+              branchName,
+              legacyBranchName: branchData.branchName,
+              document: branchDocument,
+              phones: [branchPhone],
+              email: branchEmail,
+              subdomain: branchSubdomain,
+              excludeBranchIds: usedBranchIds,
+            });
+
+            if (!branch) throw error;
+
+            branch = await prisma.branch.update({
+              where: { id: branch.id },
+              data: {
+                ...branchDisplayPayload,
+                branchName,
+                companyId: company.id,
+              },
+            });
+            await upsertBranchAddress(branch, branchData);
+          }
         }
+
+        usedBranchIds.push(branch.id);
+        console.log(
+          `✅ Filial vinculada (${usedBranchIds.length}/${branches.length}): ${branch.branchName}`,
+        );
 
         await seedOrderOriginsForBranch(branch.id, branchName);
 
         // Verificar e criar clientes
         console.log('🔄 Verificando clientes para a filial...');
         for (const customerData of customersData) {
+          const phone = normalizeBrazilPhone(customerData.phone) || customerData.phone;
+          const phoneVariants = uniqueLookupVariants(phone);
           const existingCustomer = await prisma.customer.findFirst({
             where: {
-              email: customerData.email,
               branchId: branch.id,
+              OR: [
+                { email: customerData.email },
+                ...phoneVariants.map((p) => ({ phone: p })),
+              ],
             },
           });
 
-          if (!existingCustomer) {
+          if (existingCustomer) {
+            await prisma.customer.update({
+              where: { id: existingCustomer.id },
+              data: {
+                name: customerData.name,
+                email: customerData.email,
+                phone,
+              },
+            });
+          } else {
             await prisma.customer.create({
               data: {
                 name: customerData.name,
                 email: customerData.email,
-                phone: customerData.phone,
+                phone,
                 branchId: branch.id,
               },
             });
           }
         }
 
-        userCounter++;
-        const adminPhone = `8198765${String(2000 + userCounter).padStart(4, '0')}`;
+        const adminPhone = seedAdminPhone(companyData.name, branchName);
 
         // Verificar e criar grupo Administrador com permissões do plano trial para esta branch
         console.log(`👥 Verificando grupo Administrador para ${branch.branchName}...`);
@@ -3617,35 +3945,70 @@ export async function main() {
           }
         }
 
-        // Verificar e criar usuário admin
-        const adminEmail = `teste${userCounter}@vaidelli.com`;
-        let adminUser ={} as any;
-        const existing = await prisma.user.findFirst({
-  where: {
-    email: adminEmail,
-    branchId: branch.id,
-  },
-});
+        const adminEmail = `seed.admin+${seedSlug(companyData.name)}+${seedSlug(branchName)}@vaidelli.com`;
+        let adminUser = {} as { id: string };
+        const existingAdmin = await prisma.user.findFirst({
+          where: {
+            OR: [{ email: adminEmail }, { branchId: branch.id, companyId: company.id }],
+          },
+        });
 
-if (existing) {
-  adminUser = await prisma.user.update({
-    where: { id: existing.id },
-    data: {},
-  });
-} else {
-  adminUser = await prisma.user.create({
-    data: {
-      name: `Admin ${companyData.name}`,
-      email: adminEmail,
-      phone: adminPhone,
-      password: hashedPassword,
-      companyId: company.id,
-      branchId: branch.id,
-      groupId: adminGroup?.id,
-      active: true,
-    },
-  });
-}
+        if (existingAdmin) {
+          const adminUpdate: Record<string, unknown> = {
+            name: `Admin ${companyData.name}`,
+            email: adminEmail,
+            companyId: company.id,
+            branchId: branch.id,
+            groupId: adminGroup?.id,
+            active: true,
+          };
+          const phoneOwner = await prisma.user.findFirst({
+            where: { phone: adminPhone, NOT: { id: existingAdmin.id } },
+          });
+          if (!phoneOwner) {
+            adminUpdate.phone = adminPhone;
+          }
+          adminUser = await prisma.user.update({
+            where: { id: existingAdmin.id },
+            data: adminUpdate,
+          });
+        } else {
+          try {
+            adminUser = await prisma.user.create({
+              data: {
+                name: `Admin ${companyData.name}`,
+                email: adminEmail,
+                phone: adminPhone,
+                password: hashedPassword,
+                companyId: company.id,
+                branchId: branch.id,
+                groupId: adminGroup?.id,
+                active: true,
+              },
+            });
+          } catch (error: unknown) {
+            if (!isPrismaUniqueViolation(error)) throw error;
+
+            const conflictAdmin = await prisma.user.findFirst({
+              where: {
+                OR: [{ email: adminEmail }, { phone: adminPhone }, { branchId: branch.id }],
+              },
+            });
+            if (!conflictAdmin) throw error;
+
+            adminUser = await prisma.user.update({
+              where: { id: conflictAdmin.id },
+              data: {
+                name: `Admin ${companyData.name}`,
+                email: adminEmail,
+                companyId: company.id,
+                branchId: branch.id,
+                groupId: adminGroup?.id,
+                active: true,
+              },
+            });
+          }
+        }
        
         await seedTablesForBranch(branch.id, adminUser.id);
 
@@ -3713,33 +4076,51 @@ if (existing) {
         const deliveriesToCreate = Math.max(0, deliveryCount - existingDeliveryCount);
         
         for (let i = 0; i < deliveriesToCreate; i++) {
-          userCounter++;
-          const deliveryIndex = userCounter % deliveryNames.length;
-          const deliveryPhone = `8198765${String(4000 + userCounter).padStart(4, '0')}`;
-          const deliveryEmail = `entregador${userCounter}@${companyData.name
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, '-')
-            .replace(/^-|-$/g, '')}.com.br`;
+          deliverySeedCounter++;
+          const slot = existingDeliveryCount + i + 1;
+          const deliveryIndex = deliverySeedCounter % deliveryNames.length;
+          const deliveryPhone = `8198765${String(4000 + deliverySeedCounter).padStart(4, '0')}`;
+          const companySlug = seedSlug(companyData.name);
+          const deliveryEmail = `entregador.${companySlug}.${seedSlug(branchName)}.${slot}@vaidelli.com.br`;
 
-          // Verificar se já existe com este email
           const existingDelivery = await prisma.deliveryPerson.findFirst({
             where: {
-              email: deliveryEmail,
               branchId: branch.id,
+              OR: [{ email: deliveryEmail }, { phone: deliveryPhone }],
             },
           });
 
-          if (!existingDelivery) {
-            await prisma.deliveryPerson.create({
-              data: {
-                name: deliveryNames[deliveryIndex],
-                email: deliveryEmail,
-                phone: deliveryPhone,
-                branchId: branch.id,
-                companyId: company.id,
-                active: true,
-              },
+          const deliveryPayload = {
+            name: deliveryNames[deliveryIndex],
+            email: deliveryEmail,
+            phone: deliveryPhone,
+            branchId: branch.id,
+            companyId: company.id,
+            active: true,
+          };
+
+          if (existingDelivery) {
+            await prisma.deliveryPerson.update({
+              where: { id: existingDelivery.id },
+              data: deliveryPayload,
             });
+          } else {
+            try {
+              await prisma.deliveryPerson.create({ data: deliveryPayload });
+            } catch (error: unknown) {
+              if (!isPrismaUniqueViolation(error)) throw error;
+              const found = await prisma.deliveryPerson.findFirst({
+                where: { OR: [{ email: deliveryEmail }, { phone: deliveryPhone }] },
+              });
+              if (found) {
+                await prisma.deliveryPerson.update({
+                  where: { id: found.id },
+                  data: deliveryPayload,
+                });
+              } else {
+                throw error;
+              }
+            }
           }
         }
 
@@ -3794,7 +4175,14 @@ if (existing) {
         console.log('🔄 Criando cupons para a filial matriz...');
         await prisma.coupon.upsert({
           where: { code: welcomeCouponCode },
-          update: {},
+          update: {
+            active: true,
+            branchId: branch.id,
+            type: 'PERCENTAGE',
+            value: 10,
+            minValue: 30,
+            maxUses: 100,
+          },
           create: {
             name: "",
             code: welcomeCouponCode,
@@ -3812,7 +4200,14 @@ if (existing) {
         // Cupom de frete grátis
         await prisma.coupon.upsert({
           where: { code: freeShippingCouponCode },
-          update: {},
+          update: {
+            active: true,
+            branchId: branch.id,
+            type: 'FIXED',
+            value: 1000,
+            minValue: 500,
+            maxUses: 50,
+          },
           create: {
             name: "",
             code: freeShippingCouponCode,

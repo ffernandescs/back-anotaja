@@ -4,11 +4,15 @@ import {
   ConflictException,
   ForbiddenException,
   BadRequestException,
+  UnauthorizedException,
 } from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
 import { prisma } from '../../../lib/prisma';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { LoginCustomerDto } from './dto/login-customer.dto';
+import { UpdateCustomerProfileDto } from './dto/update-customer-profile.dto';
+import { ChangeCustomerPasswordDto } from './dto/change-customer-password.dto';
 import { JwtService } from '@nestjs/jwt';
 import { CreateCustomerAddressDto } from './dto/create-customer-address.dto';
 import { GeocodingService } from '../geocoding/geocoding.service';
@@ -34,6 +38,16 @@ export class CustomersService {
       throw new BadRequestException('Telefone inválido');
     }
     return normalized;
+  }
+
+  private toPublicCustomer<T extends { password?: string | null }>(
+    customer: T,
+  ): Omit<T, 'password'> & { hasPassword: boolean } {
+    const { password, ...rest } = customer;
+    return {
+      ...rest,
+      hasPassword: Boolean(password),
+    };
   }
 
   private async assertPhoneAvailable(
@@ -86,7 +100,7 @@ export class CustomersService {
       { secret: process.env.JWT_CUSTOMER_SECRET, expiresIn: '7d' },
     );
 
-    return { token, customer };
+    return { token, customer: this.toPublicCustomer(customer) };
   }
 
   async adminCreate(dto: CreateCustomerDto, userId: string) {
@@ -522,11 +536,16 @@ export class CustomersService {
     });
   }
 
-  async login(dto: LoginCustomerDto, subdomain: string | undefined) {
-    // Verifica se a filial existe
-    const branch = await prisma.branch.findUnique({
-      where: { subdomain },
-    });
+  async login(
+    dto: LoginCustomerDto,
+    subdomain: string | undefined,
+    branchId?: string,
+  ) {
+    const branch = branchId
+      ? await prisma.branch.findUnique({ where: { id: branchId } })
+      : subdomain
+        ? await prisma.branch.findUnique({ where: { subdomain } })
+        : null;
 
     if (!branch) {
       throw new NotFoundException('Filial não encontrada');
@@ -545,12 +564,51 @@ export class CustomersService {
       },
     });
 
-    // Se não existir, retorna erro
     if (!customer) {
       throw new NotFoundException('Cliente não encontrado');
     }
 
-    // Gera JWT incluindo branchId no payload
+    const generalConfig = await prisma.generalConfig.findUnique({
+      where: { branchId: branch.id },
+      select: { customerLoginWithPassword: true },
+    });
+    const storeAllowsPasswordFeature =
+      generalConfig?.customerLoginWithPassword ?? false;
+
+    const storedPassword = customer.password;
+    const hasStoredPassword = Boolean(storedPassword);
+    const customerWantsPasswordLogin = customer.loginWithPassword === true;
+
+    // Só o cliente (flag no perfil) exige senha; a loja só habilita o recurso no cardápio
+    const mustUsePassword =
+      storeAllowsPasswordFeature &&
+      customerWantsPasswordLogin &&
+      hasStoredPassword;
+
+    if (mustUsePassword) {
+      if (!dto.password?.trim() || !storedPassword) {
+        return {
+          requiresPassword: true as const,
+          token: null,
+          customer: null,
+        };
+      }
+      const valid = await bcrypt.compare(dto.password, storedPassword);
+      if (!valid) {
+        throw new UnauthorizedException('Senha incorreta');
+      }
+    } else if (
+      hasStoredPassword &&
+      storedPassword &&
+      dto.password?.trim()
+    ) {
+      // Senha informada opcionalmente (ex.: cliente desativou "Entrar com senha" mas digitou senha)
+      const valid = await bcrypt.compare(dto.password, storedPassword);
+      if (!valid) {
+        throw new UnauthorizedException('Senha incorreta');
+      }
+    }
+
     const token = this.jwtService.sign(
       {
         userId: customer.id,
@@ -560,7 +618,121 @@ export class CustomersService {
       { secret: process.env.JWT_CUSTOMER_SECRET, expiresIn: '7d' },
     );
 
-    return { token, customer };
+    return {
+      requiresPassword: false as const,
+      token,
+      customer: this.toPublicCustomer(customer),
+    };
+  }
+
+  async updateProfile(customerId: string, dto: UpdateCustomerProfileDto) {
+    const existing = await prisma.customer.findUnique({
+      where: { id: customerId },
+      include: { addresses: true },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Cliente não encontrado');
+    }
+
+    const wantsPassword = Boolean(dto.password || dto.confirmPassword);
+    if (wantsPassword) {
+      if (existing.password) {
+        throw new BadRequestException(
+          'Para alterar a senha, use a opção "Alterar senha" no perfil',
+        );
+      }
+      if (!dto.password || !dto.confirmPassword) {
+        throw new BadRequestException('Informe e confirme a nova senha');
+      }
+      if (dto.password !== dto.confirmPassword) {
+        throw new BadRequestException('As senhas não coincidem');
+      }
+    }
+
+    let normalizedPhone: string | undefined;
+    if (dto.phone !== undefined) {
+      normalizedPhone = this.resolveCustomerPhone(dto.phone);
+      if (normalizedPhone !== existing.phone) {
+        await this.assertPhoneAvailable(
+          normalizedPhone,
+          existing.branchId,
+          customerId,
+        );
+      }
+    }
+
+    if (dto.loginWithPassword === true && !existing.password && !dto.password) {
+      throw new BadRequestException(
+        'Cadastre uma senha antes de ativar o login com senha',
+      );
+    }
+
+    const data: {
+      name?: string;
+      phone?: string;
+      email?: string | null;
+      password?: string;
+      loginWithPassword?: boolean;
+    } = {};
+
+    if (dto.name !== undefined) data.name = dto.name.trim();
+    if (normalizedPhone !== undefined) data.phone = normalizedPhone;
+    if (dto.email !== undefined) {
+      data.email = dto.email.trim() ? dto.email.trim() : null;
+    }
+    if (dto.password) {
+      data.password = await bcrypt.hash(dto.password, 10);
+      data.loginWithPassword = true;
+    }
+    if (dto.loginWithPassword !== undefined) {
+      data.loginWithPassword = dto.loginWithPassword;
+    }
+
+    if (Object.keys(data).length === 0) {
+      return this.toPublicCustomer(existing);
+    }
+
+    const updated = await prisma.customer.update({
+      where: { id: customerId },
+      data,
+      include: { addresses: true },
+    });
+
+    return this.toPublicCustomer(updated);
+  }
+
+  async changePassword(customerId: string, dto: ChangeCustomerPasswordDto) {
+    const customer = await prisma.customer.findUnique({
+      where: { id: customerId },
+    });
+
+    if (!customer) {
+      throw new NotFoundException('Cliente não encontrado');
+    }
+
+    const storedPassword = customer.password;
+    if (!storedPassword) {
+      throw new BadRequestException(
+        'Você ainda não possui senha. Cadastre uma senha ao editar o perfil.',
+      );
+    }
+
+    if (dto.newPassword !== dto.confirmPassword) {
+      throw new BadRequestException('As senhas não coincidem');
+    }
+
+    const valid = await bcrypt.compare(dto.currentPassword, storedPassword);
+    if (!valid) {
+      throw new UnauthorizedException('Senha atual incorreta');
+    }
+
+    await prisma.customer.update({
+      where: { id: customerId },
+      data: { password: await bcrypt.hash(dto.newPassword, 10) },
+    });
+
+    return { success: true };
   }
 
   /**
@@ -568,17 +740,23 @@ export class CustomersService {
    */
 
   async getCustomerById(id: string) {
-    return await prisma.customer.findUnique({
+    const customer = await prisma.customer.findUnique({
       where: { id },
       select: {
         id: true,
         email: true,
         name: true,
         phone: true,
+        password: true,
+        loginWithPassword: true,
         orders: true,
         addresses: true,
       },
     });
+
+    if (!customer) return null;
+
+    return this.toPublicCustomer(customer);
   }
 
   async getCustomerMetrics(customerId: string, userId: string) {

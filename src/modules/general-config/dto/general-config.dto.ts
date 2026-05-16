@@ -106,6 +106,10 @@ export class CreateGeneralConfigDto {
 
   @IsOptional()
   @IsBoolean()
+  customerLoginWithPassword?: boolean = false;
+
+  @IsOptional()
+  @IsBoolean()
   hideOrderStatus?: boolean = false;
 
   @IsOptional()

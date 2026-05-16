@@ -953,6 +953,10 @@ model Customer {
   name             String
   phone            String
   email            String?
+  /// Hash bcrypt; opcional — login por telefone sem senha ou telefone + senha.
+  password         String?
+  /// Cliente optou por exigir senha no login (quando a loja permite).
+  loginWithPassword Boolean          @default(false)
   branchId         String
 
   createdAt        DateTime           @default(now())
@@ -1869,6 +1873,8 @@ model GeneralConfig {
   showPromotionsScreen                                                                                                                                                            Boolean   @default(false) // Mostrar tela de promoções ao iniciar cardápio
   showMenuFooter                                                                                                                                                                  Boolean   @default(true) // Mostrar rodapé do cardápio
   verifyNewCustomerPhone                                                                                                                                                          Boolean   @default(false) // Verificar o telefone dos novos clientes
+  /// Exige telefone + senha no login do cardápio online (quando o cliente já tiver senha cadastrada).
+  customerLoginWithPassword                                                                                                                                                       Boolean   @default(false)
   hideOrderStatus                                                                                                                                                                 Boolean   @default(false) // Não mostrar status do pedido no cardápio
   hideStoreAddress                                                                                                                                                                Boolean   @default(false) // Esconder endereço do estabelecimento no cardápio
   simplifiedAddressInput                                                                                                                                                          Boolean   @default(false) // Entrada de endereço simplificada

@@ -50,6 +50,12 @@ export class StoreHomepageDto {
       enableDelivery?: boolean;
       enableDineIn?: boolean;
       enablePickup?: boolean;
+      showPromotionsScreen?: boolean;
+      customerLoginWithPassword?: boolean;
+      pixMode?: string | null;
+      pixKeyType?: string | null;
+      pixKey?: string | null;
+      pixHolderName?: string | null;
     };
   };
   subscription?: {
