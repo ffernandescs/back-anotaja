@@ -1,3 +1,4 @@
+import { PartialType } from '@nestjs/mapped-types';
 import { IsOptional, IsBoolean, IsString, IsEnum, IsNumber, Min, Max } from 'class-validator';
 
 export enum FontSize {
