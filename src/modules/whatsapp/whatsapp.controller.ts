@@ -33,6 +33,12 @@ import {
   CreateMessageTemplateDto,
   UpdateMessageTemplateDto,
   CreateCampaignRecordDto,
+  CreateOrderChannelCampaignDto,
+  UpdateOrderChannelCampaignDto,
+  BulkCreateOrderChannelCampaignsDto,
+  CreateOrderOriginDto,
+  UpdateOrderOriginDto,
+  SuggestOrderOriginCodeDto,
 } from './dto/whatsapp.dto';
 
 @Controller('whatsapp')
@@ -447,5 +453,98 @@ export class WhatsAppController {
     }
   }
 
+  // ─── Origens de pedido ─────────────────────────────────────────
 
+  @UseGuards(JwtAuthGuard)
+  @Get('order-origins')
+  async getOrderOrigins(@Request() req) {
+    const branchId = req.user?.branchId;
+    if (!branchId) throw new BadRequestException('Filial não identificada');
+    return this.whatsappService.getOrderOrigins(branchId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('order-origins/suggest-code')
+  async suggestOrderOriginCode(@Request() req, @Body() dto: SuggestOrderOriginCodeDto) {
+    const branchId = req.user?.branchId;
+    if (!branchId) throw new BadRequestException('Filial não identificada');
+    return this.whatsappService.suggestOrderOriginCode(branchId, dto.name);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('order-origins')
+  async createOrderOrigin(@Request() req, @Body() dto: CreateOrderOriginDto) {
+    const branchId = req.user?.branchId;
+    if (!branchId) throw new BadRequestException('Filial não identificada');
+    return this.whatsappService.createOrderOrigin(branchId, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put('order-origins/:id')
+  async updateOrderOrigin(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() dto: UpdateOrderOriginDto,
+  ) {
+    const branchId = req.user?.branchId;
+    if (!branchId) throw new BadRequestException('Filial não identificada');
+    return this.whatsappService.updateOrderOrigin(branchId, id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('order-origins/:id')
+  async deleteOrderOrigin(@Request() req, @Param('id') id: string) {
+    const branchId = req.user?.branchId;
+    if (!branchId) throw new BadRequestException('Filial não identificada');
+    return this.whatsappService.deleteOrderOrigin(branchId, id);
+  }
+
+  // ─── Campanhas de links de pedido ──────────────────────────────
+
+  @UseGuards(JwtAuthGuard)
+  @Get('order-campaigns')
+  async getOrderChannelCampaigns(@Request() req) {
+    const branchId = req.user?.branchId;
+    if (!branchId) throw new BadRequestException('Filial não identificada');
+    return this.whatsappService.getOrderChannelCampaigns(branchId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('order-campaigns')
+  async createOrderChannelCampaign(@Request() req, @Body() dto: CreateOrderChannelCampaignDto) {
+    const branchId = req.user?.branchId;
+    if (!branchId) throw new BadRequestException('Filial não identificada');
+    return this.whatsappService.createOrderChannelCampaign(branchId, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('order-campaigns/bulk')
+  async bulkCreateOrderChannelCampaigns(
+    @Request() req,
+    @Body() dto: BulkCreateOrderChannelCampaignsDto,
+  ) {
+    const branchId = req.user?.branchId;
+    if (!branchId) throw new BadRequestException('Filial não identificada');
+    return this.whatsappService.bulkCreateOrderChannelCampaigns(branchId, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put('order-campaigns/:id')
+  async updateOrderChannelCampaign(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() dto: UpdateOrderChannelCampaignDto,
+  ) {
+    const branchId = req.user?.branchId;
+    if (!branchId) throw new BadRequestException('Filial não identificada');
+    return this.whatsappService.updateOrderChannelCampaign(branchId, id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('order-campaigns/:id')
+  async deleteOrderChannelCampaign(@Request() req, @Param('id') id: string) {
+    const branchId = req.user?.branchId;
+    if (!branchId) throw new BadRequestException('Filial não identificada');
+    return this.whatsappService.deleteOrderChannelCampaign(branchId, id);
+  }
 }

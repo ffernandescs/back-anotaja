@@ -626,6 +626,8 @@ model Branch {
   marketingIntegrationConfig MarketingIntegrationConfig?
   messageTemplates           MessageTemplate[]
   campaignRecords            CampaignRecord[]               @relation("BranchCampaigns")
+  orderChannelCampaigns      OrderChannelCampaign[]
+  orderOrigins               OrderOrigin[]
   paymentGatewayConfigs      PaymentGatewayConfig[]
   whatsappConfig             WhatsAppConfig?
   whatsappMessages           WhatsAppMessage[]
@@ -2261,6 +2263,79 @@ model CampaignRecord {
   @@map("campaign_records")
   @@index([branchId])
   @@index([scheduledAt])
+}
+
+/// Origem do pedido (código curto para ?origem= no link do cardápio).
+model OrderOrigin {
+  id        String   @id @default(cuid())
+  branchId  String
+  name      String
+  code      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  branch    Branch                 @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  campaigns OrderChannelCampaign[]
+
+  @@unique([branchId, code])
+  @@map("order_origins")
+  @@index([branchId])
+}
+
+/// Campanhas de rastreamento de pedidos por origem (links do cardápio digital).
+model OrderChannelCampaign {
+  id               String    @id @default(cuid())
+  branchId         String
+  orderOriginId    String
+  title            String
+  phoneNumber      String
+  description      String?
+  imageUrl         String?
+  /// Lista de destinatários: [{ customerId, name, phone }]
+  recipients       Json?
+  /// Código da origem (OrderOrigin.code), espelhado para rastreio
+  orderChannelCode String
+  linkUrl          String
+  dispatchedAt     DateTime?
+  recipientCount   Int       @default(0)
+  processedCount   Int       @default(0)
+  sentCount        Int       @default(0)
+  readCount        Int       @default(0)
+  failedCount      Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  branch            Branch                       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  orderOrigin       OrderOrigin                  @relation(fields: [orderOriginId], references: [id], onDelete: Restrict)
+  dispatchMessages  OrderChannelCampaignMessage[]
+
+  @@map("order_channel_campaigns")
+  @@index([branchId])
+  @@index([branchId, orderOriginId])
+}
+
+/// Uma mensagem WhatsApp por destinatário da campanha (status via webhook Evolution).
+model OrderChannelCampaignMessage {
+  id                     String   @id @default(cuid())
+  orderChannelCampaignId String
+  customerId             String?
+  customerName           String?
+  customerPhone          String
+  /// ID da mensagem na Evolution (`key.id`) para MESSAGES_UPDATE
+  evolutionMessageId     String?  @unique
+  /// pending | processed | sent | read | failed
+  status                 String   @default("pending")
+  errorMessage           String?
+  sentAt                 DateTime?
+  readAt                 DateTime?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  campaign OrderChannelCampaign @relation(fields: [orderChannelCampaignId], references: [id], onDelete: Cascade)
+
+  @@map("order_channel_campaign_messages")
+  @@index([orderChannelCampaignId])
+  @@index([orderChannelCampaignId, status])
 }
 
 model WhatsAppMessage {

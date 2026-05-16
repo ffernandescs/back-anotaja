@@ -1,4 +1,5 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import type { OrderChannelCampaign, OrderOrigin, Prisma } from '@prisma/client';
 import { prisma } from '../../../lib/prisma';
 import ffmpeg from 'fluent-ffmpeg';
 import * as path from 'path';
@@ -55,6 +56,55 @@ import {
   type BranchScheduleLike,
 } from '../../utils/branch-schedule-for-chatbot';
 import { buildBranchStorefrontPublicUrl } from 'src/utils/storefront-url';
+import {
+  buildOrderChannelCampaignLink,
+  isValidOrderOriginCode,
+  suggestOrderOriginCode as generateOrderOriginCode,
+} from '../../utils/order-channel-campaign';
+import {
+  parseOrderCampaignRecipientsJson,
+  substituteOrderCampaignMessage,
+} from '../../utils/order-campaign-message';
+import {
+  mapEvolutionAckToCampaignMessageStatus,
+  shouldAdvanceCampaignMessageStatus,
+  type OrderChannelCampaignMessageStatus,
+} from '../../utils/order-channel-campaign-stats';
+
+export interface OrderChannelCampaignDispatchResult {
+  sent: number;
+  failed: number;
+  errors: string[];
+}
+
+/** Item da listagem GET /whatsapp/order-campaigns */
+export interface OrderChannelCampaignListItem {
+  id: string;
+  branchId: string;
+  orderOriginId: string;
+  title: string;
+  phoneNumber: string;
+  description: string | null;
+  imageUrl: string | null;
+  recipients: unknown;
+  orderChannelCode: string;
+  linkUrl: string;
+  createdAt: Date;
+  updatedAt: Date;
+  originNumber: string;
+  originName: string;
+  dispatchedAt: Date | null;
+  recipientCount: number;
+  processedCount: number;
+  sentCount: number;
+  readCount: number;
+  failedCount: number;
+  orderOrigin?: { id: string; name: string; code: string };
+}
+
+export type OrderChannelCampaignSaveResponse = OrderChannelCampaignListItem & {
+  dispatch?: OrderChannelCampaignDispatchResult | null;
+};
 
 /**
  * Prefixo usado ao criar instâncias na Evolution API.
@@ -715,6 +765,10 @@ export class WhatsAppService {
       const state: string = res?.instance?.state ?? res?.state ?? 'close';
 
       let status: string;
+      let phoneNumber = config.phoneNumber ?? null;
+      let profileName = config.profileName ?? null;
+      let profilePicUrl = config.profilePicUrl ?? null;
+
       if (state === 'open') {
         status = 'connected';
         if (config.status !== 'connected') {
@@ -723,6 +777,10 @@ export class WhatsAppService {
             data: { status: 'connected', qrCode: null },
           });
         }
+        const synced = await this.syncInstanceProfileFromEvolution(config, res);
+        phoneNumber = synced.phoneNumber;
+        profileName = synced.profileName;
+        profilePicUrl = synced.profilePicUrl;
       } else if (state === 'connecting') {
         status = config.qrCode ? 'qr_code' : 'connecting';
       } else {
@@ -732,6 +790,9 @@ export class WhatsAppService {
       return {
         status,
         ...baseMeta,
+        phoneNumber,
+        profileName,
+        profilePicUrl,
       };
     } catch {
       return {
@@ -1008,7 +1069,7 @@ export class WhatsAppService {
 
     return fetchChatsForBranch({
       instanceName: config.instanceName!,
-      instancePhone: config.phoneNumber,
+      instancePhone: this.connectedInstancePhone(config),
       instanceProfileName: config.profileName,
       branchId,
       configId: config.id,
@@ -1994,6 +2055,7 @@ export class WhatsAppService {
     } catch {
       // mensagem pode não existir ainda no banco local
     }
+    // Campanhas: atualizado em handleMessageStatus/handleMessage com status bruto da Evolution.
   }
 
   async markChatAsRead(branchId?: string, partnerId?: string, jid?: string) {
@@ -2171,6 +2233,872 @@ export class WhatsAppService {
     return prisma.campaignRecord.create({ data: { ...dto, ...where } });
   }
 
+  // ─── Origens de pedido (códigos curtos) ─────────────────────────────────────
+
+  private readonly orderOriginInclude = {
+    orderOrigin: { select: { id: true, name: true, code: true } },
+  } satisfies Prisma.OrderChannelCampaignInclude;
+
+  async getOrderOrigins(branchId: string): Promise<OrderOrigin[]> {
+    return prisma.orderOrigin.findMany({
+      where: { branchId },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  async suggestOrderOriginCode(branchId: string, name: string): Promise<{ code: string }> {
+    const existing = await prisma.orderOrigin.findMany({
+      where: { branchId },
+      select: { code: true },
+    });
+    const code = generateOrderOriginCode(
+      name,
+      existing.map((o) => o.code),
+    );
+    return { code };
+  }
+
+  async createOrderOrigin(branchId: string, dto: { name: string; code?: string }) {
+    const name = dto.name?.trim();
+    if (!name) throw new BadRequestException('Nome da origem é obrigatório');
+
+    const existingCodes = (
+      await prisma.orderOrigin.findMany({
+        where: { branchId },
+        select: { code: true },
+      })
+    ).map((o) => o.code);
+
+    let code = (dto.code ?? '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!code) {
+      code = generateOrderOriginCode(name, existingCodes);
+    }
+    if (!isValidOrderOriginCode(code)) {
+      throw new BadRequestException(
+        'Código deve ter no mínimo 5 caracteres, apenas letras e números (a-z, 0-9), com ambos na mesma combinação.',
+      );
+    }
+    if (existingCodes.some((c) => c.toLowerCase() === code)) {
+      throw new BadRequestException('Já existe uma origem com este código');
+    }
+
+    return prisma.orderOrigin.create({
+      data: { branchId, name, code },
+    });
+  }
+
+  async updateOrderOrigin(
+    branchId: string,
+    id: string,
+    dto: { name?: string; code?: string },
+  ) {
+    const existing = await prisma.orderOrigin.findFirst({ where: { id, branchId } });
+    if (!existing) throw new NotFoundException('Origem não encontrada');
+
+    const name = dto.name?.trim() ?? existing.name;
+    let code = existing.code;
+    if (dto.code !== undefined) {
+      code = dto.code.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (!isValidOrderOriginCode(code)) {
+        throw new BadRequestException(
+          'Código deve ter no mínimo 5 caracteres, apenas letras e números (a-z, 0-9), com ambos na mesma combinação.',
+        );
+      }
+      const conflict = await prisma.orderOrigin.findFirst({
+        where: { branchId, code, NOT: { id } },
+      });
+      if (conflict) throw new BadRequestException('Já existe uma origem com este código');
+    }
+
+    const updated = await prisma.orderOrigin.update({
+      where: { id },
+      data: { name, code },
+    });
+
+    await this.refreshCampaignLinksForOrigin(branchId, id);
+    return updated;
+  }
+
+  async deleteOrderOrigin(branchId: string, id: string) {
+    const existing = await prisma.orderOrigin.findFirst({ where: { id, branchId } });
+    if (!existing) throw new NotFoundException('Origem não encontrada');
+
+    const inUse = await prisma.orderChannelCampaign.count({
+      where: { orderOriginId: id },
+    });
+    if (inUse > 0) {
+      throw new BadRequestException(
+        'Origem em uso por campanhas. Exclua ou altere as campanhas antes.',
+      );
+    }
+
+    return prisma.orderOrigin.delete({ where: { id } });
+  }
+
+  private async refreshCampaignLinksForOrigin(branchId: string, orderOriginId: string) {
+    const origin = await prisma.orderOrigin.findFirst({
+      where: { id: orderOriginId, branchId },
+    });
+    if (!origin) return;
+
+    const menuBaseUrl = await this.resolveBranchMenuBaseUrl(branchId);
+    const linkUrl = buildOrderChannelCampaignLink({
+      menuBaseUrl,
+      originCode: origin.code,
+    });
+
+    await prisma.orderChannelCampaign.updateMany({
+      where: { branchId, orderOriginId },
+      data: { linkUrl, orderChannelCode: origin.code },
+    });
+  }
+
+  private async requireOrderOrigin(branchId: string, orderOriginId: string) {
+    const origin = await prisma.orderOrigin.findFirst({
+      where: { id: orderOriginId, branchId },
+    });
+    if (!origin) throw new BadRequestException('Origem não encontrada');
+    return origin;
+  }
+
+  /** E.164 Brasil: sempre 55 + DDD + número (ex.: 81982647352 → 5581982647352). */
+  private normalizePhoneE164Brazil(phone: string): string {
+    const raw = `${phone ?? ''}`.replace(/\D/g, '');
+    if (raw.length < 10) return '';
+
+    const normalized =
+      normalizeBrazilPhone(raw) ||
+      normalizeBrazilPhone(raw.startsWith('55') ? raw : `55${raw}`) ||
+      '';
+
+    if (normalized) return normalized;
+
+    const with55 = raw.startsWith('55') ? raw : `55${raw}`;
+    return with55.length >= 12 ? with55 : '';
+  }
+
+  private sanitizeOrderCampaignRecipients(
+    recipients?: Array<{ customerId: string; name: string; phone: string }>,
+  ): Prisma.InputJsonValue | undefined {
+    if (recipients === undefined) return undefined;
+    const list = recipients
+      .map((r) => ({
+        customerId: String(r.customerId ?? '').trim(),
+        name: String(r.name ?? '').trim() || 'Sem nome',
+        phone: this.normalizePhoneE164Brazil(String(r.phone ?? '')),
+      }))
+      .filter((r) => r.customerId && r.phone.length >= 12);
+    return list as Prisma.InputJsonValue;
+  }
+
+  // ─── Campanhas de links de pedido ────────────────────────────────────────────
+
+  private async resolveBranchMenuBaseUrl(branchId: string): Promise<string> {
+    const branch = await prisma.branch.findUnique({
+      where: { id: branchId },
+      select: { subdomain: true },
+    });
+    if (!branch) throw new NotFoundException('Filial não encontrada');
+    const url = this.buildBranchOrdersMenuUrl(branch.subdomain ?? null);
+    if (!url) {
+      throw new BadRequestException(
+        'Configure o subdomínio da filial e FRONTEND_URL para gerar links do cardápio.',
+      );
+    }
+    return url;
+  }
+
+  async getOrderChannelCampaigns(branchId: string): Promise<OrderChannelCampaignListItem[]> {
+    const rows = await prisma.orderChannelCampaign.findMany({
+      where: { branchId },
+      include: this.orderOriginInclude,
+      orderBy: { dispatchedAt: 'desc' },
+    });
+
+    return rows.map((c) => this.toOrderChannelCampaignListItem(c));
+  }
+
+  private toOrderChannelCampaignListItem(
+    c: OrderChannelCampaign & {
+      orderOrigin?: { id: string; name: string; code: string } | null;
+    },
+  ): OrderChannelCampaignListItem {
+    const parsedRecipients = parseOrderCampaignRecipientsJson(c.recipients);
+    return {
+      id: c.id,
+      branchId: c.branchId,
+      orderOriginId: c.orderOriginId,
+      title: c.title,
+      phoneNumber: c.phoneNumber,
+      description: c.description,
+      imageUrl: c.imageUrl,
+      recipients: c.recipients,
+      orderChannelCode: c.orderChannelCode,
+      linkUrl: c.linkUrl,
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
+      originNumber: c.orderOrigin?.code ?? c.orderChannelCode,
+      originName: c.orderOrigin?.name ?? '',
+      dispatchedAt: c.dispatchedAt ?? (parsedRecipients.length ? c.createdAt : null),
+      recipientCount: c.recipientCount || parsedRecipients.length,
+      processedCount: c.processedCount,
+      sentCount: c.sentCount,
+      readCount: c.readCount,
+      failedCount: c.failedCount,
+      orderOrigin: c.orderOrigin ?? undefined,
+    };
+  }
+
+  private async findOrderChannelCampaignForResponse(campaignId: string, branchId: string) {
+    const row = await prisma.orderChannelCampaign.findFirst({
+      where: { id: campaignId, branchId },
+      include: this.orderOriginInclude,
+    });
+    if (!row) throw new NotFoundException('Campanha não encontrada');
+    return this.toOrderChannelCampaignListItem(row);
+  }
+
+  private async syncOrderChannelCampaignStats(campaignId: string): Promise<void> {
+    const messages = await prisma.orderChannelCampaignMessage.findMany({
+      where: { orderChannelCampaignId: campaignId },
+      select: { status: true },
+    });
+
+    let processedCount = 0;
+    let sentCount = 0;
+    let readCount = 0;
+    let failedCount = 0;
+
+    for (const m of messages) {
+      switch (m.status) {
+        case 'processed':
+          processedCount++;
+          break;
+        case 'sent':
+          processedCount++;
+          sentCount++;
+          break;
+        case 'read':
+          processedCount++;
+          sentCount++;
+          readCount++;
+          break;
+        case 'failed':
+          failedCount++;
+          break;
+        default:
+          break;
+      }
+    }
+
+    await prisma.orderChannelCampaign.update({
+      where: { id: campaignId },
+      data: {
+        recipientCount: messages.length,
+        processedCount,
+        sentCount,
+        readCount,
+        failedCount,
+      },
+    });
+  }
+
+  /** Atualiza status da mensagem da campanha a partir do webhook Evolution. */
+  async updateOrderChannelCampaignMessageFromEvolution(
+    evolutionMessageId: string,
+    rawStatus: number | string | null | undefined,
+    opts?: { customerPhoneDigits?: string; attachIdIfMissing?: boolean },
+  ): Promise<void> {
+    if (!evolutionMessageId) return;
+
+    const mapped = mapEvolutionAckToCampaignMessageStatus(rawStatus);
+    if (!mapped || mapped === 'pending') return;
+
+    let row = await prisma.orderChannelCampaignMessage.findUnique({
+      where: { evolutionMessageId },
+    });
+
+    if (!row && opts?.customerPhoneDigits) {
+      const digits =
+        this.normalizePhoneE164Brazil(opts.customerPhoneDigits) ||
+        opts.customerPhoneDigits.replace(/\D/g, '');
+      const suffix = digits.slice(-9);
+      if (suffix.length >= 8) {
+        row = await prisma.orderChannelCampaignMessage.findFirst({
+          where: {
+            evolutionMessageId: null,
+            status: { in: ['pending', 'processed', 'sent'] },
+            customerPhone: { contains: suffix },
+            createdAt: { gte: new Date(Date.now() - 2 * 60 * 60 * 1000) },
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+        if (row && opts.attachIdIfMissing) {
+          await prisma.orderChannelCampaignMessage.update({
+            where: { id: row.id },
+            data: { evolutionMessageId },
+          });
+        }
+      }
+    }
+
+    if (!row) return;
+
+    if (!shouldAdvanceCampaignMessageStatus(row.status, mapped)) return;
+
+    const data: {
+      status: OrderChannelCampaignMessageStatus;
+      sentAt?: Date;
+      readAt?: Date;
+    } = { status: mapped };
+
+    if (mapped === 'sent' && !row.sentAt) data.sentAt = new Date();
+    if (mapped === 'read') {
+      if (!row.sentAt) data.sentAt = new Date();
+      data.readAt = new Date();
+    }
+
+    await prisma.orderChannelCampaignMessage.update({
+      where: { id: row.id },
+      data,
+    });
+
+    await this.syncOrderChannelCampaignStats(row.orderChannelCampaignId);
+  }
+
+  /** Variantes com 55 (e com/sem 9º dígito) para Evolution. */
+  private buildEvolutionSendNumberCandidates(phone: string): string[] {
+    const primary = this.normalizePhoneE164Brazil(phone);
+    if (!primary) return [];
+
+    const out: string[] = [];
+    const seen = new Set<string>();
+    const push = (digits: string) => {
+      const d = digits.replace(/\D/g, '');
+      if (!d.startsWith('55') || d.length < 12 || d.length > 13 || seen.has(d)) return;
+      seen.add(d);
+      out.push(d);
+    };
+
+    push(primary);
+    const alt = this.formatPhoneAlternative(primary);
+    if (alt) push(alt);
+
+    return out;
+  }
+
+  /** Garante 55 no `number` da Evolution (com ou sem sufixo @s.whatsapp.net). */
+  private toEvolutionSendNumber(target: string): string {
+    const t = target.trim();
+    if (!t) return t;
+    if (t.includes('@')) return t;
+
+    const d = t.replace(/\D/g, '');
+    if (d.startsWith('55') && d.length >= 12) return d;
+    if (d.length >= 10) return this.normalizePhoneE164Brazil(d) || `55${d}`;
+    return d;
+  }
+
+  private isEvolutionExistsFalseError(err: unknown): boolean {
+    const msg = err instanceof Error ? err.message : String(err);
+    return msg.includes('"exists":false') || msg.includes("'exists':false");
+  }
+
+  /** JID usado em conversas anteriores (CRM) — inclui @lid quando aplicável. */
+  private async findKnownCustomerRemoteJid(
+    branchId: string,
+    customerId: string,
+    phone: string,
+  ): Promise<string | null> {
+    const byCustomer = await prisma.whatsAppMessage.findFirst({
+      where: {
+        branchId,
+        customerId,
+        remoteJid: { not: '' },
+      },
+      orderBy: { sentAt: 'desc' },
+      select: { remoteJid: true },
+    });
+    if (byCustomer?.remoteJid && !isGroupJid(byCustomer.remoteJid)) {
+      return byCustomer.remoteJid;
+    }
+
+    const customer = await prisma.customer.findFirst({
+      where: { id: customerId, branchId },
+      select: { phone: true },
+    });
+
+    const formatted = this.normalizePhoneE164Brazil(phone) || this.formatPhone(phone);
+    const alt = this.formatPhoneAlternative(formatted);
+    const localDigits = phone.replace(/\D/g, '').replace(/^55/, '');
+    const phoneKeys = [
+      formatted,
+      alt,
+      customer?.phone ? this.normalizePhoneE164Brazil(customer.phone) : '',
+      phone.replace(/\D/g, ''),
+      localDigits,
+    ].filter(Boolean) as string[];
+
+    const byPhone = await prisma.whatsAppMessage.findMany({
+      where: {
+        branchId,
+        remoteJid: { not: '' },
+        OR: [
+          ...phoneKeys.map((p) => ({ customerPhone: p })),
+          ...phoneKeys.map((p) => ({
+            remoteJid: { contains: p.replace(/\D/g, '').slice(-10) },
+          })),
+        ],
+      },
+      orderBy: { sentAt: 'desc' },
+      take: 20,
+      select: { remoteJid: true, customerPhone: true },
+    });
+
+    for (const row of byPhone) {
+      if (!row.remoteJid || isGroupJid(row.remoteJid)) continue;
+      if (phoneKeys.some((p) => phonesMatch(row.customerPhone || '', p))) {
+        return row.remoteJid;
+      }
+      const jidDigits = phoneFromJid(row.remoteJid).replace(/\D/g, '');
+      if (phoneKeys.some((p) => phonesMatch(jidDigits, p))) {
+        return row.remoteJid;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Destinos para sendText (prioriza @lid do CRM/mapa; depois número validado na Evolution).
+   * A Evolution v2 rejeita @s.whatsapp.net com exists:false quando o contato só existe como @lid.
+   */
+  private async resolveOrderCampaignSendTargets(
+    branchId: string,
+    instanceName: string,
+    customerId: string,
+    phone: string,
+    lidMap: Map<string, string>,
+  ): Promise<string[]> {
+    const targets: string[] = [];
+    const seen = new Set<string>();
+    const push = (value?: string | null) => {
+      const v = `${value ?? ''}`.trim();
+      if (!v || isGroupJid(v) || seen.has(v)) return;
+      seen.add(v);
+      targets.push(v);
+    };
+
+    push(await this.findKnownCustomerRemoteJid(branchId, customerId, phone));
+
+    const digitCandidates = this.buildEvolutionSendNumberCandidates(phone);
+    for (const digits of digitCandidates) {
+      const phoneJid = `${digits}@s.whatsapp.net`;
+      for (const jid of this.expandBrazilPhoneJids(phoneJid)) {
+        push(jid);
+        push(lidMap.get(jid));
+        push(resolveJidWithMap(jid, lidMap));
+      }
+    }
+
+    if (digitCandidates.length) {
+      try {
+        const res = await this.evolutionRequest('POST', `/chat/whatsappNumbers/${instanceName}`, {
+          numbers: digitCandidates,
+        });
+        const list = (Array.isArray(res) ? res : []) as Array<{
+          exists?: boolean;
+          jid?: string;
+          number?: string;
+        }>;
+        for (const row of list) {
+          if (!row?.exists) continue;
+          if (row.jid) push(row.jid);
+          if (row.number) {
+            push(row.number.includes('@') ? row.number : `${row.number.replace(/\D/g, '')}@s.whatsapp.net`);
+          }
+        }
+      } catch (err) {
+        this.logger.warn(
+          `[resolveOrderCampaignSendTargets] whatsappNumbers falhou: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+
+    return targets.sort((a, b) => {
+      const rank = (j: string) => (isLidJid(j) ? 0 : isPhoneJid(j) ? 1 : 2);
+      return rank(a) - rank(b);
+    });
+  }
+
+  /** Envia texto pela instância WhatsApp conectada da filial (remetente = Evolution instance). */
+  private async sendTextViaConnectedInstance(
+    branchId: string,
+    instanceName: string,
+    phone: string,
+    text: string,
+    meta?: {
+      customerId?: string;
+      customerName?: string;
+      lidMap?: Map<string, string>;
+      campaignMessageId?: string;
+    },
+  ): Promise<{ evolutionMessageId: string | null; storedPhone: string }> {
+    const targets =
+      meta?.customerId && meta.lidMap
+        ? await this.resolveOrderCampaignSendTargets(
+            branchId,
+            instanceName,
+            meta.customerId,
+            phone,
+            meta.lidMap,
+          )
+        : [];
+
+    if (!targets.length) {
+      const fallbackDigits = this.buildEvolutionSendNumberCandidates(phone);
+      for (const d of fallbackDigits) {
+        targets.push(`${d}@s.whatsapp.net`, d);
+      }
+    }
+
+    if (!targets.length) {
+      throw new BadRequestException(`Telefone inválido: ${phone}`);
+    }
+
+    let lastError: unknown;
+    for (const target of targets) {
+      const number = this.toEvolutionSendNumber(target);
+      try {
+        const apiResult = await this.evolutionRequest('POST', `/message/sendText/${instanceName}`, {
+          number,
+          text,
+        });
+        const evolutionMessageId = this.extractEvolutionMessageId(apiResult);
+        const storedPhone = number.includes('@')
+          ? phoneFromJid(number) || this.formatPhone(phone)
+          : number;
+
+        if (meta?.campaignMessageId) {
+          await prisma.orderChannelCampaignMessage.update({
+            where: { id: meta.campaignMessageId },
+            data: {
+              evolutionMessageId: evolutionMessageId ?? undefined,
+              status: evolutionMessageId ? 'sent' : 'processed',
+              sentAt: new Date(),
+              errorMessage: null,
+            },
+          });
+        }
+
+        await this.recordMessage({
+          branchId,
+          customerId: meta?.customerId,
+          customerName: meta?.customerName,
+          phone: storedPhone,
+          text,
+          status: 'sent',
+          remoteJid: number.includes('@') ? number : undefined,
+        });
+        return { evolutionMessageId, storedPhone };
+      } catch (err) {
+        lastError = err;
+        if (!this.isEvolutionExistsFalseError(err)) {
+          this.logger.warn(
+            `[sendTextViaConnectedInstance] Falha (${instanceName} → ${number}): ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
+      }
+    }
+
+    const failPhone = this.formatPhone(phone);
+    const failMsg =
+      lastError instanceof Error
+        ? lastError.message
+        : String(lastError ?? 'Falha ao enviar');
+
+    if (meta?.campaignMessageId) {
+      await prisma.orderChannelCampaignMessage.update({
+        where: { id: meta.campaignMessageId },
+        data: { status: 'failed', errorMessage: failMsg.slice(0, 500) },
+      });
+    }
+
+    await this.recordMessage({
+      branchId,
+      customerId: meta?.customerId,
+      customerName: meta?.customerName,
+      phone: failPhone,
+      text,
+      status: 'failed',
+    });
+    const tried = this.buildEvolutionSendNumberCandidates(phone).join(', ') || '—';
+    throw new BadRequestException(
+      `Número sem WhatsApp ativo ou inválido (${phone}). Formatos tentados (com 55): ${tried}. Abra o chat no CRM com esse cliente antes.`,
+    );
+  }
+
+  private async dispatchOrderChannelCampaignMessages(
+    branchId: string,
+    campaign: OrderChannelCampaign & {
+      orderOrigin?: { name: string; code: string } | null;
+    },
+  ): Promise<OrderChannelCampaignDispatchResult | null> {
+    const template = campaign.description?.trim();
+    if (!template) return null;
+
+    const recipients = parseOrderCampaignRecipientsJson(campaign.recipients);
+    if (!recipients.length) return null;
+
+    const config = await this.requireConnectedConfig(branchId);
+    const lidMap = await this.buildLidMap(
+      config.instanceName!,
+      [],
+      this.connectedInstancePhone(config),
+    );
+
+    const branch = await prisma.branch.findUnique({
+      where: { id: branchId },
+      select: { branchName: true },
+    });
+    const branchName = branch?.branchName || branch?.branchName || '';
+
+    let origin = campaign.orderOrigin;
+    if (!origin) {
+      origin = await prisma.orderOrigin.findFirst({
+        where: { id: campaign.orderOriginId, branchId },
+        select: { name: true, code: true },
+      });
+    }
+
+    const ctx = {
+      menuLink: campaign.linkUrl,
+      originName: origin?.name,
+      originCode: origin?.code,
+      campaignTitle: campaign.title,
+      branchName,
+    };
+
+    this.logger.log(
+      `[dispatchOrderChannelCampaign] branch=${branchId} instance=${config.instanceName} recipients=${recipients.length}`,
+    );
+
+    await prisma.orderChannelCampaign.update({
+      where: { id: campaign.id },
+      data: {
+        dispatchedAt: new Date(),
+        recipientCount: recipients.length,
+      },
+    });
+
+    const dispatchRows = await Promise.all(
+      recipients.map((recipient) =>
+        prisma.orderChannelCampaignMessage.create({
+          data: {
+            orderChannelCampaignId: campaign.id,
+            customerId: recipient.customerId,
+            customerName: recipient.name,
+            customerPhone: recipient.phone,
+            status: 'pending',
+          },
+        }),
+      ),
+    );
+
+    const result: OrderChannelCampaignDispatchResult = { sent: 0, failed: 0, errors: [] };
+
+    for (let i = 0; i < recipients.length; i++) {
+      const recipient = recipients[i];
+      const dispatchRow = dispatchRows[i];
+      const text = substituteOrderCampaignMessage(template, ctx, recipient);
+      try {
+        await this.sendTextViaConnectedInstance(
+          branchId,
+          config.instanceName!,
+          recipient.phone,
+          text,
+          {
+            customerId: recipient.customerId,
+            customerName: recipient.name,
+            lidMap,
+            campaignMessageId: dispatchRow.id,
+          },
+        );
+        result.sent++;
+      } catch (err: unknown) {
+        result.failed++;
+        const msg = err instanceof Error ? err.message : String(err);
+        const tried = this.buildEvolutionSendNumberCandidates(recipient.phone).join(', ');
+        result.errors.push(`${recipient.phone}: ${msg}`);
+        this.logger.error(
+          `[dispatchOrderChannelCampaign] Falha para ${recipient.phone} (${recipient.name}): ${msg}` +
+            (tried ? ` | com 55: ${tried}` : ''),
+        );
+      }
+      await this.delayMs(600);
+    }
+
+    await this.syncOrderChannelCampaignStats(campaign.id);
+
+    return result;
+  }
+
+  async createOrderChannelCampaign(
+    branchId: string,
+    dto: {
+      title: string;
+      phoneNumber: string;
+      orderOriginId: string;
+      description?: string;
+      imageUrl?: string;
+      recipients?: Array<{ customerId: string; name: string; phone: string }>;
+    },
+  ): Promise<OrderChannelCampaignSaveResponse> {
+    const recipients = this.sanitizeOrderCampaignRecipients(dto.recipients);
+    if (dto.description?.trim() && Array.isArray(recipients) && recipients.length > 0) {
+      await this.requireConnectedConfig(branchId);
+    }
+
+    const origin = await this.requireOrderOrigin(branchId, dto.orderOriginId);
+
+    const menuBaseUrl = await this.resolveBranchMenuBaseUrl(branchId);
+    const linkUrl = buildOrderChannelCampaignLink({
+      menuBaseUrl,
+      originCode: origin.code,
+    });
+
+    const campaign = await prisma.orderChannelCampaign.create({
+      data: {
+        branchId,
+        orderOriginId: origin.id,
+        title: dto.title.trim(),
+        phoneNumber: dto.phoneNumber.trim(),
+        description: dto.description?.trim() || null,
+        imageUrl: dto.imageUrl?.trim() || null,
+        recipients,
+        orderChannelCode: origin.code,
+        linkUrl,
+      },
+      include: this.orderOriginInclude,
+    });
+
+    const dispatch = await this.dispatchOrderChannelCampaignMessages(branchId, campaign);
+    const item = await this.findOrderChannelCampaignForResponse(campaign.id, branchId);
+    return { ...item, dispatch };
+  }
+
+  async bulkCreateOrderChannelCampaigns(
+    branchId: string,
+    dto: {
+      title: string;
+      phoneNumber: string;
+      description?: string;
+      imageUrl?: string;
+      recipients?: Array<{ customerId: string; name: string; phone: string }>;
+    },
+  ) {
+    const origins = await prisma.orderOrigin.findMany({
+      where: { branchId },
+      select: { id: true },
+    });
+    if (!origins.length) {
+      throw new BadRequestException('Cadastre ao menos uma origem antes de gerar campanhas em lote.');
+    }
+
+    const results: OrderChannelCampaignSaveResponse[] = [];
+    for (const { id } of origins) {
+      results.push(
+        await this.createOrderChannelCampaign(branchId, {
+          ...dto,
+          orderOriginId: id,
+        }),
+      );
+    }
+    return results;
+  }
+
+  async updateOrderChannelCampaign(
+    branchId: string,
+    id: string,
+    dto: {
+      title?: string;
+      phoneNumber?: string;
+      orderOriginId?: string;
+      description?: string;
+      imageUrl?: string;
+      recipients?: Array<{ customerId: string; name: string; phone: string }>;
+    },
+  ): Promise<OrderChannelCampaignSaveResponse> {
+    const existing = await prisma.orderChannelCampaign.findFirst({
+      where: { id, branchId },
+    });
+    if (!existing) throw new NotFoundException('Campanha não encontrada');
+
+    const nextDescription =
+      dto.description !== undefined ? dto.description.trim() : existing.description?.trim();
+    const nextRecipientsRaw =
+      dto.recipients !== undefined
+        ? this.sanitizeOrderCampaignRecipients(dto.recipients)
+        : existing.recipients;
+    const nextRecipientCount = parseOrderCampaignRecipientsJson(nextRecipientsRaw).length;
+    if (nextDescription && nextRecipientCount > 0) {
+      await this.requireConnectedConfig(branchId);
+    }
+
+    const origin = dto.orderOriginId
+      ? await this.requireOrderOrigin(branchId, dto.orderOriginId)
+      : await this.requireOrderOrigin(branchId, existing.orderOriginId);
+
+    const phoneNumber = dto.phoneNumber ?? existing.phoneNumber;
+    const title = dto.title?.trim() ?? existing.title;
+
+    const menuBaseUrl = await this.resolveBranchMenuBaseUrl(branchId);
+    const linkUrl = buildOrderChannelCampaignLink({
+      menuBaseUrl,
+      originCode: origin.code,
+    });
+
+    const description =
+      dto.description !== undefined ? dto.description.trim() || null : existing.description;
+    const imageUrl =
+      dto.imageUrl !== undefined ? dto.imageUrl.trim() || null : existing.imageUrl;
+    const recipients =
+      dto.recipients !== undefined
+        ? this.sanitizeOrderCampaignRecipients(dto.recipients)
+        : undefined;
+
+    const campaign = await prisma.orderChannelCampaign.update({
+      where: { id },
+      data: {
+        title,
+        phoneNumber,
+        orderOriginId: origin.id,
+        orderChannelCode: origin.code,
+        description,
+        imageUrl,
+        recipients,
+        linkUrl,
+      },
+      include: this.orderOriginInclude,
+    });
+
+    const dispatch = await this.dispatchOrderChannelCampaignMessages(branchId, campaign);
+    const item = await this.findOrderChannelCampaignForResponse(campaign.id, branchId);
+    return { ...item, dispatch };
+  }
+
+  async deleteOrderChannelCampaign(branchId: string, id: string) {
+    const existing = await prisma.orderChannelCampaign.findFirst({
+      where: { id, branchId },
+    });
+    if (!existing) throw new NotFoundException('Campanha não encontrada');
+    return prisma.orderChannelCampaign.delete({ where: { id } });
+  }
+
   // ─── Outros helpers públicos ──────────────────────────────────────────────────
 
   async getMessageHistoryByPhone(phone: string, partnerId?: string, branchId?: string) {
@@ -2232,6 +3160,138 @@ export class WhatsAppService {
     if (partnerId) return { partnerId };
     if (branchId) return { branchId };
     return {};
+  }
+
+  /** Telefone da instância conectada (`WhatsAppConfig.phoneNumber`). */
+  private connectedInstancePhone(config: { phoneNumber?: string | null }): string | null {
+    return config.phoneNumber ?? null;
+  }
+
+  /** ID da mensagem no payload da Evolution (resposta do envio ou webhook). */
+  private extractEvolutionMessageId(payload: unknown): string | null {
+    if (!payload || typeof payload !== 'object') return null;
+    const p = payload as Record<string, unknown>;
+    const key = p.key as Record<string, unknown> | undefined;
+    const nestedMsg = p.message as Record<string, unknown> | undefined;
+    const nestedKey = nestedMsg?.key as Record<string, unknown> | undefined;
+    const update = p.update as Record<string, unknown> | undefined;
+    const updateKey = update?.key as Record<string, unknown> | undefined;
+
+    for (const c of [key?.id, updateKey?.id, p.messageId, p.keyId, p.id, nestedKey?.id]) {
+      if (typeof c === 'string' && c.trim()) return c.trim();
+    }
+    return null;
+  }
+
+  /** Atualiza número/perfil da instância após conexão (webhook ou polling). */
+  async refreshInstanceProfileByBranchId(branchId: string, connectionPayload?: unknown) {
+    const config = await prisma.whatsAppConfig.findFirst({ where: { branchId } });
+    if (!config?.instanceName) return;
+
+    const state =
+      (connectionPayload as any)?.state ??
+      (connectionPayload as any)?.instance?.state ??
+      (connectionPayload as any)?.status;
+
+    if (state && state !== 'open') return;
+
+    await this.syncInstanceProfileFromEvolution(config, connectionPayload);
+
+    if (config.status !== 'connected') {
+      await prisma.whatsAppConfig.update({
+        where: { id: config.id },
+        data: { status: 'connected', qrCode: null },
+      });
+    }
+  }
+
+  /** Sincroniza número e perfil da instância Evolution quando conectada. */
+  private async syncInstanceProfileFromEvolution(
+    config: {
+      id: string;
+      instanceName: string | null;
+      phoneNumber: string | null;
+      profileName: string | null;
+      profilePicUrl: string | null;
+    },
+    connectionStateRes?: unknown,
+  ): Promise<{
+    phoneNumber: string | null;
+    profileName: string | null;
+    profilePicUrl: string | null;
+  }> {
+    if (!config.instanceName) {
+      return {
+        phoneNumber: config.phoneNumber,
+        profileName: config.profileName,
+        profilePicUrl: config.profilePicUrl,
+      };
+    }
+
+    try {
+      let phone = this.extractInstancePhoneDigits(connectionStateRes);
+      let profileName =
+        (connectionStateRes as any)?.instance?.profileName ??
+        (connectionStateRes as any)?.profileName ??
+        null;
+      let profilePicUrl =
+        (connectionStateRes as any)?.instance?.profilePicUrl ??
+        (connectionStateRes as any)?.profilePicUrl ??
+        null;
+
+      if (!phone) {
+        const instances = await this.evolutionRequest('GET', '/instance/fetchInstances').catch(() => []);
+        const list = Array.isArray(instances) ? instances : [];
+        const row = list.find((item: any) => {
+          const name = item?.instance?.instanceName ?? item?.instanceName ?? item?.name;
+          return name === config.instanceName;
+        });
+        const inst = row?.instance ?? row;
+        phone = this.extractInstancePhoneDigits(inst);
+        profileName = profileName ?? inst?.profileName ?? inst?.profile?.name ?? null;
+        profilePicUrl =
+          profilePicUrl ?? inst?.profilePicUrl ?? inst?.profilePictureUrl ?? null;
+      }
+
+      const data: Record<string, string> = {};
+      if (phone && phone !== config.phoneNumber) data.phoneNumber = phone;
+      if (profileName && profileName !== config.profileName) data.profileName = profileName;
+      if (profilePicUrl && profilePicUrl !== config.profilePicUrl) data.profilePicUrl = profilePicUrl;
+
+      if (Object.keys(data).length > 0) {
+        await prisma.whatsAppConfig.update({ where: { id: config.id }, data });
+      }
+
+      return {
+        phoneNumber: phone ?? config.phoneNumber,
+        profileName: profileName ?? config.profileName,
+        profilePicUrl: profilePicUrl ?? config.profilePicUrl,
+      };
+    } catch (err: any) {
+      this.logger.warn(`[syncInstanceProfile] ${err?.message ?? err}`);
+      return {
+        phoneNumber: config.phoneNumber,
+        profileName: config.profileName,
+        profilePicUrl: config.profilePicUrl,
+      };
+    }
+  }
+
+  private extractInstancePhoneDigits(payload: unknown): string | null {
+    if (!payload || typeof payload !== 'object') return null;
+    const root = payload as Record<string, unknown>;
+    const inst = (root.instance as Record<string, unknown> | undefined) ?? root;
+    const ownerRaw = inst.owner ?? inst.wuid ?? inst.number ?? root.owner ?? root.wuid;
+    if (!ownerRaw) return null;
+
+    const raw = String(ownerRaw);
+    if (raw.includes('@')) {
+      const fromJid = phoneFromJid(raw);
+      return fromJid ? fromJid.replace(/\D/g, '') : null;
+    }
+
+    const digits = raw.replace(/\D/g, '');
+    return digits.length >= 10 ? digits : null;
   }
 
   /** Monitora a conexão da instância em background após setup. */
@@ -2313,8 +3373,12 @@ export class WhatsAppService {
     phone: string;
     text: string;
     status: string;
+    remoteJid?: string;
   }) {
     try {
+      const remoteJid =
+        params.remoteJid?.trim() ||
+        (params.phone.includes('@') ? params.phone : `${params.phone.replace(/\D/g, '')}@s.whatsapp.net`);
       await prisma.whatsAppMessage.create({
         data: {
           branchId: params.branchId,
@@ -2327,7 +3391,7 @@ export class WhatsAppService {
           status: params.status,
           fromMe: true,
           sentAt: new Date(),
-          remoteJid: `${params.phone}@s.whatsapp.net`,
+          remoteJid,
         },
       });
     } catch (err) {

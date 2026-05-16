@@ -1,4 +1,14 @@
-import { Allow, IsBoolean, IsDateString, IsInt, IsOptional, IsString } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  Allow,
+  IsArray,
+  IsBoolean,
+  IsDateString,
+  IsInt,
+  IsOptional,
+  IsString,
+  ValidateNested,
+} from 'class-validator';
 
 export class UpdateWhatsAppConfigDto {
   @IsOptional()
@@ -161,4 +171,118 @@ export class CreateCampaignRecordDto {
   @IsOptional()
   @IsDateString()
   scheduledAt?: string;
+}
+
+// ─── Origens de pedido ───────────────────────────────────────────
+
+export class CreateOrderOriginDto {
+  @IsString()
+  name!: string;
+
+  @IsOptional()
+  @IsString()
+  code?: string;
+}
+
+export class UpdateOrderOriginDto {
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  code?: string;
+}
+
+export class SuggestOrderOriginCodeDto {
+  @IsString()
+  name!: string;
+}
+
+// ─── Campanhas de links de pedido ────────────────────────────────
+
+export class OrderChannelCampaignRecipientDto {
+  @IsString()
+  customerId!: string;
+
+  @IsString()
+  name!: string;
+
+  @IsString()
+  phone!: string;
+}
+
+export class CreateOrderChannelCampaignDto {
+  @IsString()
+  title!: string;
+
+  @IsString()
+  phoneNumber!: string;
+
+  @IsString()
+  orderOriginId!: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  imageUrl?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => OrderChannelCampaignRecipientDto)
+  recipients?: OrderChannelCampaignRecipientDto[];
+}
+
+export class UpdateOrderChannelCampaignDto {
+  @IsOptional()
+  @IsString()
+  title?: string;
+
+  @IsOptional()
+  @IsString()
+  phoneNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  orderOriginId?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  imageUrl?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => OrderChannelCampaignRecipientDto)
+  recipients?: OrderChannelCampaignRecipientDto[];
+}
+
+export class BulkCreateOrderChannelCampaignsDto {
+  @IsString()
+  title!: string;
+
+  @IsString()
+  phoneNumber!: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  imageUrl?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => OrderChannelCampaignRecipientDto)
+  recipients?: OrderChannelCampaignRecipientDto[];
 }

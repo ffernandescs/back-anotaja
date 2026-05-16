@@ -14,7 +14,14 @@ import { CreateCustomerAddressDto } from './dto/create-customer-address.dto';
 import { GeocodingService } from '../geocoding/geocoding.service';
 import { StoreService } from '../store/store.service';
 import { QueryCustomersDto } from './dto/query-customers.dto';
+import { SegmentCustomersDto } from './dto/segment-customers.dto';
+import {
+  buildOrderOnDateHaving,
+  customerMatchesSegmentRules,
+  type CustomerSegmentRow,
+} from './customer-segment.util';
 import { PaginatedResponseDto } from '../../common/dto/paginated-response.dto';
+import { Prisma } from '@prisma/client';
 import { buildBranchStorefrontPublicUrl } from '../../utils/storefront-url';
 
 @Injectable()
@@ -344,6 +351,64 @@ export class CustomersService {
     ]);
 
     return new PaginatedResponseDto(data, total, page, limit ?? total);
+  }
+
+  /** Segmentação de clientes para campanhas WhatsApp (métricas agregadas de pedidos). */
+  async segmentForCampaign(userId: string, dto: SegmentCustomersDto): Promise<CustomerSegmentRow[]> {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { branchId: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    if (!user.branchId) {
+      throw new ForbiddenException('Usuário não está associado a uma filial');
+    }
+
+    const branchId = user.branchId;
+    const search = dto.search?.trim();
+    const limit = dto.limit ?? 500;
+    const rules = dto.rules ?? [];
+
+    const searchClause = search
+      ? Prisma.sql`AND (
+          c.name ILIKE ${`%${search}%`}
+          OR c.phone LIKE ${`%${search.replace(/\D/g, '')}%`}
+          OR COALESCE(c.email, '') ILIKE ${`%${search}%`}
+        )`
+      : Prisma.empty;
+
+    const orderOnDateHaving = buildOrderOnDateHaving(rules);
+
+    const rows = await prisma.$queryRaw<CustomerSegmentRow[]>`
+      SELECT
+        c.id,
+        c.name,
+        c.phone,
+        c.email,
+        c."createdAt" AS "createdAt",
+        COUNT(o.id)::int AS "totalOrders",
+        COALESCE(
+          ROUND(AVG(o.total) FILTER (WHERE o.status = 'DELIVERED'))::int,
+          0
+        ) AS "averageTicket",
+        MAX(o."createdAt") AS "lastOrderAt"
+      FROM "Customer" c
+      LEFT JOIN "Order" o ON o."customerId" = c.id
+      WHERE c."branchId" = ${branchId}
+        AND c.phone IS NOT NULL
+        AND TRIM(c.phone) <> ''
+      ${searchClause}
+      GROUP BY c.id, c.name, c.phone, c.email, c."createdAt"
+      HAVING 1 = 1
+      ${orderOnDateHaving}
+    `;
+
+    const filtered = rows.filter((row) => customerMatchesSegmentRules(row, rules));
+    return filtered.slice(0, limit);
   }
 
   async findAllCustomerAddresses(customerId: string) {

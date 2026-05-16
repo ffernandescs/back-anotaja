@@ -71,6 +71,11 @@ export class WhatsAppWebhookController {
           await this.handlePresence(branchId, data);
           break;
 
+        case 'connection.update':
+        case 'CONNECTION_UPDATE':
+          await this.handleConnectionUpdate(branchId, instanceName, data);
+          break;
+
         default:
           // ignora eventos não utilizados
           break;
@@ -289,6 +294,18 @@ export class WhatsAppWebhookController {
     // ─────────────────────────────────────────
     // 5. Bot CRM: resposta inteligente (horário/status) + saudação automática
     // ─────────────────────────────────────────
+    if (fromMe) {
+      const rawStatus = data?.status ?? msg?.status ?? data?.update?.status;
+      const phoneDigits = isPhoneJid(remoteJid)
+        ? phoneFromJid(remoteJid)
+        : phone.replace(/\D/g, '');
+      await this.whatsappService.updateOrderChannelCampaignMessageFromEvolution(
+        messageId,
+        rawStatus,
+        { customerPhoneDigits: phoneDigits, attachIdIfMissing: true },
+      );
+    }
+
     if (!fromMe && syncJids.every((jid) => !isGroupJid(jid))) {
       void this.whatsappService
         .handleCrmInboundBootAndReactive({
@@ -359,10 +376,20 @@ export class WhatsAppWebhookController {
             ? remoteJid
             : undefined;
 
-      const status = this.mapStatus(upd.status ?? upd.update?.status);
+      const rawStatus = upd.status ?? upd.update?.status;
+      const status = this.mapStatus(rawStatus);
       const fromMe = !!key.fromMe;
 
       await this.whatsappService.updateMessageStatus(messageId, status);
+
+      if (fromMe) {
+        const phoneDigits = isPhoneJid(remoteJid) ? phoneFromJid(remoteJid) : '';
+        await this.whatsappService.updateOrderChannelCampaignMessageFromEvolution(
+          messageId,
+          rawStatus,
+          { customerPhoneDigits: phoneDigits, attachIdIfMissing: true },
+        );
+      }
 
       const syncJids = config?.instanceName
         ? await this.whatsappService.collectSyncJids(
@@ -701,6 +728,14 @@ export class WhatsAppWebhookController {
       select: { unreadCount: true },
     });
     return row?.unreadCount ?? 0;
+  }
+
+  private async handleConnectionUpdate(
+    branchId: string,
+    _instanceName: string,
+    data: unknown,
+  ) {
+    await this.whatsappService.refreshInstanceProfileByBranchId(branchId, data);
   }
 
   private async resolveBranchId(instanceName: string): Promise<string | null> {

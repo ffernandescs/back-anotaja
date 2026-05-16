@@ -22,6 +22,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { JwtCustomerAuthGuard } from '../../common/guards/jwt-customer.guard';
 import { CreateCustomerAddressDto } from './dto/create-customer-address.dto';
 import { QueryCustomersDto } from './dto/query-customers.dto';
+import { SegmentCustomersDto } from './dto/segment-customers.dto';
 
 interface RequestWithUser extends Request {
   user: {
@@ -87,6 +88,11 @@ export class CustomersController {
   @Get()
   findAll(@Query() query: QueryCustomersDto, @Req() req: RequestWithUser) {
     return this.customersService.findAll(req.user.userId, query);
+  }
+
+  @Post('segment')
+  segmentForCampaign(@Body() dto: SegmentCustomersDto, @Req() req: RequestWithUser) {
+    return this.customersService.segmentForCampaign(req.user.userId, dto);
   }
 
   @Public()
