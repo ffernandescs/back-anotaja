@@ -404,6 +404,48 @@ export class WhatsAppService {
     }
   }
 
+  /**
+   * Ao desconectar: apaga histórico CRM, última bolha por chat, não lidas e mapeamento @lid
+   * desta conta (filial e/ou parceiro), mantendo o registro em `whatsapp_configs`.
+   */
+  private async purgeWhatsAppSessionDataFromDatabase(opts: {
+    configId: string;
+    branchId: string | null;
+    partnerId: string | null;
+    instanceName: string | null | undefined;
+  }): Promise<void> {
+    const { configId, branchId, partnerId, instanceName } = opts;
+
+    await prisma.whatsAppChatRead.deleteMany({ where: { branchId: configId } });
+
+    const messageOr: Array<{ branchId?: string; partnerId?: string }> = [];
+    if (branchId) messageOr.push({ branchId });
+    if (partnerId) messageOr.push({ partnerId });
+    if (messageOr.length > 0) {
+      await prisma.whatsAppMessage.deleteMany({ where: { OR: messageOr } });
+    }
+
+    if (branchId) {
+      await prisma.chatLastMessage.deleteMany({ where: { branchId } });
+    }
+
+    if (instanceName) {
+      await prisma.whatsAppLidPair.deleteMany({ where: { instanceName } });
+    }
+  }
+
+  /** Throttles em memória CRM usam chave `branchId:…` (id da filial Prisma). */
+  private purgeInboundCrmThrottleMapsForBranch(branchId: string | null | undefined): void {
+    if (!branchId) return;
+    const prefix = `${branchId}:`;
+    for (const key of [...this.crmAiReactiveSentAt.keys()]) {
+      if (key.startsWith(prefix)) this.crmAiReactiveSentAt.delete(key);
+    }
+    for (const key of [...this.crmClosedOperatingArmed.keys()]) {
+      if (key.startsWith(prefix)) this.crmClosedOperatingArmed.delete(key);
+    }
+  }
+
   async connect(branchId?: string, partnerId?: string) {
     const where = this.configWhere(branchId, partnerId);
     const config = await prisma.whatsAppConfig.findFirst({ where });
@@ -430,38 +472,28 @@ export class WhatsAppService {
 
     if (!config) throw new BadRequestException('WhatsApp não configurado.');
 
-    await this.evolutionRequest('DELETE', `/instance/logout/${config.instanceName}`).catch(() => {});
-    await this.evolutionRequest('DELETE', `/instance/delete/${config.instanceName}`).catch(() => {});
+    const inst = config.instanceName;
+    if (inst) {
+      await this.evolutionRequest('DELETE', `/instance/logout/${inst}`).catch(() => {});
+      await this.evolutionRequest('DELETE', `/instance/delete/${inst}`).catch(() => {});
 
-    // ← Limpa a sessão do Baileys via Evolution API
-    await this.evolutionRequest('DELETE', `/instance/logout/${config.instanceName}`).catch(() => {});
-    
-    // Pede para a Evolution limpar o cache da instância
-    await this.evolutionRequest('POST', `/instance/restart/${config.instanceName}`).catch(() => {});
+      // ← Limpa a sessão do Baileys via Evolution API
+      await this.evolutionRequest('DELETE', `/instance/logout/${inst}`).catch(() => {});
 
-    // Limpa unreads (branchId aqui é WhatsAppConfig.id, não Branch.id)
-    await prisma.whatsAppChatRead.deleteMany({ where: { branchId: config.id } });
+      // Pede para a Evolution limpar o cache da instância
+      await this.evolutionRequest('POST', `/instance/restart/${inst}`).catch(() => {});
+    }
 
-    // Limpa mensagens @lid e @g.us
-    await prisma.whatsAppMessage.deleteMany({
-      where: {
-        ...(branchId ? { branchId } : {}),
-        ...(partnerId ? { partnerId } : {}),
-        OR: [
-          { remoteJid: { endsWith: '@lid' } },
-          { remoteJid: { endsWith: '@g.us' } },
-        ],
-      },
+    await this.purgeWhatsAppSessionDataFromDatabase({
+      configId: config.id,
+      branchId: config.branchId ?? null,
+      partnerId: config.partnerId ?? null,
+      instanceName: inst,
     });
-
-    await prisma.chatLastMessage.deleteMany({
-      where: {
-        OR: [
-          { remoteJid: { endsWith: '@lid' } },
-          { remoteJid: { endsWith: '@g.us' } },
-        ],
-      },
-    });
+    if (inst) {
+      this.lidMapCache.delete(inst);
+    }
+    this.purgeInboundCrmThrottleMapsForBranch(config.branchId ?? undefined);
 
     await prisma.whatsAppConfig.update({
       where: { id: config.id },
