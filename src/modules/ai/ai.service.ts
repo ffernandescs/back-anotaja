@@ -2,6 +2,17 @@ import { Injectable } from '@nestjs/common';
 import axios from 'axios';
 import { OpenAIResponse } from './types';
 
+/** Fluxos CRM disparados automaticamente conforme a mensagem inbound (classificador). */
+export type CrmReactiveIntentFlow = 'operatingStatus' | 'businessHours';
+
+const CRM_REACTIVE_CLASSIFIER_SYSTEM =
+  'És apenas um classificador JSON. Mensagem ao WhatsApp de restaurante ou loja (pt-BR).\n' +
+  'Etiquetas possíveis: operatingStatus ou businessHours.\n' +
+  '- operatingStatus: pergunta se está aberto/fechado AGORA, se atende/agenda entrega AGORA ou neste momento, se pode pedir já.\n' +
+  '- businessHours: perguntas sobre horários ou dias de funcionamento, até que horas abre/fecha, expediente.\n' +
+  'Devolve zero, uma ou no máximo duas etiquetas, na ordem em que aparece na pergunta do cliente.\n' +
+  'Resposta apenas JSON minificado neste formato, sem texto extra: {"intents":[]} ou {"intents":["operatingStatus"]} etc. Não uses outros valores.';
+
 // ─── Tipos e configurações ────────────────────────────────────────────────────
 type GenerationType = 'description' | 'category' | 'printer' | 'whatsapp' | 'free';
 
@@ -452,5 +463,137 @@ Se tiver dúvidas, entre em contato conosco. Pedimos desculpas pelo inconvenient
     };
 
     return templates[type] || '';
+  }
+
+  // ─── CRM WhatsApp: intenção para resposta automática (horário / status) ─────
+
+  /**
+   * Classifica mensagem inbound: devolver quais fluxos (`operatingStatus`, `businessHours`)
+   * devem ser enviados automaticamente. Usa Groq com JSON; se falhar, heurística em pt-BR.
+   */
+  async classifyCrmReactiveIntents(userMessage: string): Promise<CrmReactiveIntentFlow[]> {
+    const t = userMessage.trim();
+    if (!t) return [];
+
+    let fromLlm: CrmReactiveIntentFlow[] | null = null;
+    try {
+      const raw = await this.classifyCrmReactiveWithGroq(t.slice(0, 800));
+      fromLlm = this.parseCrmReactiveIntentsJson(raw);
+    } catch {
+      fromLlm = null;
+    }
+
+    if (fromLlm !== null) return fromLlm;
+
+    return this.heuristicCrmReactiveIntents(t);
+  }
+
+  private async classifyCrmReactiveWithGroq(userMessage: string): Promise<string> {
+    if (!this.GROQ_API_KEY) return '';
+
+    const tryOnce = async (useJsonObject: boolean): Promise<string> => {
+      const body: Record<string, unknown> = {
+        model: 'llama-3.1-8b-instant',
+        messages: [
+          { role: 'system', content: CRM_REACTIVE_CLASSIFIER_SYSTEM },
+          { role: 'user', content: userMessage },
+        ],
+        max_tokens: 180,
+        temperature: 0.05,
+      };
+      if (useJsonObject) body.response_format = { type: 'json_object' };
+
+      const response = await axios.post<OpenAIResponse>(this.GROQ_API_URL, body, {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.GROQ_API_KEY}`,
+        },
+        timeout: 12_000,
+      });
+      return response.data?.choices?.[0]?.message?.content?.trim() ?? '';
+    };
+
+    try {
+      return await tryOnce(true);
+    } catch {
+      try {
+        return await tryOnce(false);
+      } catch (err: any) {
+        console.warn('⚠️ Groq CRM reactive classifier:', err?.response?.data ?? err?.message);
+        return '';
+      }
+    }
+  }
+
+  private parseCrmReactiveIntentsJson(raw: string): CrmReactiveIntentFlow[] | null {
+    const cleaned = raw
+      .trim()
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/```\s*$/i, '')
+      .trim();
+
+    let data: unknown;
+    try {
+      data = JSON.parse(cleaned);
+    } catch {
+      return null;
+    }
+
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+    const intents = (data as Record<string, unknown>)['intents'];
+    if (!Array.isArray(intents)) return null;
+
+    const out: CrmReactiveIntentFlow[] = [];
+    for (const item of intents) {
+      if (item === 'operatingStatus' || item === 'businessHours') {
+        if (!out.includes(item)) out.push(item);
+      }
+      if (out.length >= 2) break;
+    }
+    return out;
+  }
+
+  private heuristicCrmReactiveIntents(userMessage: string): CrmReactiveIntentFlow[] {
+    const l = userMessage
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/\p{M}/gu, '');
+
+    let wantStatus = false;
+    let wantHours = false;
+
+    if (
+      /\b(entrega|delivery|atende|aceita|pedido|whats|whatsapp)\b.*\bagora\b|\bagora\b.*\b(entrega|atende|aceita|pedido)\b/.test(
+        l,
+      )
+    ) {
+      wantStatus = true;
+    }
+    if (
+      /\b(abertos?|fechad[oa]s?|funciona(?:ndo)?)\b.*\bagora\b|\bagora\b.*\b(abertos?|fechad[oa]s?|funciona(?:ndo)?)\b/.test(
+        l,
+      )
+    ) {
+      wantStatus = true;
+    }
+    if (/\bta\s+aberto|est(?:a|ao)\s+aberto|\bvoces\s+aberto/.test(l)) {
+      wantStatus = true;
+    }
+
+    if (/\bhorario|horários|hora de funcionamento|expediente|que horas\b/.test(l)) {
+      wantHours = true;
+    }
+    if (/\b(?:abre|abrem|fecha|fecham|feche)(?:m)?\s+(?:as|às|a)\b/.test(l)) {
+      wantHours = true;
+    }
+    if (/\b(?:segunda|terca|terça|quarta|quinta|sexta|sabado|sábado|domingo)\b.*\b(?:abre|fecha|fecham|horario)/.test(l)) {
+      wantHours = true;
+    }
+
+    const out: CrmReactiveIntentFlow[] = [];
+    if (wantStatus) out.push('operatingStatus');
+    if (wantHours) out.push('businessHours');
+    const uniq = [...new Set(out)];
+    return uniq.slice(0, 2) as CrmReactiveIntentFlow[];
   }
 }

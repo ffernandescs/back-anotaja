@@ -11,6 +11,7 @@ import {
   SendCrmMessageDto,
 } from './dto/whatsapp.dto';
 import { UploadService } from '../upload/upload.service';
+import { AiService, type CrmReactiveIntentFlow } from '../ai/ai.service';
 import { normalizeBrazilPhone } from 'src/utils/normalizePhone';
 import { isGroupJid, safeMessageId } from 'src/utils/reutilizeWhatsapp';
 import {
@@ -34,6 +35,7 @@ import {
   getNowInSaoPaulo,
   type BranchScheduleLike,
 } from 'src/utils/branch-schedule-for-chatbot';
+import { buildBranchStorefrontPublicUrl } from 'src/utils/storefront-url';
 
 /**
  * Prefixo usado ao criar instâncias na Evolution API.
@@ -99,6 +101,34 @@ export class WhatsAppService {
     ];
   }
 
+  private static defaultCrmBootOperatingStatusFallbackSegments(): Array<{ body: string; orderIndex: number }> {
+    return [
+      {
+        orderIndex: 1,
+        body:
+          'No momento não estamos em horário de atendimento pelo WhatsApp.\nVocê pode fazer seu pedido pelo cardápio: {{link_pedidos}}\nRespondemos assim que voltarmos. Obrigado!',
+      },
+    ];
+  }
+
+  private static defaultCrmBootBusinessHoursFallbackSegments(): Array<{ body: string; orderIndex: number }> {
+    return [
+      {
+        orderIndex: 1,
+        body:
+          '{{saudacao_horario}}, {{nome_cliente}}!\n\n{{status_horario_filial}}\n\n{{horarios_filial}}\n\nPedidos: {{link_pedidos}}',
+      },
+    ];
+  }
+
+  private static bootFlowFallbackBodies(
+    flowKey: 'greeting' | 'operatingStatus' | 'businessHours',
+  ): Array<{ body: string; orderIndex: number }> {
+    if (flowKey === 'greeting') return WhatsAppService.defaultCrmBootGreetingFallbackSegments();
+    if (flowKey === 'operatingStatus') return WhatsAppService.defaultCrmBootOperatingStatusFallbackSegments();
+    return WhatsAppService.defaultCrmBootBusinessHoursFallbackSegments();
+  }
+
   /** `greeting.enabled === false` em `crmBootGreetingFlows` bloqueia só o fluxo de saudação. */
   private static isBootGreetingFlowDisabled(flows: unknown): boolean {
     if (flows === null || flows === undefined) return false;
@@ -111,7 +141,13 @@ export class WhatsAppService {
   /** Cache em memória LID ↔ telefone aprendido via webhook (por instância). */
   private readonly lidMapCache = new Map<string, Map<string, string>>();
 
-  constructor(private readonly uploadService: UploadService) {}
+  /** cooldown por branch + JID de envio + fluxo (anti-spam de resposta IA na mesma conversa). */
+  private readonly crmAiReactiveSentAt = new Map<string, number>();
+
+  constructor(
+    private readonly uploadService: UploadService,
+    private readonly aiService: AiService,
+  ) {}
 
   rememberLidPair(
     instanceName: string,
@@ -931,7 +967,7 @@ export class WhatsAppService {
       return;
     }
 
-    let segments = this.extractBootSegmentsFromFlowsJson(flowsRaw);
+    let segments = this.extractBootSegmentsForFlow(flowsRaw, 'greeting');
     if (segments.length === 0) {
       segments = WhatsAppService.defaultCrmBootGreetingFallbackSegments();
     }
@@ -1059,7 +1095,222 @@ export class WhatsAppService {
     }
   }
 
-  /** Normaliza `crmBootGreetingFlows`: preserva chaves desconhecidas; higieniza `greeting`, `operatingStatus` e `businessHours`. */
+  /**
+   * `CRM_BOOT_AI_REACTIVE_ENABLED=1`: classifica texto inbound (IA/heurística) e envia
+   * fluxos `operatingStatus` e/ou `businessHours` conforme configurados na filial.
+   */
+  private static isCrmAiReactiveEnabled(): boolean {
+    const v = (process.env.CRM_BOOT_AI_REACTIVE_ENABLED ?? '').trim().toLowerCase();
+    return v === '1' || v === 'true' || v === 'yes' || v === 'on';
+  }
+
+  private static parseCrmAiReactiveCooldownMinutes(): number {
+    const raw = Number.parseFloat(
+      (process.env.CRM_BOOT_AI_REACTIVE_COOLDOWN_MINUTES ?? '3').replace(',', '.'),
+    );
+    return Number.isFinite(raw) && raw > 0 ? raw : 3;
+  }
+
+  private crmAiReactiveCooldownMs(): number {
+    const m = WhatsAppService.parseCrmAiReactiveCooldownMinutes();
+    return Math.max(30_000, Math.round(m * 60 * 1000));
+  }
+
+  /**
+   * Resposta contextual (IA) primeiro: se algo for enviado, não envia a saudação na mesma batida —
+   * evita “bom dia…” + lista de horários na primeira mensagem.
+   */
+  async handleCrmInboundBootAndReactive(opts: {
+    branchId: string;
+    syncJids: string[];
+    remoteJid: string;
+    customerPhoneDigits: string;
+    customerDisplayName?: string | null;
+    inboundText?: string | null;
+  }): Promise<void> {
+    const reactiveHandled = await this.trySendCrmAiReactiveFlows(opts);
+    if (reactiveHandled) return;
+
+    await this.trySendCrmBootGreetingSequence({
+      branchId: opts.branchId,
+      syncJids: opts.syncJids,
+      remoteJid: opts.remoteJid,
+      customerPhoneDigits: opts.customerPhoneDigits,
+      customerDisplayName: opts.customerDisplayName,
+    });
+  }
+
+  /** @returns true se pelo menos uma bolha foi enviada pela resposta contextual. */
+  async trySendCrmAiReactiveFlows(opts: {
+    branchId: string;
+    syncJids: string[];
+    remoteJid: string;
+    customerPhoneDigits: string;
+    customerDisplayName?: string | null;
+    inboundText?: string | null;
+  }): Promise<boolean> {
+    if (!WhatsAppService.isCrmAiReactiveEnabled()) return false;
+
+    const { branchId, syncJids, remoteJid, customerPhoneDigits, customerDisplayName } = opts;
+    const inboundTextRaw = `${opts.inboundText ?? ''}`.trim();
+    if (!inboundTextRaw) return false;
+
+    if (syncJids.some((j) => isGroupJid(j))) return false;
+
+    const phoneJidCandidate =
+      syncJids.find((j) => isPhoneJid(j)) ?? (isPhoneJid(remoteJid) ? remoteJid : null);
+    const lidOrCanonical =
+      syncJids.find((j) => isLidJid(j)) ?? (isLidJid(remoteJid) ? remoteJid : null);
+    const sendJid = phoneJidCandidate ?? lidOrCanonical ?? remoteJid;
+    if (!sendJid || isGroupJid(sendJid)) return false;
+
+    const config = (await prisma.whatsAppConfig.findUnique({
+      where: { branchId },
+      select: {
+        status: true,
+        crmBootBotEnabled: true,
+        crmBootGreetingFlows: true,
+        instanceName: true,
+      } as Record<string, boolean>,
+    })) as null | {
+      status: string;
+      crmBootBotEnabled: boolean;
+      crmBootGreetingFlows: unknown;
+      instanceName: string | null;
+    };
+
+    if (!config?.crmBootBotEnabled || config.status !== 'connected' || !config.instanceName) {
+      return false;
+    }
+
+    const flowsRaw = config.crmBootGreetingFlows;
+
+    const digits = (customerPhoneDigits || '').replace(/\D/g, '');
+    const normalized =
+      normalizeBrazilPhone(digits) ||
+      normalizeBrazilPhone(`55${digits}`) ||
+      (digits.startsWith('55') ? normalizeBrazilPhone(digits) : '') ||
+      '';
+    const wo55 = normalized.startsWith('55') ? normalized.slice(2) : normalized;
+
+    const orPhones = [
+      normalized && normalized.length >= 12 ? normalized : '',
+      wo55 && wo55.length >= 10 ? wo55 : '',
+      digits && digits.length >= 10 ? digits : '',
+    ].filter(Boolean);
+
+    if (orPhones.length > 0) {
+      const customer = await prisma.customer
+        .findFirst({
+          where: {
+            branchId,
+            OR: orPhones.map((phone) => ({ phone })),
+          },
+          select: { crmBootBotDisabled: true },
+        })
+        .catch(() => null);
+
+      if (customer?.crmBootBotDisabled) return false;
+    }
+
+    const intents = await this.aiService.classifyCrmReactiveIntents(inboundTextRaw.slice(0, 800));
+    if (intents.length === 0) return false;
+
+    const branch = await prisma.branch.findUnique({
+      where: { id: branchId },
+      select: {
+        companyId: true,
+        subdomain: true,
+        isOpen: true,
+        openingHours: {
+          select: {
+            day: true,
+            open: true,
+            close: true,
+            closed: true,
+            date: true,
+          },
+        },
+      },
+    });
+    if (!branch?.companyId) return false;
+
+    const schedules: BranchScheduleLike[] = (branch.openingHours ?? []).map((row) => ({
+      day: row.day,
+      open: row.open,
+      close: row.close,
+      closed: row.closed,
+      date: row.date ?? null,
+    }));
+
+    const nowSp = getNowInSaoPaulo();
+    const branchHoursFormatted = buildBranchOpeningHoursBlockPt(schedules);
+    const branchHoursStatusLine = buildBranchOpenStatusLinePt({
+      branchIsOpen: branch.isOpen,
+      schedules,
+      refInSaoPaulo: nowSp,
+    });
+
+    const ordersLink = this.buildBranchOrdersMenuUrl(branch.subdomain ?? null);
+    const firstName = `${customerDisplayName ?? ''}`.trim().split(/\s+/)[0] ?? '';
+    const ctxCustomerName = firstName || null;
+
+    const cooldownMs = this.crmAiReactiveCooldownMs();
+    const throttleBase = `${branchId}:${sendJid}`;
+
+    let anySentBubble = false;
+    let pauseBetweenBolhas = false;
+
+    for (const intent of intents) {
+      const flowKey = intent as CrmReactiveIntentFlow;
+      if (flowKey !== 'operatingStatus' && flowKey !== 'businessHours') continue;
+
+      const throttleKey = `${throttleBase}:${flowKey}`;
+      const ts = Date.now();
+      const last = this.crmAiReactiveSentAt.get(throttleKey);
+      if (last && ts - last < cooldownMs) continue;
+
+      const segmentsRaw = this.extractBootSegmentsForFlow(flowsRaw, flowKey).filter((s) => s.body.trim());
+      const sortedSegs = [...segmentsRaw].sort((a, b) => a.orderIndex - b.orderIndex);
+
+      if (sortedSegs.length === 0) continue;
+
+      let sentThisFlow = false;
+      for (const seg of sortedSegs) {
+        const text = substituteCrmBootTokens(seg.body, {
+          customerName: ctxCustomerName,
+          ordersLink,
+          now: nowSp,
+          branchHoursFormatted,
+          branchHoursStatusLine,
+        }).trim();
+
+        if (!text) continue;
+        if (pauseBetweenBolhas) await this.delayMs(640);
+        pauseBetweenBolhas = true;
+
+        try {
+          await this.evolutionRequest('POST', `/message/sendText/${config.instanceName}`, {
+            number: sendJid,
+            text,
+          });
+          anySentBubble = true;
+          sentThisFlow = true;
+        } catch (err: any) {
+          this.logger.warn(
+            `[trySendCrmAiReactiveFlows] (${flowKey}) trecho ${seg.orderIndex}: ${err?.message}`,
+          );
+        }
+      }
+
+      if (sentThisFlow) {
+        this.crmAiReactiveSentAt.set(throttleKey, Date.now());
+      }
+    }
+
+    return anySentBubble;
+  }
+
   private sanitizeBootGreetingFlows(raw: unknown): Record<string, unknown> {
     const rec =
       WhatsAppService.normalizeFlowsInputToRecord(raw) ??
@@ -1067,17 +1318,38 @@ export class WhatsAppService {
     return rec ?? WhatsAppService.blankCrmBootGreetingFlows();
   }
 
-  /** Extrai corpos ordenados do JSON gravado na config para disparo pelo webhook. */
-  private extractBootSegmentsFromFlowsJson(
+  /** Extrai corpos ordenados do JSON gravado na config por fluxo (webhook). */
+  private extractBootSegmentsForFlow(
     flows: unknown,
+    flowKey: 'greeting' | 'operatingStatus' | 'businessHours',
   ): Array<{ body: string; orderIndex: number }> {
     const rec = WhatsAppService.normalizeFlowsInputToRecord(flows);
-    const greeting = rec?.['greeting'] as Record<string, unknown> | undefined;
-    const segs = greeting?.['segments'];
+    if (!rec) {
+      return flowKey === 'greeting'
+        ? WhatsAppService.bootFlowFallbackBodies('greeting').map((s) => ({ ...s }))
+        : [];
+    }
+
+    const slice = rec[flowKey] as Record<string, unknown> | undefined;
+    if (!slice || typeof slice !== 'object' || slice['enabled'] === false) return [];
+
+    const useDefaultTemplate = slice['useDefaultTemplate'] !== false;
+    const segmentsArr = slice['segments'];
+
+    const hasCustomBodies =
+      Array.isArray(segmentsArr) &&
+      segmentsArr.some((entry: unknown) => {
+        if (!entry || typeof entry !== 'object') return false;
+        const b = (entry as Record<string, unknown>)['body'];
+        return typeof b === 'string' && b.trim().length > 0;
+      });
+
+    if (useDefaultTemplate && !hasCustomBodies) {
+      return WhatsAppService.bootFlowFallbackBodies(flowKey).map((s) => ({ ...s }));
+    }
 
     const out: Array<{ body: string; orderIndex: number }> = [];
-    if (!Array.isArray(segs)) return out;
-
+    const segs = Array.isArray(segmentsArr) ? segmentsArr : [];
     segs.forEach((entry: unknown, i: number) => {
       if (!entry || typeof entry !== 'object') return;
       const e = entry as Record<string, unknown>;
@@ -1173,17 +1445,16 @@ export class WhatsAppService {
         root['operatingStatus'],
         blankOperating,
       ),
+      businessHours: WhatsAppService.normalizeSingleBootFlow(
+        root['businessHours'],
+        blankBusinessHours,
+      ),
     };
   }
 
-  /** URL pública do cardápio (alinha ao `customers.service` / loja quando `FRONTEND_URL` existe). */
+  /** URL pública da loja (subdomínio + FRONTEND_URL), sem path. */
   private buildBranchOrdersMenuUrl(subdomain: string | null): string {
-    const domain = (process.env.FRONTEND_URL || '').replace(/^https?:\/\//, '');
-    const protocol = process.env.NODE_ENV === 'development' ? 'http' : 'https';
-    if (!subdomain || domain.length === 0) {
-      return '';
-    }
-    return `${protocol}://${subdomain}.${domain}`;
+    return buildBranchStorefrontPublicUrl(subdomain);
   }
 
   private delayMs(ms: number): Promise<void> {

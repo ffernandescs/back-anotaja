@@ -4,6 +4,7 @@ import { WhatsAppWebhookController } from './whatsapp-webhook.controller';
 import { WhatsAppService } from './whatsapp.service';
 import { WebSocketModule } from '../websocket/websocket.module';
 import { UploadModule } from '../upload/upload.module';
+import { AiModule } from '../ai/ai.module';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule } from '@nestjs/config';
@@ -12,6 +13,7 @@ import { ConfigModule } from '@nestjs/config';
   imports: [
     forwardRef(() => WebSocketModule),
     UploadModule,
+    AiModule,
     ConfigModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],

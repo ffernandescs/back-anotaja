@@ -15,6 +15,7 @@ import { GeocodingService } from '../geocoding/geocoding.service';
 import { StoreService } from '../store/store.service';
 import { QueryCustomersDto } from './dto/query-customers.dto';
 import { PaginatedResponseDto } from '../../common/dto/paginated-response.dto';
+import { buildBranchStorefrontPublicUrl } from '../../utils/storefront-url';
 
 @Injectable()
 export class CustomersService {
@@ -757,10 +758,8 @@ export class CustomersService {
       messageCounts.map((mc) => [mc.customerPhone, mc._count.id]),
     );
 
-    // Generate menu link based on branch subdomain
-    const menuLink = branch?.subdomain
-      ? `https://${branch.subdomain}.vaidelli.shop/menu`
-      : '';
+    // Loja pública: FRONTEND_URL + subdomínio (sem path tipo /menu).
+    const menuLink = buildBranchStorefrontPublicUrl(branch?.subdomain ?? null);
 
     // Transform to CampaignCustomer format
     const data = customers.map((c) => {

@@ -23,7 +23,7 @@ export function greetingForHour(when: Date): 'Bom dia' | 'Boa tarde' | 'Boa noit
 export function substituteCrmBootTokens(text: string, ctx: CrmBootTemplateContext = {}): string {
   const when = ctx.now ?? new Date();
   const nome = ((ctx.customerName ?? 'Cliente').trim() || 'Cliente').trim();
-  const link = ((ctx.ordersLink ?? '') + '').trim() || 'https://suapedida.vaidelli.shop/menu';
+  const link = ((ctx.ordersLink ?? '') + '').trim();
   const horarios = ((ctx.branchHoursFormatted ?? '') + '').trim();
   const statusHorario = ((ctx.branchHoursStatusLine ?? '') + '').trim();
 

@@ -287,16 +287,17 @@ export class WhatsAppWebhookController {
     }
 
     // ─────────────────────────────────────────
-    // 5. Saudação automática (primeira mensagem do cliente nesta conversa CRM)
+    // 5. Bot CRM: resposta inteligente (horário/status) + saudação automática
     // ─────────────────────────────────────────
     if (!fromMe && syncJids.every((jid) => !isGroupJid(jid))) {
       void this.whatsappService
-        .trySendCrmBootGreetingSequence({
+        .handleCrmInboundBootAndReactive({
           branchId,
           syncJids,
           remoteJid,
           customerPhoneDigits: phone,
           customerDisplayName: contactPushName || rawPushName,
+          inboundText: text ?? '',
         })
         .catch((err) =>
           this.logger.warn(`[Webhook][crmBoot] ${(err as Error)?.message ?? String(err)}`),
