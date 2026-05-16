@@ -30,6 +30,11 @@ import { fetchChatsForBranch } from './fetch-chats';
 import { loadPersistedLidPairs, persistLidPair } from './whatsapp-lid-pair.store';
 import { substituteCrmBootTokens } from 'src/utils/whatsapp-crm-boot-template';
 import {
+  formatCrmProductListBlock,
+  searchBranchProductsForCrm,
+} from 'src/utils/whatsapp-crm-product-search';
+import { resolveBranchAddressFormatted } from 'src/utils/whatsapp-crm-branch-address';
+import {
   buildBranchOpeningHoursBlockPt,
   buildBranchOpenStatusLinePt,
   formatDateYmdInSaoPaulo,
@@ -65,6 +70,21 @@ export class WhatsAppService {
         segments: [],
       },
       businessHours: {
+        enabled: true,
+        useDefaultTemplate: true,
+        segments: [],
+      },
+      orderMenuLink: {
+        enabled: true,
+        useDefaultTemplate: true,
+        segments: [],
+      },
+      productInfo: {
+        enabled: true,
+        useDefaultTemplate: true,
+        segments: [],
+      },
+      establishmentAddress: {
         enabled: true,
         useDefaultTemplate: true,
         segments: [],
@@ -106,12 +126,54 @@ export class WhatsAppService {
     ];
   }
 
+  private static defaultCrmBootOrderMenuLinkFallbackSegments(): Array<{ body: string; orderIndex: number }> {
+    return [
+      {
+        orderIndex: 1,
+        body:
+          '{{saudacao_horario}}, {{nome_cliente}}!\n\nSegue o link do nosso cardápio para você pedir:\n{{link_pedidos}}',
+      },
+    ];
+  }
+
+  private static defaultCrmBootProductInfoFallbackSegments(): Array<{ body: string; orderIndex: number }> {
+    return [
+      {
+        orderIndex: 1,
+        body:
+          '{{saudacao_horario}}, {{nome_cliente}}!\n\n{{lista_produtos}}\n\nPara ver o cardápio completo ou pedir: {{link_pedidos}}',
+      },
+    ];
+  }
+
+  private static defaultCrmBootEstablishmentAddressFallbackSegments(): Array<{
+    body: string;
+    orderIndex: number;
+  }> {
+    return [
+      {
+        orderIndex: 1,
+        body:
+          '{{saudacao_horario}}, {{nome_cliente}}!\n\nNosso endereço:\n\n{{endereco_filial}}',
+      },
+    ];
+  }
+
   private static bootFlowFallbackBodies(
-    flowKey: 'greeting' | 'operatingStatus' | 'businessHours',
+    flowKey:
+      | 'greeting'
+      | 'operatingStatus'
+      | 'businessHours'
+      | 'orderMenuLink'
+      | 'productInfo'
+      | 'establishmentAddress',
   ): Array<{ body: string; orderIndex: number }> {
     if (flowKey === 'greeting') return WhatsAppService.defaultCrmBootGreetingFallbackSegments();
     if (flowKey === 'operatingStatus') return WhatsAppService.defaultCrmBootOperatingStatusFallbackSegments();
-    return WhatsAppService.defaultCrmBootBusinessHoursFallbackSegments();
+    if (flowKey === 'businessHours') return WhatsAppService.defaultCrmBootBusinessHoursFallbackSegments();
+    if (flowKey === 'orderMenuLink') return WhatsAppService.defaultCrmBootOrderMenuLinkFallbackSegments();
+    if (flowKey === 'productInfo') return WhatsAppService.defaultCrmBootProductInfoFallbackSegments();
+    return WhatsAppService.defaultCrmBootEstablishmentAddressFallbackSegments();
   }
 
   /** `greeting.enabled === false` em `crmBootGreetingFlows` bloqueia só o fluxo de saudação. */
@@ -126,7 +188,7 @@ export class WhatsAppService {
   /** Cache em memória LID ↔ telefone aprendido via webhook (por instância). */
   private readonly lidMapCache = new Map<string, Map<string, string>>();
 
-  /** cooldown por branch + JID de envio + fluxo (`businessHours`). */
+  /** Cooldown por branch + JID de envio + fluxo reativo (`businessHours`, `orderMenuLink`). */
   private readonly crmAiReactiveSentAt = new Map<string, number>();
 
   /** Auto mensagem „fechado“: permite enviar após loja estar em expediente de novo desde o último envio. Ausência ⇒ `true`. */
@@ -1132,7 +1194,7 @@ export class WhatsAppService {
   }
 
   /**
-   * `CRM_BOOT_AI_REACTIVE_ENABLED=1`: classifica com Gemini perguntas de horário e envia fluxo `businessHours`.
+   * `CRM_BOOT_AI_REACTIVE_ENABLED=1`: classifica com Gemini (horários, link do cardápio) e envia os fluxos correspondentes.
    * Mensagens automáticas por loja FECHADA (operating status) ficam em `trySendCrmClosedOperatingAuto`.
    */
   private static isCrmAiReactiveEnabled(): boolean {
@@ -1475,9 +1537,33 @@ export class WhatsAppService {
     let anySentBubble = false;
     let pauseBetweenBolhas = false;
 
+    let productListFormatted: string | null = null;
+    let productSearchLabel: string | null = null;
+    if (intents.includes('productInfo')) {
+      productSearchLabel =
+        (await this.aiService.extractCrmProductSearchQuery(inboundTextRaw)) || inboundTextRaw.slice(0, 80);
+      const hits = await searchBranchProductsForCrm(
+        branchId,
+        productSearchLabel,
+      );
+      productListFormatted = formatCrmProductListBlock(hits, productSearchLabel);
+    }
+
+    let branchAddressFormatted: string | null = null;
+    if (intents.includes('establishmentAddress')) {
+      branchAddressFormatted = await resolveBranchAddressFormatted(branchId);
+    }
+
     for (const intent of intents) {
-      if (intent !== 'businessHours') continue;
-      const flowKey = 'businessHours' as const;
+      if (
+        intent !== 'businessHours' &&
+        intent !== 'orderMenuLink' &&
+        intent !== 'productInfo' &&
+        intent !== 'establishmentAddress'
+      ) {
+        continue;
+      }
+      const flowKey = intent;
 
       const throttleKey = `${throttleBase}:${flowKey}`;
       const ts = Date.now();
@@ -1497,6 +1583,10 @@ export class WhatsAppService {
           now: nowSp,
           branchHoursFormatted,
           branchHoursStatusLine,
+          productsListFormatted:
+            flowKey === 'productInfo' ? productListFormatted : null,
+          branchAddressFormatted:
+            flowKey === 'establishmentAddress' ? branchAddressFormatted : null,
         }).trim();
 
         if (!text) continue;
@@ -1535,7 +1625,13 @@ export class WhatsAppService {
   /** Extrai corpos ordenados do JSON gravado na config por fluxo (webhook). */
   private extractBootSegmentsForFlow(
     flows: unknown,
-    flowKey: 'greeting' | 'operatingStatus' | 'businessHours',
+    flowKey:
+      | 'greeting'
+      | 'operatingStatus'
+      | 'businessHours'
+      | 'orderMenuLink'
+      | 'productInfo'
+      | 'establishmentAddress',
   ): Array<{ body: string; orderIndex: number }> {
     const rec = WhatsAppService.normalizeFlowsInputToRecord(flows);
     if (!rec) {
@@ -1644,8 +1740,18 @@ export class WhatsAppService {
     const blankGreeting = blank['greeting'] as Record<string, unknown>;
     const blankOperating = blank['operatingStatus'] as Record<string, unknown>;
     const blankBusinessHours = blank['businessHours'] as Record<string, unknown>;
+    const blankOrderMenuLink = blank['orderMenuLink'] as Record<string, unknown>;
+    const blankProductInfo = blank['productInfo'] as Record<string, unknown>;
+    const blankEstablishmentAddress = blank['establishmentAddress'] as Record<string, unknown>;
 
-    const reservedKeys = new Set(['greeting', 'operatingStatus', 'businessHours']);
+    const reservedKeys = new Set([
+      'greeting',
+      'operatingStatus',
+      'businessHours',
+      'orderMenuLink',
+      'productInfo',
+      'establishmentAddress',
+    ]);
     const preserved: Record<string, unknown> = {};
     for (const key of Object.keys(root)) {
       if (reservedKeys.has(key)) continue;
@@ -1662,6 +1768,18 @@ export class WhatsAppService {
       businessHours: WhatsAppService.normalizeSingleBootFlow(
         root['businessHours'],
         blankBusinessHours,
+      ),
+      orderMenuLink: WhatsAppService.normalizeSingleBootFlow(
+        root['orderMenuLink'],
+        blankOrderMenuLink,
+      ),
+      productInfo: WhatsAppService.normalizeSingleBootFlow(
+        root['productInfo'],
+        blankProductInfo,
+      ),
+      establishmentAddress: WhatsAppService.normalizeSingleBootFlow(
+        root['establishmentAddress'],
+        blankEstablishmentAddress,
       ),
     };
   }

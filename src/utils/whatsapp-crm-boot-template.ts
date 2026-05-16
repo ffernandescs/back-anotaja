@@ -11,6 +11,10 @@ export interface CrmBootTemplateContext {
   branchHoursFormatted?: string | null;
   /** Estado aberto/fechado atual da filial (`{{status_horario_filial}}`). */
   branchHoursStatusLine?: string | null;
+  /** Lista formatada de produtos (`{{lista_produtos}}`) — fluxo productInfo. */
+  productsListFormatted?: string | null;
+  /** Endereço da filial (`{{endereco_filial}}`) — fluxo establishmentAddress. */
+  branchAddressFormatted?: string | null;
 }
 
 export function greetingForHour(when: Date): 'Bom dia' | 'Boa tarde' | 'Boa noite' {
@@ -26,11 +30,15 @@ export function substituteCrmBootTokens(text: string, ctx: CrmBootTemplateContex
   const link = ((ctx.ordersLink ?? '') + '').trim();
   const horarios = ((ctx.branchHoursFormatted ?? '') + '').trim();
   const statusHorario = ((ctx.branchHoursStatusLine ?? '') + '').trim();
+  const listaProdutos = ((ctx.productsListFormatted ?? '') + '').trim();
+  const enderecoFilial = ((ctx.branchAddressFormatted ?? '') + '').trim();
 
   return text
     .replaceAll(/\{\{\s*nome_cliente\s*\}\}/g, nome)
     .replaceAll(/\{\{\s*link_pedidos\s*\}\}/g, link)
     .replaceAll(/\{\{\s*saudacao_horario\s*\}\}/g, greetingForHour(when))
     .replaceAll(/\{\{\s*horarios_filial\s*\}\}/g, horarios || '—')
-    .replaceAll(/\{\{\s*status_horario_filial\s*\}\}/g, statusHorario || '—');
+    .replaceAll(/\{\{\s*status_horario_filial\s*\}\}/g, statusHorario || '—')
+    .replaceAll(/\{\{\s*lista_produtos\s*\}\}/g, listaProdutos || '—')
+    .replaceAll(/\{\{\s*endereco_filial\s*\}\}/g, enderecoFilial || '—');
 }

@@ -2,15 +2,34 @@ import { Injectable } from '@nestjs/common';
 import axios from 'axios';
 import { OpenAIResponse } from './types';
 
-/** Fluxos na resposta reativa só por perguntas (IA): hoje apenas `businessHours`. `operatingStatus` automático vai por caminho próprio quando fechado. */
-export type CrmReactiveIntentFlow = 'operatingStatus' | 'businessHours';
+/** Intenções reconhecidas pela classificação reativa (Gemini + heurística) para disparar fluxos em `crmBootGreetingFlows`. */
+export type CrmReactiveIntentFlow =
+  | 'businessHours'
+  | 'orderMenuLink'
+  | 'productInfo'
+  | 'establishmentAddress';
 
-const CRM_BUSINESS_HOURS_CLASSIFIER_SYSTEM =
-  'És só um classificador JSON para WhatsApp de restaurante ou loja (pt-BR).\n' +
-  'Determina se a mensagem do cliente pergunta sobre HORÁRIOS de funcionamento (dias, que horas abre/fecha, expediente).\n' +
-  'Devolve apenas businessHours se for claramente pergunta de horário/expediente.\n' +
-  'Não incluas cumprimento genérico ("oi"), pedido de menu só, perguntas "aberto agora" sem lista de dias.\n' +
-  'Resposta: exclusivamente JSON minificado no formato {"intents":[]} ou {"intents":["businessHours"]}. Sem markdown, sem texto extra.';
+const CRM_REACTIVE_INTENTS_CLASSIFIER_SYSTEM =
+  'És um classificador JSON para WhatsApp de restaurante ou loja (pt-BR).\n' +
+  'Analisa a mensagem do cliente e devolve uma lista `intents` (pode ser vazia ou várias entradas).\n\n' +
+  'Intenções possíveis:\n' +
+  '- businessHours: pergunta sobre HORÁRIOS de funcionamento (dias, que horas abre/fecha, expediente).\n' +
+  '- orderMenuLink: pedido explícito de LINK do cardápio/menu/site para pedir, "manda o link", "onde pedo", URL da loja.\n' +
+  '- productInfo: pergunta sobre PRODUTO/ITEM do cardápio — preço, se tem/vende X, sabor, "quanto custa a pizza", disponibilidade de um prato.\n' +
+  '- establishmentAddress: pergunta sobre ENDEREÇO/LOCAL da loja — "onde fica", "qual o endereço", "como chego", localização, ponto da loja.\n\n' +
+  'Não incluas cumprimento genérico ("oi") sem pedido.\n' +
+  'Não uses orderMenuLink se o cliente citar um produto específico (use productInfo).\n' +
+  'Não uses productInfo se for só pedido de link genérico sem citar produto.\n' +
+  'Não uses businessHours se não for sobre horário/expediente.\n' +
+  'Não uses establishmentAddress se for só pedido de link ou produto sem pedir local/endereço.\n\n' +
+  'Resposta: JSON minificado só com chave intents (array de strings válidas acima). Sem markdown.';
+
+const CRM_PRODUCT_SEARCH_EXTRACT_SYSTEM =
+  'Extrai da mensagem do cliente (pt-BR) o termo de busca para achar produtos no cardápio.\n' +
+  'Ex.: "vocês tem pizza calabresa?" → {"query":"pizza calabresa"}\n' +
+  'Ex.: "quanto custa o x-bacon" → {"query":"x-bacon"}\n' +
+  'Se não houver produto identificável, {"query":""}.\n' +
+  'Resposta: exclusivamente JSON {"query":"..."} sem markdown.';
 
 // ─── Tipos e configurações ────────────────────────────────────────────────────
 type GenerationType = 'description' | 'category' | 'printer' | 'whatsapp' | 'free';
@@ -467,22 +486,22 @@ Se tiver dúvidas, entre em contato conosco. Pedimos desculpas pelo inconvenient
   // ─── CRM WhatsApp: intenção para resposta automática (horário / status) ─────
 
   /**
-   * Perguntas sobre horários de funcionamento → enviar fluxo businessHours pelo CRM reativo (Gemini + heurística).
-   * Estado “fechado” / mensagem única quando fora do expediente: ver `trySendCrmClosedOperatingAuto` no WhatsAppService.
+   * Horários de funcionamento e/ou pedido de link do cardápio → fluxos reativos configurados em `crmBootGreetingFlows` (Gemini + heurística).
+   * Estado “fechado” automático: `trySendCrmClosedOperatingAuto` no WhatsAppService.
    */
   async classifyCrmReactiveIntents(userMessage: string): Promise<CrmReactiveIntentFlow[]> {
     const t = userMessage.trim();
     if (!t) return [];
 
-    const raw = await this.classifyBusinessHoursReactiveWithGemini(t.slice(0, 800));
-    const parsed = this.parseCrmReactiveBusinessHoursJson(raw);
+    const raw = await this.classifyCrmReactiveIntentsWithGemini(t.slice(0, 800));
+    const parsed = this.parseCrmReactiveIntentsJson(raw);
     if (parsed !== null) return parsed;
 
-    return this.heuristicCrmBusinessHoursOnly(t);
+    return this.heuristicCrmReactiveIntents(t);
   }
 
   /** Gemini primeiro; não usa Groq (evita chave inválida em produção para este uso). */
-  private async classifyBusinessHoursReactiveWithGemini(userMessage: string): Promise<string> {
+  private async classifyCrmReactiveIntentsWithGemini(userMessage: string): Promise<string> {
     if (!this.GEMINI_API_KEY) {
       return '';
     }
@@ -499,7 +518,7 @@ Se tiver dúvidas, entre em contato conosco. Pedimos desculpas pelo inconvenient
 
         const body = {
           systemInstruction: {
-            parts: [{ text: CRM_BUSINESS_HOURS_CLASSIFIER_SYSTEM }],
+            parts: [{ text: CRM_REACTIVE_INTENTS_CLASSIFIER_SYSTEM }],
           },
           contents: [
             {
@@ -524,7 +543,7 @@ Se tiver dúvidas, entre em contato conosco. Pedimos desculpas pelo inconvenient
         if (text.trim()) return text.trim();
       } catch (error: any) {
         const status = error?.response?.status;
-        console.warn(`⚠️ Gemini CRM hours classifier [${model}] — status ${status}`);
+        console.warn(`⚠️ Gemini CRM reactive intents [${model}] — status ${status}`);
         if (status !== 429) break;
       }
     }
@@ -532,7 +551,7 @@ Se tiver dúvidas, entre em contato conosco. Pedimos desculpas pelo inconvenient
     return '';
   }
 
-  private parseCrmReactiveBusinessHoursJson(raw: string): CrmReactiveIntentFlow[] | null {
+  private parseCrmReactiveIntentsJson(raw: string): CrmReactiveIntentFlow[] | null {
     const cleaned = raw
       .trim()
       .replace(/^```(?:json)?\s*/i, '')
@@ -550,34 +569,170 @@ Se tiver dúvidas, entre em contato conosco. Pedimos desculpas pelo inconvenient
     const intents = (data as Record<string, unknown>)['intents'];
     if (!Array.isArray(intents)) return null;
 
+    const order: CrmReactiveIntentFlow[] = [
+      'businessHours',
+      'orderMenuLink',
+      'productInfo',
+      'establishmentAddress',
+    ];
+    const seen = new Set<CrmReactiveIntentFlow>();
     const out: CrmReactiveIntentFlow[] = [];
+
     for (const item of intents) {
-      if (item === 'businessHours') {
-        out.push('businessHours');
-        break;
+      if (
+        item === 'businessHours' ||
+        item === 'orderMenuLink' ||
+        item === 'productInfo' ||
+        item === 'establishmentAddress'
+      ) {
+        const k = item as CrmReactiveIntentFlow;
+        if (!seen.has(k)) {
+          seen.add(k);
+          out.push(k);
+        }
       }
     }
+
+    out.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+    if (out.length === 0) return null;
     return out;
   }
 
-  private heuristicCrmBusinessHoursOnly(userMessage: string): CrmReactiveIntentFlow[] {
+  private heuristicCrmReactiveIntents(userMessage: string): CrmReactiveIntentFlow[] {
     const l = userMessage
       .toLowerCase()
       .normalize('NFD')
       .replace(/\p{M}/gu, '');
 
-    if (/\bhorario\b|\bhorarios\b|\bhora de funcionamento\b|\bexpediente\b|\bque horas\b/.test(l)) {
-      return ['businessHours'];
+    const hours =
+      /\bhorario\b|\bhorarios\b|\bhora de funcionamento\b|\bexpediente\b|\bque horas\b/.test(l) ||
+      /\b(?:abre|abrem|fecha|fecham|feche)(?:m)?\s+(?:as|a)\b/.test(l) ||
+      /\b(?:segunda|terca|quarta|quinta|sexta|sabado|domingo)\b.*\b(?:abre|fecha|fecham|horario|horarios)\b/.test(
+        l,
+      );
+
+    const link =
+      /\b(?:manda|envia|passa|mande|envie)(?:\s+o)?\s+(?:o\s+)?(?:link|site)\b/.test(l) ||
+      /\b(?:qual|cad[eé]|onde)\s+(?:[eé]\s+)?(?:o\s+)?(?:link|site|cardapio|card[aá]pio)\b/.test(l) ||
+      /\b(?:preciso|quero|precisamos)\s+(?:do\s+|o\s+)?(?:link|site|cardapio|card[aá]pio)\b/.test(l) ||
+      /\b(?:link|site)\s+(?:do|da|para)\s+(?:pedido|cardapio|card[aá]pio|loja)\b/.test(l) ||
+      /\b(?:card[aá]pio|cardapio)\s+(?:online|digital|pra|para)\s+pedir\b/.test(l) ||
+      /\b(?:fazer|fazer\s+meu\s+)?pedido\s+online\b/.test(l) ||
+      /\bonde\s+(?:eu\s+)?(?:posso|consigo)\s+(?:fazer\s+)?pedido\b/.test(l) ||
+      /\burl\s+da\s+loja\b/.test(l);
+
+    const product =
+      /\b(?:tem|t[eê]m|vende|vendem|trazem|servem)\b/.test(l) ||
+      /\bquanto\s+(?:custa|custam|fica|é|e)\b/.test(l) ||
+      /\b(?:pre[cç]o|valor)\s+(?:do|da|de)\b/.test(l) ||
+      /\b(?:voc[eê]s|vcs)\s+tem\b/.test(l) ||
+      /\b(?:tem|t[eê]m)\s+(?:algum|alguma)?\s*\w{3,}/.test(l) ||
+      /\b(?:sabor|ingrediente|recheio|tamanho|por[cç][aã]o)\b/.test(l) ||
+      /\b(?:pizza|hamb[uú]rguer|lanche|bebida|refrigerante|suco|por[cç][aã]o|combo|promo[cç][aã]o)\b/.test(l);
+
+    const address =
+      /\b(?:endereco|endere[cç]o)\b/.test(l) ||
+      /\b(?:onde\s+fica|onde\s+ficam|onde\s+est[aá]|fica\s+onde)\b/.test(l) ||
+      /\b(?:como\s+chego|como\s+chegar|localiza[cç][aã]o)\b/.test(l) ||
+      /\bqual\s+(?:o\s+)?(?:endereco|endere[cç]o)\b/.test(l) ||
+      /\b(?:ponto|local)\s+(?:da\s+loja|do\s+estabelecimento)\b/.test(l);
+
+    const out: CrmReactiveIntentFlow[] = [];
+    if (hours) out.push('businessHours');
+    if (link) out.push('orderMenuLink');
+    if (product && !link) out.push('productInfo');
+    else if (product && link && !/\b(?:manda|envia|passa)\s+(?:o\s+)?(?:link|site)\b/.test(l)) {
+      out.push('productInfo');
     }
-    if (/\b(?:abre|abrem|fecha|fecham|feche)(?:m)?\s+(?:as|a)\b/.test(l)) {
-      return ['businessHours'];
-    }
-    if (
-      /\b(?:segunda|terca|quarta|quinta|sexta|sabado|domingo)\b.*\b(?:abre|fecha|fecham|horario|horarios)\b/.test(l)
-    ) {
-      return ['businessHours'];
+    if (address) out.push('establishmentAddress');
+    return out;
+  }
+
+  /**
+   * Termo de busca para produtos no cardápio (Gemini + heurística local).
+   */
+  async extractCrmProductSearchQuery(userMessage: string): Promise<string> {
+    const t = userMessage.trim();
+    if (!t) return '';
+
+    const raw = await this.extractCrmProductSearchQueryWithGemini(t.slice(0, 500));
+    const parsed = this.parseCrmProductSearchQueryJson(raw);
+    if (parsed !== null && parsed.length >= 2) return parsed;
+
+    const heuristic = this.heuristicCrmProductSearchQuery(t);
+    if (heuristic.length >= 2) return heuristic;
+
+    return parsed ?? heuristic;
+  }
+
+  private async extractCrmProductSearchQueryWithGemini(userMessage: string): Promise<string> {
+    if (!this.GEMINI_API_KEY) return '';
+
+    const models = ['gemini-2.5-flash', 'gemini-2.5-flash-8b'];
+
+    for (const model of models) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.GEMINI_API_KEY}`;
+
+        const body = {
+          systemInstruction: {
+            parts: [{ text: CRM_PRODUCT_SEARCH_EXTRACT_SYSTEM }],
+          },
+          contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+          generationConfig: { temperature: 0, maxOutputTokens: 80 },
+        };
+
+        const response = await axios.post(url, body, {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 12_000,
+        });
+
+        const text = response.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+        if (text.trim()) return text.trim();
+      } catch (error: any) {
+        const status = error?.response?.status;
+        console.warn(`⚠️ Gemini CRM product query [${model}] — status ${status}`);
+        if (status !== 429) break;
+      }
     }
 
-    return [];
+    return '';
+  }
+
+  private parseCrmProductSearchQueryJson(raw: string): string | null {
+    const cleaned = raw
+      .trim()
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/```\s*$/i, '')
+      .trim();
+
+    try {
+      const data = JSON.parse(cleaned) as Record<string, unknown>;
+      if (!data || typeof data !== 'object') return null;
+      const q = data['query'];
+      return typeof q === 'string' ? q.trim() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private heuristicCrmProductSearchQuery(userMessage: string): string {
+    let s = userMessage
+      .replace(/[?!.]+$/g, '')
+      .replace(
+        /^(?:oi|ol[aá]|bom\s+dia|boa\s+tarde|boa\s+noite)[,!.\s]*/i,
+        '',
+      )
+      .replace(
+        /^(?:voc[eê]s|vcs)\s+(?:tem|t[eê]m|vendem|vende)\s+/i,
+        '',
+      )
+      .replace(/^(?:tem|t[eê]m|vende|vendem)\s+/i, '')
+      .replace(/^quanto\s+(?:custa|custam|fica|é|e)\s+(?:o|a|os|as)?\s*/i, '')
+      .replace(/^(?:pre[cç]o|valor)\s+(?:do|da|de)\s+/i, '')
+      .replace(/\s*(?:por favor|pfv|pf)\s*$/i, '')
+      .trim();
+
+    return s.slice(0, 120);
   }
 }
