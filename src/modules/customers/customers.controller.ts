@@ -19,6 +19,7 @@ import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { LoginCustomerDto } from './dto/login-customer.dto';
 import { Public } from '../../common/decorators/public.decorator';
+import { resolveXTenant } from '../../utils/resolve-x-tenant';
 import { JwtCustomerAuthGuard } from '../../common/guards/jwt-customer.guard';
 import { CreateCustomerAddressDto } from './dto/create-customer-address.dto';
 import { QueryCustomersDto } from './dto/query-customers.dto';
@@ -44,11 +45,7 @@ export class CustomersController {
     xTenant?: string,
   ): { subdomain?: string; branchId?: string } {
     if (xTenant) {
-      // Se X-Tenant parece ser um ID válido, usar como branchId
-      if (/^[a-zA-Z0-9]{20,}$/.test(xTenant)) {
-        return { branchId: xTenant };
-      }
-      return { subdomain: xTenant };
+      return resolveXTenant(xTenant);
     }
 
     const parts = hostname.split('.');

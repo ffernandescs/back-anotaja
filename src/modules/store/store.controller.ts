@@ -33,6 +33,7 @@ import { GetCustomer } from './decorators/get-customer.decorator';
 import { prisma } from 'lib/prisma';
 import { getKanbanOrders } from './store-kanban.query';
 import { OrderAction } from './store-state-machine.service';
+import { resolveXTenant } from '../../utils/resolve-x-tenant';
 
 interface RequestWithUser extends Request {
   user: {
@@ -73,11 +74,7 @@ export class StoreController {
     xTenant?: string,
   ): { subdomain?: string; branchId?: string } {
     if (xTenant) {
-      // Se X-Tenant parece ser um ID válido, usar como branchId
-      if (/^[a-zA-Z0-9]{20,}$/.test(xTenant)) {
-        return { branchId: xTenant };
-      }
-      return { subdomain: xTenant };
+      return resolveXTenant(xTenant);
     }
 
     const parts = hostname.split('.');

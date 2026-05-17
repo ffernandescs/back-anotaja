@@ -3,6 +3,7 @@ import type { Request } from 'express';
 import { PageViewsService } from './page-views.service';
 import { Public } from '../../common/decorators/public.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { resolveXTenant } from '../../utils/resolve-x-tenant';
 
 interface RequestWithUser extends Request {
   user?: {
@@ -21,10 +22,7 @@ export class PageViewsController {
     xTenant?: string,
   ): { subdomain?: string; branchId?: string } {
     if (xTenant) {
-      if (/^[a-zA-Z0-9]{20,}$/.test(xTenant)) {
-        return { branchId: xTenant };
-      }
-      return { subdomain: xTenant };
+      return resolveXTenant(xTenant);
     }
 
     const parts = hostname.split('.');
