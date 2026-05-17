@@ -15,6 +15,33 @@ import { seedBranchStoreInfrastructure } from './seed-branch-store';
 import { withDbRetry } from './seed-db-retry';
 import { normalizeBrazilPhone } from '../src/utils/normalizePhone';
 
+// =============================================================================
+// FLAGS DO SEED — ajuste aqui ou via variável de ambiente
+// =============================================================================
+const SEED_FLAGS = {
+  /**
+   * Cardápio por filial:
+   * - true  → categorias + produtos + complementos + opções
+   * - false → categorias + produtos apenas (sem complementos/opções)
+   */
+  createProductComplementsAndOptions: false,
+};
+
+/** Env: SEED_PRODUCT_COMPLEMENTS=0 | 1  ou  SEED_CATALOG_MODE=products_only | full */
+function resolveSeedCreateComplementsAndOptions(): boolean {
+  const mode = (process.env.SEED_CATALOG_MODE || '').trim().toLowerCase();
+  if (mode === 'products_only' || mode === 'products') return false;
+  if (mode === 'full' || mode === 'with_complements' || mode === 'complements') {
+    return true;
+  }
+
+  const raw = process.env.SEED_PRODUCT_COMPLEMENTS;
+  if (raw === '0' || raw === 'false' || raw === 'no') return false;
+  if (raw === '1' || raw === 'true' || raw === 'yes') return true;
+
+  return SEED_FLAGS.createProductComplementsAndOptions;
+}
+
 interface ProductSeed {
   name: string;
   description: string;
@@ -238,27 +265,30 @@ async function createCategoriesProductsAndComplements(
           : null,
       };
 
-      if (product) {
-        console.log(`  🔄 Atualizando produto: ${productData.name}`);
-        product = await prisma.product.update({
-          where: { id: product.id },
-          data: productPayload,
-        });
-      } else {
-        console.log(`  🔄 Criando produto: ${productData.name}`);
-        product = await prisma.product.create({
-          data: {
-            name: productData.name,
-            ...productPayload,
-            categoryId: category.id,
-            branchId: branchId,
-            companyId: branch.companyId,
-          },
-        });
-      }
+       if (product) {
+         console.log(`  🔄 Atualizando produto: ${productData.name}`);
+         product = await prisma.product.update({
+           where: { id: product.id },
+           data: productPayload,
+         });
+       } else {
+         console.log(`  🔄 Criando produto: ${productData.name}`);
+         product = await prisma.product.create({
+           data: {
+             name: productData.name,
+             ...productPayload,
+             categoryId: category.id,
+             branchId: branchId,
+             companyId: branch.companyId,
+           },
+         });
+       }
 
-      // Complementos do segmento/categoria (todos os grupos aplicáveis ao produto)
-      if (categoryComplements.length > 0) {
+      if (
+        resolveSeedCreateComplementsAndOptions() &&
+        categoryComplements.length > 0 &&
+        product
+      ) {
         console.log(
           `  🔧 Aplicando ${categoryComplements.length} complemento(s) de ${categoryData.name} em ${productData.name}`,
         );
@@ -3484,6 +3514,25 @@ function seedSlug(text: string): string {
     .replace(/^-|-$/g, '');
 }
 
+const SEED_ONBOARDING_COMPLETED = {
+  onboardingStep: 'COMPLETED' as const,
+  onboardingCompleted: true,
+};
+
+/** Número do slot (1-based). Sem SEED_USER_SLOT_MAX = um e-mail por filial (teste1, teste2, …). */
+function resolveSeedBranchUserSlot(rawSlot: number): number {
+  const maxRaw = process.env.SEED_USER_SLOT_MAX?.trim();
+  if (!maxRaw) return rawSlot;
+  const max = parseInt(maxRaw, 10);
+  if (!Number.isFinite(max) || max < 1) return rawSlot;
+  return ((rawSlot - 1) % max) + 1;
+}
+
+/** Login admin da filial: teste{N}@vaidelli.com (N único por filial por padrão). */
+function seedBranchUserEmail(slot: number): string {
+  return `teste${slot}@vaidelli.com`;
+}
+
 function onlyDigits(value: string): string {
   return value.replace(/\D/g, '');
 }
@@ -3771,8 +3820,7 @@ async function findOrUpsertCompany(companyData: CompanySeed) {
     companyName: companyData.companyName,
     name: companyData.name,
     active: true,
-    onboardingStep: 'COMPLETED' as const,
-    onboardingCompleted: true,
+    ...SEED_ONBOARDING_COMPLETED,
   };
 
   if (company) {
@@ -3829,6 +3877,11 @@ function seedAdminPhone(companyName: string, branchName: string): string {
 export async function main() {
   console.log('🌱 Iniciando seed do banco de dados (modo incremental)...');
   console.log('ℹ️  Registros existentes serão atualizados; novos serão criados.');
+  console.log(
+    resolveSeedCreateComplementsAndOptions()
+      ? '📋 Cardápio: produtos + complementos + opções'
+      : '📋 Cardápio: somente produtos (SEED_FLAGS.createProductComplementsAndOptions = false)',
+  );
 
   const onlySubdomain = process.env.SEED_ONLY_SUBDOMAIN?.trim().toLowerCase() || '';
   const seedTargetData = onlySubdomain
@@ -3855,6 +3908,7 @@ export async function main() {
   console.log('🏢 Criando/atualizando empresas...');
   const allCompanies: any[] = [];
   let deliverySeedCounter = 0;
+  let seedBranchUserSlot = 0;
 
   for (const [type, companies] of Object.entries(seedTargetData)) {
     for (const companyData of companies) {
@@ -3953,6 +4007,7 @@ export async function main() {
           logoUrl: companyData.logo || null,
           bannerUrl: companyData.banner || null,
           active: true,
+          ...SEED_ONBOARDING_COMPLETED,
           primaryColor:branchData ? branchData.primaryColor:  branchPrimaryColor(type),
           socialMedia: defaultSocialMedia,
           description: `A melhor ${
@@ -4163,7 +4218,9 @@ export async function main() {
           }
         }
 
-        const adminEmail = `seed.admin+${seedSlug(companyData.name)}+${seedSlug(branchName)}@vaidelli.com`;
+        seedBranchUserSlot += 1;
+        const branchUserSlot = resolveSeedBranchUserSlot(seedBranchUserSlot);
+        const adminEmail = seedBranchUserEmail(branchUserSlot);
         const adminUser = await upsertSeedAdminUser({
           adminEmail,
           adminPhone,
@@ -4181,9 +4238,10 @@ export async function main() {
           ? 'fictícia'
           : 'base';
 
-        // Cardápio completo por segmento (categorias, produtos, complementos e opções)
         console.log(
-          `📦 Criando cardápio [${seedKind}] (${companyType}) — ${branch.branchName}...`,
+          resolveSeedCreateComplementsAndOptions()
+            ? `📦 Criando cardápio [${seedKind}] (${companyType}) — produtos + complementos — ${branch.branchName}...`
+            : `📦 Criando cardápio [${seedKind}] (${companyType}) — só produtos — ${branch.branchName}...`,
         );
         await createCategoriesProductsAndComplements(
           companyType,

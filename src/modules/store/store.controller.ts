@@ -27,7 +27,7 @@ import { UpdateCustomerAddressDto } from './dto/update-customer-address.dto';
 import { CalculateDeliveryFeeDto } from './dto/calculate-delivery-fee.dto';
 import { StoreLoginDto } from './dto/store-login.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { JwtCustomerAuthGuard } from '../../common/guards/jwt-customer.guard';
+import { CustomerAuth } from '../../common/decorators/customer-auth.decorator';
 import { GetOrdersQueryDto } from './dto/get-orders-query.dto';
 import { GetCustomer } from './decorators/get-customer.decorator';
 import { prisma } from 'lib/prisma';
@@ -95,8 +95,8 @@ export class StoreController {
   /**
    * Buscar endereço e coordenadas por CEP
    */
+  @CustomerAuth()
   @Get('cep/:cep')
-  @Public()
   async lookupCep(
     @Param('cep') cep: string,
     @Query('street') street?: string,
@@ -125,8 +125,8 @@ export class StoreController {
    * Obter dados completos da homepage (loja + categorias com produtos + pedidos se autenticado)
    * Este é o endpoint otimizado para a tela principal da loja
    */
-  @Get('homepage')
   @Public()
+  @Get('homepage')
   async getHomepage(
     @Query('branchId') branchId?: string,
     @Query('phone') phone?: string,
@@ -186,7 +186,7 @@ export class StoreController {
    * Obter categorias da loja
    */
   @Get('categories')
-  @Public()
+  @CustomerAuth()
   async getCategories(
     @Query('branchId') branchId?: string,
     @Headers('x-tenant') xTenant?: string,
@@ -208,7 +208,7 @@ export class StoreController {
    * Obter produtos da loja
    */
   @Get('products')
-  @Public()
+  @CustomerAuth()
   async getProducts(
     @Query('branchId') branchId?: string,
     @Query('categoryId') categoryId?: string,
@@ -231,17 +231,20 @@ export class StoreController {
   /**
    * Criar pedido na loja (checkout)
    */
-  @Public()
-  @UseGuards(JwtCustomerAuthGuard)
+  @CustomerAuth()
   @Post('orders')
   @HttpCode(HttpStatus.CREATED)
   async createOrder(
+    @Req() req: RequestWithUser,
     @Body() createOrderDto: CreateStoreOrderDto,
     @Query('branchId') branchId?: string,
     @Headers('x-tenant') xTenant?: string,
-    @Req() req?: Request,
   ) {
-    const hostname = req?.headers?.host || '';
+    if (!req.user?.userId) {
+      throw new UnauthorizedException('Cliente não autenticado');
+    }
+
+    const hostname = req.headers?.host || '';
     const { subdomain, branchId: headerBranchId } = this.extractSubdomain(
       hostname,
       xTenant,
@@ -251,20 +254,24 @@ export class StoreController {
       createOrderDto,
       subdomain,
       branchId || headerBranchId,
+      req.user.userId,
     );
   }
 
-  @Public()
-  @UseGuards(JwtCustomerAuthGuard)
+  @CustomerAuth()
   @Post('ordersMany')
   @HttpCode(HttpStatus.CREATED)
   async createOrderMany(
+    @Req() req: RequestWithUser,
     @Body() createOrderDto: CreateStoreOrderDto[],
     @Query('branchId') branchId?: string,
     @Headers('x-tenant') xTenant?: string,
-    @Req() req?: Request,
   ) {
-    const hostname = req?.headers?.host || '';
+    if (!req.user?.userId) {
+      throw new UnauthorizedException('Cliente não autenticado');
+    }
+
+    const hostname = req.headers?.host || '';
     const { subdomain, branchId: headerBranchId } = this.extractSubdomain(
       hostname,
       xTenant,
@@ -274,14 +281,14 @@ export class StoreController {
       createOrderDto,
       subdomain,
       branchId || headerBranchId,
+      req.user.userId,
     );
   }
 
   /**
    * Listar pedidos da loja (público, por telefone do cliente)
    */
-  @Public()
-  @UseGuards(JwtCustomerAuthGuard)
+  @CustomerAuth()
   @Get('orders')
   async getOrders(
     @Req() req: RequestWithUser,
@@ -296,17 +303,21 @@ export class StoreController {
   }
 
   /**
-   * Buscar pedido específico da loja (público)
+   * Buscar pedido específico da loja (cliente autenticado)
    */
   @Get('orders/:id')
-  @Public()
+  @CustomerAuth()
   async getOrderById(
+    @Req() req: RequestWithUser,
     @Param('id') id: string,
     @Query('branchId') branchId?: string,
     @Headers('x-tenant') xTenant?: string,
-    @Req() req?: Request,
   ) {
-    const hostname = req?.headers?.host || '';
+    if (!req.user?.userId) {
+      throw new UnauthorizedException('Cliente não autenticado');
+    }
+
+    const hostname = req.headers?.host || '';
     const { subdomain, branchId: headerBranchId } = this.extractSubdomain(
       hostname,
       xTenant,
@@ -316,6 +327,7 @@ export class StoreController {
       id,
       subdomain,
       branchId || headerBranchId,
+      req.user.userId,
     );
   }
 
@@ -350,8 +362,8 @@ export class StoreController {
   /**
    * Listar endereços do cliente
    */
+  @CustomerAuth()
   @Get('addresses')
-  @UseGuards(JwtAuthGuard)
   async getAddresses(@Req() req: RequestWithUser) {
     if (!req.user?.userId) {
       throw new UnauthorizedException('Usuário não autenticado');
@@ -362,9 +374,9 @@ export class StoreController {
   /**
    * Criar endereço do cliente
    */
+  @CustomerAuth()
   @Post('addresses')
   @HttpCode(HttpStatus.CREATED)
-  @UseGuards(JwtAuthGuard)
   async createAddress(
     @Body() createAddressDto: CreateCustomerAddressDto,
     @Req() req: RequestWithUser,
@@ -381,8 +393,8 @@ export class StoreController {
   /**
    * Atualizar endereço do cliente
    */
+  @CustomerAuth()
   @Put('addresses/:id')
-  @UseGuards(JwtAuthGuard)
   async updateAddress(
     @Param('id') id: string,
     @Body() updateAddressDto: UpdateCustomerAddressDto,
@@ -402,7 +414,7 @@ export class StoreController {
    * Deletar endereço do cliente
    */
   @Delete('addresses/:id')
-  @UseGuards(JwtAuthGuard)
+  @CustomerAuth()
   async deleteAddress(@Param('id') id: string, @Req() req: RequestWithUser) {
     if (!req.user?.userId) {
       throw new UnauthorizedException('Usuário não autenticado');
@@ -411,16 +423,19 @@ export class StoreController {
   }
 
   /**
-   * Calcular frete de entrega (público)
+   * Calcular frete de entrega (checkout — cliente autenticado)
    */
   @Post('delivery-fee')
-  @Public()
+  @CustomerAuth()
   async calculateDeliveryFee(
+    @Req() req: RequestWithUser,
     @Body() calculateFeeDto: CalculateDeliveryFeeDto,
     @Query('branchId') branchId?: string,
     @Headers('x-tenant') xTenant?: string,
-    @Req() req?: Request,
   ) {
+    if (!req.user?.userId) {
+      throw new UnauthorizedException('Cliente não autenticado');
+    }
     const hostname = req?.headers?.host || '';
     const { subdomain, branchId: headerBranchId } = this.extractSubdomain(
       hostname,
@@ -522,17 +537,21 @@ export class StoreController {
   }
 
   /**
-   * Validar cupom de desconto (público)
+   * Validar cupom de desconto (checkout — cliente autenticado)
    */
   @Post('validate-coupon')
-  @Public()
+  @CustomerAuth()
   async validateCoupon(
+    @Req() req: RequestWithUser,
     @Body() body: ValidateCouponDto,
     @Query('branchId') branchId?: string,
     @Headers('x-tenant') xTenant?: string,
-    @Req() req?: Request,
   ) {
-    const hostname = req?.headers?.host || '';
+    if (!req.user?.userId) {
+      throw new UnauthorizedException('Cliente não autenticado');
+    }
+
+    const hostname = req.headers?.host || '';
     const { subdomain, branchId: headerBranchId } = this.extractSubdomain(
       hostname,
       xTenant,
@@ -540,19 +559,23 @@ export class StoreController {
 
     return await this.storeService.validateCoupon({
       ...body,
+      customerId: req.user.userId,
       subdomain,
       branchId: branchId || headerBranchId,
     });
   }
 
+  @CustomerAuth()
   @Post('cross-sell')
-  @Public()
   async getCrossSellProducts(
+    @Req() req: RequestWithUser,
     @Body() body: { productIds: string[] },
     @Query('branchId') branchId?: string,
     @Headers('x-tenant') xTenant?: string,
-    @Req() req?: Request,
   ) {
+    if (!req.user?.userId) {
+      throw new UnauthorizedException('Cliente não autenticado');
+    }
     const hostname = req?.headers?.host || '';
     const { subdomain, branchId: headerBranchId } = this.extractSubdomain(
       hostname,
@@ -588,20 +611,33 @@ export class StoreController {
 
   // ── PIX Automático (Mercado Pago) ─────────────────────────────────────────
 
-  @Public()
+  @CustomerAuth()
   @Post('pix/create')
   async createPixPayment(
     @Body() body: { branchId: string; amount: number; description?: string; payerEmail?: string },
+    @Req() req: RequestWithUser,
   ) {
-    return this.storeService.createPixPayment(body);
+    if (!req.user?.userId) {
+      throw new UnauthorizedException('Cliente não autenticado');
+    }
+
+    return this.storeService.createPixPayment({
+      ...body,
+      customerId: req.user.userId,
+    });
   }
 
-  @Public()
+  @CustomerAuth()
   @Get('pix/:paymentId/status')
   async getPixPaymentStatus(
     @Param('paymentId') paymentId: string,
     @Query('branchId') branchId: string,
+    @Req() req: RequestWithUser,
   ) {
+    if (!req.user?.userId) {
+      throw new UnauthorizedException('Cliente não autenticado');
+    }
+
     return this.storeService.getPixPaymentStatus(paymentId, branchId);
   }
 }

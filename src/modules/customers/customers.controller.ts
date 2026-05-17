@@ -20,7 +20,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { LoginCustomerDto } from './dto/login-customer.dto';
 import { Public } from '../../common/decorators/public.decorator';
 import { resolveXTenant } from '../../utils/resolve-x-tenant';
-import { JwtCustomerAuthGuard } from '../../common/guards/jwt-customer.guard';
+import { CustomerAuth } from '../../common/decorators/customer-auth.decorator';
 import { CreateCustomerAddressDto } from './dto/create-customer-address.dto';
 import { QueryCustomersDto } from './dto/query-customers.dto';
 import { SegmentCustomersDto } from './dto/segment-customers.dto';
@@ -94,15 +94,13 @@ export class CustomersController {
     return this.customersService.segmentForCampaign(req.user.userId, dto);
   }
 
-  @Public()
-  @UseGuards(JwtCustomerAuthGuard)
+  @CustomerAuth()
   @Get('me')
   async getMe(@Req() req: RequestWithUser) {
     return this.customersService.getCustomerById(req.user.userId);
   }
 
-  @Public()
-  @UseGuards(JwtCustomerAuthGuard)
+  @CustomerAuth()
   @Patch('me')
   async updateMe(
     @Req() req: RequestWithUser,
@@ -111,8 +109,7 @@ export class CustomersController {
     return this.customersService.updateProfile(req.user.userId, dto);
   }
 
-  @Public()
-  @UseGuards(JwtCustomerAuthGuard)
+  @CustomerAuth()
   @Patch('me/password')
   async changeMyPassword(
     @Req() req: RequestWithUser,
@@ -151,15 +148,13 @@ export class CustomersController {
     return this.customersService.updateAddressCustomer(id, dto, req.user.userId);
   }
 
-  @Public()
-  @UseGuards(JwtCustomerAuthGuard)
+  @CustomerAuth()
   @Get('addresses')
   async getAllAddresses(@Req() req: RequestWithUser) {
     return this.customersService.findAllCustomerAddresses(req.user.userId);
   }
 
-  @Public()
-  @UseGuards(JwtCustomerAuthGuard)
+  @CustomerAuth()
   @Post('addresses')
   async createAddress(
     @Body() dto: CreateCustomerAddressDto,
@@ -168,8 +163,7 @@ export class CustomersController {
     return this.customersService.createAddressCustomer(dto, req.user.userId);
   }
 
-  @Public()
-  @UseGuards(JwtCustomerAuthGuard)
+  @CustomerAuth()
   @Put('addresses/:id')
   async updateAddress(
     @Param('id') id: string,
@@ -183,8 +177,7 @@ export class CustomersController {
     );
   }
 
-  @Public()
-  @UseGuards(JwtCustomerAuthGuard)
+  @CustomerAuth()
   @Delete('addresses/:id')
   async deleteAddress(@Param('id') id: string, @Req() req: RequestWithUser) {
     return this.customersService.deleteAddressCustomer(req.user.userId, id);

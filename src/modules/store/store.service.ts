@@ -1875,6 +1875,7 @@ async createOrder(
   createOrderDto: CreateStoreOrderDto,
   subdomain?: string,
   branchId?: string,
+  authenticatedCustomerId?: string,
 ) {
   const branch = await this.getBranch(subdomain, branchId);
   if (!branch) throw new NotFoundException('Loja não encontrada');
@@ -1883,6 +1884,18 @@ async createOrder(
 
   const { limits } = await this.validateSubscription(branch.companyId);
   await this.validateOrderLimit(branch.companyId, limits);
+
+  if (authenticatedCustomerId) {
+    if (
+      createOrderDto.customerId &&
+      createOrderDto.customerId !== authenticatedCustomerId
+    ) {
+      throw new ForbiddenException(
+        'Não é permitido criar pedido para outro cliente',
+      );
+    }
+    createOrderDto.customerId = authenticatedCustomerId;
+  }
 
   const {
     deliveryType,
@@ -2493,6 +2506,7 @@ Verifique no sistema!`;
     createOrderDto: CreateStoreOrderDto[],
     subdomain?: string,
     branchId?: string,
+    authenticatedCustomerId?: string,
   ) {
     const result: {
       success: boolean;
@@ -2500,7 +2514,14 @@ Verifique no sistema!`;
     }[] = [];
 
     for (const order of createOrderDto) {
-      result.push(await this.createOrder(order, subdomain, branchId));
+      result.push(
+        await this.createOrder(
+          order,
+          subdomain,
+          branchId,
+          authenticatedCustomerId,
+        ),
+      );
     }
 
     return result;
@@ -2671,7 +2692,12 @@ Verifique no sistema!`;
   /**
    * Buscar pedido específico da loja (público)
    */
-  async getOrderById(orderId: string, subdomain?: string, branchId?: string) {
+  async getOrderById(
+    orderId: string,
+    subdomain?: string,
+    branchId?: string,
+    authenticatedCustomerId?: string,
+  ) {
     const branch = await this.getBranch(subdomain, branchId);
 
     if (!branch) {
@@ -2768,6 +2794,12 @@ Verifique no sistema!`;
 
     if (!order) {
       throw new NotFoundException('Pedido não encontrado');
+    }
+
+    if (authenticatedCustomerId) {
+      if (!order.customerId || order.customerId !== authenticatedCustomerId) {
+        throw new ForbiddenException('Pedido não pertence a este cliente');
+      }
     }
 
     // Adicionar couponType ao objeto order para facilitar o uso no frontend
@@ -3913,6 +3945,7 @@ if (!fullOrder) {
     amount: number;
     description?: string;
     payerEmail?: string;
+    customerId?: string;
   }) {
     const config = await prisma.generalConfig.findUnique({
       where: { branchId: dto.branchId },
@@ -3922,6 +3955,17 @@ if (!fullOrder) {
       throw new BadRequestException(
         'Token do Mercado Pago não configurado. Configure em Configurações > Pagamentos.',
       );
+    }
+
+    let payerEmail = dto.payerEmail;
+    if (dto.customerId) {
+      const customer = await prisma.customer.findUnique({
+        where: { id: dto.customerId },
+        select: { email: true },
+      });
+      if (customer?.email) {
+        payerEmail = customer.email;
+      }
     }
 
     const idempotencyKey = `pix-${dto.branchId}-${Date.now()}`;
@@ -3937,7 +3981,7 @@ if (!fullOrder) {
         transaction_amount: Math.round(dto.amount) / 100,
         payment_method_id: 'pix',
         payer: {
-          email: dto.payerEmail || 'cliente@vaidelli.com.br',
+          email: payerEmail || 'cliente@vaidelli.com.br',
         },
         description: dto.description || 'Pedido online',
       }),

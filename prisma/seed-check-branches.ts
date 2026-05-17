@@ -55,8 +55,24 @@ async function main() {
   console.log(`⚠️  Filial incompleta: ${incomplete.length}\n`);
 
   if (missing.length) {
-    console.log('Subdomínios ausentes:');
+    const orphanSubdomains = await prisma.branch.findMany({
+      where: {
+        subdomain: { not: null, notIn: [...EXPECTED_SEED_SUBDOMAINS] },
+      },
+      select: { subdomain: true, branchName: true },
+    });
+
+    console.log('Subdomínios ausentes (nenhuma filial com esse subdomain no banco):');
     missing.forEach((s) => console.log(`  - ${s}`));
+
+    if (orphanSubdomains.length) {
+      console.log(
+        '\nFiliais no banco com subdomínio fora da lista das 50 (provável cadastro antigo):',
+      );
+      orphanSubdomains.forEach((b) =>
+        console.log(`  → ${b.subdomain} (${b.branchName})`),
+      );
+    }
     console.log('');
   }
 
@@ -73,7 +89,21 @@ async function main() {
   if (missing.length === 0 && incomplete.length === 0) {
     console.log('🎉 Todas as 50 filiais estão prontas para os testes k6.\n');
   } else {
-    console.log('👉 Rode novamente: npm run db:seed:hml\n');
+    const seedCmd =
+      process.env.DATABASE_URL?.includes('hml') ||
+      process.argv.some((a) => a.includes('.env.hml'))
+        ? 'npm run db:seed:hml'
+        : 'npm run db:seed:dev';
+    console.log(`👉 Corrigir: ${seedCmd}`);
+    if (missing.length) {
+      console.log(
+        `   Ou só a filial: SEED_ONLY_SUBDOMAIN=${missing[0]} ${seedCmd}`,
+      );
+      console.log(
+        '   Se já existir com outro subdomínio, renomeie no banco ou use SEED_FORCE=1 após ajustar o subdomain.',
+      );
+    }
+    console.log('');
     process.exitCode = 1;
   }
 }

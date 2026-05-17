@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post, Put, Req, UseGuards } from '@nestjs/common';
 import { Public } from '../../common/decorators/public.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { AuthService } from './auth.service';
@@ -8,6 +8,8 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
+import { UpdateAdminProfileDto } from './dto/update-admin-profile.dto';
+import { ChangeAdminPasswordDto } from './dto/change-admin-password.dto';
 
 interface RequestWithUser extends Request {
   user: {
@@ -43,6 +45,18 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   getProfile(@Req() req: RequestWithUser) {
     return this.authService.getProfile(req.user.userId);
+  }
+
+  @Patch('me')
+  @UseGuards(JwtAuthGuard)
+  updateProfile(@Req() req: RequestWithUser, @Body() dto: UpdateAdminProfileDto) {
+    return this.authService.updateProfile(req.user.userId, dto);
+  }
+
+  @Put('me/password')
+  @UseGuards(JwtAuthGuard)
+  changePassword(@Req() req: RequestWithUser, @Body() dto: ChangeAdminPasswordDto) {
+    return this.authService.changePassword(req.user.userId, dto);
   }
 
   @Post('logout')

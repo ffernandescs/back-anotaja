@@ -306,7 +306,15 @@ export class OwnerService {
             products: true,
           },
         },
-        branches:true,
+        branches: {
+          select: {
+            _count: {
+              select: {
+                orders: true,
+              },
+            },
+          },
+        },
         subscription: {
           include: {
             plan: true,
@@ -324,7 +332,22 @@ export class OwnerService {
       },
     });
 
-    return companies;
+    return companies.map((company) => {
+      const ordersCount = company.branches.reduce(
+        (sum, branch) => sum + branch._count.orders,
+        0,
+      );
+      const { branches: _branches, ...rest } = company;
+
+      return {
+        ...rest,
+        ordersCount,
+        _count: {
+          ...rest._count,
+          orders: ordersCount,
+        },
+      };
+    });
   }
 
   /**

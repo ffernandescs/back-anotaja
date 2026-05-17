@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -18,6 +19,8 @@ import { PaymentMethodsService } from '../payment-methods/payment-methods.servic
 import { SubscriptionService } from '../subscription/subscription.service';
 import { AbilitiesResolver } from '../abilities/abilities.resolver';
 import { MenuBuilderService } from '../abilities/menu-builder.service';
+import { UpdateAdminProfileDto } from './dto/update-admin-profile.dto';
+import { ChangeAdminPasswordDto } from './dto/change-admin-password.dto';
 
 const OTP_EXPIRES_IN_MINUTES = Number(process.env.OTP_EXPIRES_IN_MINUTES ?? 10);
 
@@ -669,6 +672,101 @@ export class AuthService {
       where: { token: refreshToken },
     });
     return { message: 'Logout realizado com sucesso' };
+  }
+
+  async updateProfile(userId: string, dto: UpdateAdminProfileDto) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    const data: { name?: string; phone?: string } = {};
+
+    if (dto.name !== undefined) {
+      data.name = dto.name.trim();
+    }
+
+    if (dto.phone !== undefined) {
+      const normalizedPhone = dto.phone.replace(/\D/g, '');
+      if (normalizedPhone.length < 10) {
+        throw new BadRequestException('Telefone inválido');
+      }
+
+      if (normalizedPhone !== user.phone) {
+        const existingByPhone = await prisma.user.findUnique({
+          where: { phone: normalizedPhone },
+        });
+        if (existingByPhone && existingByPhone.id !== userId) {
+          throw new ConflictException('Telefone já está em uso');
+        }
+      }
+
+      data.phone = normalizedPhone;
+    }
+
+    if (Object.keys(data).length === 0) {
+      return {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+      };
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        active: true,
+        companyId: true,
+        branchId: true,
+        updatedAt: true,
+      },
+    });
+
+    return updated;
+  }
+
+  async changePassword(userId: string, dto: ChangeAdminPasswordDto) {
+    if (dto.newPassword !== dto.confirmPassword) {
+      throw new BadRequestException('As senhas não coincidem');
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    if (!user.password) {
+      throw new BadRequestException(
+        'Você ainda não possui senha cadastrada. Entre em contato com o administrador.',
+      );
+    }
+
+    const isPasswordValid = await bcrypt.compare(dto.currentPassword, user.password);
+
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Senha atual incorreta');
+    }
+
+    const hashedPassword = await bcrypt.hash(dto.newPassword, 10);
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { password: hashedPassword },
+    });
+
+    return { message: 'Senha alterada com sucesso' };
   }
 
   async switchBranch(branchId: string, userId: string) {

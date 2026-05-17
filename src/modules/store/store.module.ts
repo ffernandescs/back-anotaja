@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
+import { PassportModule } from '@nestjs/passport';
 import ms from 'ms'; // ✅ default import
 import { AuthModule } from '../auth/auth.module';
+import { JwtCustomerStrategy } from '../customers/strategies/jwt.strategy.customer';
 import { WebSocketModule } from '../websocket/websocket.module';
 import { CouponsModule } from '../coupons/coupons.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
