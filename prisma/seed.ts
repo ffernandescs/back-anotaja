@@ -977,6 +977,33 @@ function countSeedBranches(data: Record<BusinessSegment, CompanySeed[]>): number
   );
 }
 
+/** Filtra o seed para uma filial (SEED_ONLY_SUBDOMAIN=caldosdoneguinhoboaviagem). */
+function filterCompaniesBySubdomain(
+  data: Record<BusinessSegment, CompanySeed[]>,
+  subdomain: string,
+): Record<BusinessSegment, CompanySeed[]> {
+  const target = subdomain.trim().toLowerCase();
+  const filtered = {} as Record<BusinessSegment, CompanySeed[]>;
+
+  for (const [segment, companies] of Object.entries(data) as [
+    BusinessSegment,
+    CompanySeed[],
+  ][]) {
+    const matched = companies
+      .map((company) => ({
+        ...company,
+        branches: company.branches.filter((b) => b.subdomain?.trim().toLowerCase() === target),
+      }))
+      .filter((company) => company.branches.length > 0);
+
+    if (matched.length > 0) {
+      filtered[segment] = matched;
+    }
+  }
+
+  return filtered;
+}
+
 // Categorias por tipo de empresa
 const categoriesData: Record<BusinessSegment, CategorySeed[]> = {
   [BusinessSegment.HAMBURGUERIA]: [
@@ -3802,7 +3829,22 @@ function seedAdminPhone(companyName: string, branchName: string): string {
 export async function main() {
   console.log('🌱 Iniciando seed do banco de dados (modo incremental)...');
   console.log('ℹ️  Registros existentes serão atualizados; novos serão criados.');
-  const branchCount = countSeedBranches(companiesData);
+
+  const onlySubdomain = process.env.SEED_ONLY_SUBDOMAIN?.trim().toLowerCase() || '';
+  const seedTargetData = onlySubdomain
+    ? filterCompaniesBySubdomain(companiesData, onlySubdomain)
+    : companiesData;
+
+  if (onlySubdomain && countSeedBranches(seedTargetData) === 0) {
+    throw new Error(
+      `SEED_ONLY_SUBDOMAIN="${onlySubdomain}" não encontrado no seed. Confira prisma/seed-expected-subdomains.ts`,
+    );
+  }
+
+  const branchCount = countSeedBranches(seedTargetData);
+  if (onlySubdomain) {
+    console.log(`🎯 Modo filial única: ${onlySubdomain}`);
+  }
   console.log(
     `🏪 Filiais no seed: ${branchCount} (${countFictionalBranches()} fictícias + ${branchCount - countFictionalBranches()} base)`,
   );
@@ -3814,7 +3856,7 @@ export async function main() {
   const allCompanies: any[] = [];
   let deliverySeedCounter = 0;
 
-  for (const [type, companies] of Object.entries(companiesData)) {
+  for (const [type, companies] of Object.entries(seedTargetData)) {
     for (const companyData of companies) {
       console.log(`🏢 Verificando empresa - ${companyData.name}`);
       const company = await findOrUpsertCompany(companyData);
