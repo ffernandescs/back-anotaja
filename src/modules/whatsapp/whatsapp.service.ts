@@ -461,6 +461,18 @@ export class WhatsAppService {
 
     const { serverUrl: _s, apiKey: _a, ...safe } = config as any;
     safe.crmOrderStatusNotifications = readGranularOrderStatusNotificationsForApi(safe);
+
+    if (safe.status === 'connected' && safe.instanceName) {
+      try {
+        const synced = await this.syncInstanceProfileFromEvolution(config);
+        if (synced.phoneNumber) safe.phoneNumber = synced.phoneNumber;
+        if (synced.profileName) safe.profileName = synced.profileName;
+        if (synced.profilePicUrl) safe.profilePicUrl = synced.profilePicUrl;
+      } catch {
+        /* mantém valores do banco */
+      }
+    }
+
     return safe;
   }
 
@@ -3840,17 +3852,20 @@ export class WhatsAppService {
         null;
 
       if (!phone) {
-        const instances = await this.evolutionRequest('GET', '/instance/fetchInstances').catch(() => []);
-        const list = Array.isArray(instances) ? instances : [];
-        const row = list.find((item: any) => {
-          const name = item?.instance?.instanceName ?? item?.instanceName ?? item?.name;
-          return name === config.instanceName;
-        });
-        const inst = row?.instance ?? row;
-        phone = this.extractInstancePhoneDigits(inst);
-        profileName = profileName ?? inst?.profileName ?? inst?.profile?.name ?? null;
-        profilePicUrl =
-          profilePicUrl ?? inst?.profilePicUrl ?? inst?.profilePictureUrl ?? null;
+        const inst = await this.fetchEvolutionInstanceByName(config.instanceName);
+        if (inst) {
+          phone = this.extractInstancePhoneDigits(inst);
+          profileName =
+            profileName ??
+            (typeof inst.profileName === 'string' ? inst.profileName : null) ??
+            (typeof (inst.profile as { name?: string } | undefined)?.name === 'string'
+              ? (inst.profile as { name: string }).name
+              : null);
+          profilePicUrl =
+            profilePicUrl ??
+            (typeof inst.profilePicUrl === 'string' ? inst.profilePicUrl : null) ??
+            (typeof inst.profilePictureUrl === 'string' ? inst.profilePictureUrl : null);
+        }
       }
 
       const data: Record<string, string> = {};
@@ -3877,21 +3892,81 @@ export class WhatsAppService {
     }
   }
 
+  private evolutionInstanceNameMatches(item: unknown, instanceName: string): boolean {
+    if (!item || typeof item !== 'object') return false;
+    const row = item as Record<string, unknown>;
+    const inst = (row.instance as Record<string, unknown> | undefined) ?? row;
+    const name = inst.instanceName ?? inst.name ?? row.instanceName;
+    return String(name ?? '') === instanceName;
+  }
+
+  /** Busca metadados da instância na Evolution (owner = número conectado). */
+  private async fetchEvolutionInstanceByName(
+    instanceName: string,
+  ): Promise<Record<string, unknown> | null> {
+    const encoded = encodeURIComponent(instanceName);
+
+    for (const path of [
+      `/instance/fetchInstances?instanceName=${encoded}`,
+      '/instance/fetchInstances',
+    ]) {
+      const raw = await this.evolutionRequest('GET', path).catch(() => null);
+      const list = normalizeEvolutionList(raw);
+      const row = list.find((item) => this.evolutionInstanceNameMatches(item, instanceName));
+      if (!row) continue;
+      const inst = (row as Record<string, unknown>).instance ?? row;
+      return inst && typeof inst === 'object' ? (inst as Record<string, unknown>) : null;
+    }
+
+    return null;
+  }
+
+  private phoneDigitsFromOwnerField(raw: unknown): string | null {
+    if (raw == null || raw === '') return null;
+    const s = String(raw).trim();
+    if (!s) return null;
+
+    if (s.includes('@')) {
+      const fromJid = phoneFromJid(s);
+      const digits = fromJid ? fromJid.replace(/\D/g, '') : '';
+      return digits.length >= 10 ? digits : null;
+    }
+
+    const digits = s.replace(/\D/g, '');
+    if (digits.length < 10) return null;
+    if (digits.length <= 11) return `55${digits}`;
+    return digits;
+  }
+
   private extractInstancePhoneDigits(payload: unknown): string | null {
     if (!payload || typeof payload !== 'object') return null;
     const root = payload as Record<string, unknown>;
     const inst = (root.instance as Record<string, unknown> | undefined) ?? root;
-    const ownerRaw = inst.owner ?? inst.wuid ?? inst.number ?? root.owner ?? root.wuid;
-    if (!ownerRaw) return null;
+    const data = root.data as Record<string, unknown> | undefined;
 
-    const raw = String(ownerRaw);
-    if (raw.includes('@')) {
-      const fromJid = phoneFromJid(raw);
-      return fromJid ? fromJid.replace(/\D/g, '') : null;
+    const candidates: unknown[] = [
+      inst.owner,
+      inst.ownerJid,
+      inst.wuid,
+      inst.number,
+      inst.phoneNumber,
+      inst.phone,
+      inst.jid,
+      (inst.user as Record<string, unknown> | undefined)?.id,
+      root.owner,
+      root.wuid,
+      root.number,
+      data?.owner,
+      data?.wuid,
+      (data?.instance as Record<string, unknown> | undefined)?.owner,
+    ];
+
+    for (const raw of candidates) {
+      const digits = this.phoneDigitsFromOwnerField(raw);
+      if (digits) return digits;
     }
 
-    const digits = raw.replace(/\D/g, '');
-    return digits.length >= 10 ? digits : null;
+    return null;
   }
 
   /** Monitora a conexão da instância em background após setup. */
