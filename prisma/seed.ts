@@ -6,6 +6,13 @@ import {
   segmentComplementsCatalog,
   type ComplementSeed,
 } from './seed-segment-complements';
+import {
+  countFictionalBranches,
+  fictionalCompaniesBySegment,
+  isFictionalSeedCompany,
+} from './seed-fictional-companies';
+import { seedBranchStoreInfrastructure } from './seed-branch-store';
+import { withDbRetry } from './seed-db-retry';
 import { normalizeBrazilPhone } from '../src/utils/normalizePhone';
 
 interface ProductSeed {
@@ -131,6 +138,20 @@ function getComplementsForCategory(
   if (!segmentComplements) return [];
   return segmentComplements[categorySlug] ?? [];
 }
+/** Filial pronta para cardápio/checkout e testes k6 (definido aqui para o TS do IDE resolver sem erro de módulo). */
+async function isBranchCatalogReady(branchId: string): Promise<boolean> {
+  const [productCount, paymentCount, config] = await Promise.all([
+    prisma.product.count({ where: { branchId, active: true } }),
+    prisma.branchPaymentMethod.count({ where: { branchId } }),
+    prisma.generalConfig.findUnique({
+      where: { branchId },
+      select: { id: true },
+    }),
+  ]);
+
+  return productCount >= 3 && paymentCount >= 1 && config != null;
+}
+
 async function createCategoriesProductsAndComplements(
   segment: BusinessSegmentType,
   branchId: string,
@@ -191,6 +212,7 @@ async function createCategoriesProductsAndComplements(
     const categoryComplements = getComplementsForCategory(segment, categoryData.slug);
 
     for (const productData of products) {
+      await withDbRetry(`produto:${productData.name}`, async () => {
       const priceInCents = Math.round(Number(productData.price) * 100);
 
       let product = await prisma.product.findFirst({
@@ -322,6 +344,7 @@ async function createCategoriesProductsAndComplements(
           }
         }
       }
+      });
     }
   }
 
@@ -483,7 +506,7 @@ const customersData = [
 ];
 
 
-const companiesData: Record<BusinessSegment, CompanySeed[]> = {
+const companiesDataBase: Record<BusinessSegment, CompanySeed[]> = {
   [BusinessSegment.HAMBURGUERIA]: [
     {
       name: 'Vaidelli',
@@ -918,6 +941,41 @@ const companiesData: Record<BusinessSegment, CompanySeed[]> = {
     },
   ],
 };
+
+const companiesData: Record<BusinessSegment, CompanySeed[]> = {
+  [BusinessSegment.HAMBURGUERIA]: [
+    ...companiesDataBase[BusinessSegment.HAMBURGUERIA],
+    ...fictionalCompaniesBySegment.hamburgueria,
+  ],
+  [BusinessSegment.PIZZARIA]: [
+    ...companiesDataBase[BusinessSegment.PIZZARIA],
+    ...fictionalCompaniesBySegment.pizzaria,
+  ],
+  [BusinessSegment.DEPOSITO_BEBIDAS]: [
+    ...companiesDataBase[BusinessSegment.DEPOSITO_BEBIDAS],
+    ...fictionalCompaniesBySegment.depositoBebidas,
+  ],
+  [BusinessSegment.CANOZES]: [
+    ...companiesDataBase[BusinessSegment.CANOZES],
+    ...fictionalCompaniesBySegment.canozes,
+  ],
+  [BusinessSegment.RESTAURANTE]: [
+    ...companiesDataBase[BusinessSegment.RESTAURANTE],
+    ...fictionalCompaniesBySegment.restaurante,
+  ],
+  [BusinessSegment.PERFUMARIA]: [
+    ...companiesDataBase[BusinessSegment.PERFUMARIA],
+    ...fictionalCompaniesBySegment.perfumaria,
+  ],
+};
+
+function countSeedBranches(data: Record<BusinessSegment, CompanySeed[]>): number {
+  return Object.values(data).reduce(
+    (total, companies) =>
+      total + companies.reduce((sum, company) => sum + company.branches.length, 0),
+    0,
+  );
+}
 
 // Categorias por tipo de empresa
 const categoriesData: Record<BusinessSegment, CategorySeed[]> = {
@@ -3744,6 +3802,10 @@ function seedAdminPhone(companyName: string, branchName: string): string {
 export async function main() {
   console.log('🌱 Iniciando seed do banco de dados (modo incremental)...');
   console.log('ℹ️  Registros existentes serão atualizados; novos serão criados.');
+  const branchCount = countSeedBranches(companiesData);
+  console.log(
+    `🏪 Filiais no seed: ${branchCount} (${countFictionalBranches()} fictícias + ${branchCount - countFictionalBranches()} base)`,
+  );
 
   const hashedPassword = await generateHashedPassword('123456');
 
@@ -3945,6 +4007,16 @@ export async function main() {
           `✅ Filial vinculada (${usedBranchIds.length}/${branches.length}): ${branch.branchName}`,
         );
 
+        if (process.env.SEED_FORCE !== '1') {
+          const catalogReady = await isBranchCatalogReady(branch.id);
+          if (catalogReady) {
+            console.log(
+              `⏭️  Filial já completa, pulando (${branch.branchName}) — use SEED_FORCE=1 para refazer`,
+            );
+            continue;
+          }
+        }
+
         // Verificar e criar clientes
         console.log('🔄 Verificando clientes para a filial...');
         for (const customerData of customersData) {
@@ -4062,16 +4134,22 @@ export async function main() {
        
         await seedTablesForBranch(branch.id, adminUser.id);
 
-        console.log('💰 Criando métodos de pagamento para a filial matriz...');
-
-        // Criar dados para a filial matriz (categorias, produtos, complementos, opções, cupons, entregadores, caixa)
         const companyType = type as keyof typeof categoriesData;
-        console.log('🔄 Criando categorias para a filial matriz...');
+        const seedKind = isFictionalSeedCompany(companyData)
+          ? 'fictícia'
+          : 'base';
+
+        // Cardápio completo por segmento (categorias, produtos, complementos e opções)
+        console.log(
+          `📦 Criando cardápio [${seedKind}] (${companyType}) — ${branch.branchName}...`,
+        );
         await createCategoriesProductsAndComplements(
           companyType,
           branch.id,
           money,
         );
+
+        await seedBranchStoreInfrastructure(branch.id, branch.branchName);
 
         // Criar áreas de entrega para a filial matriz
         console.log('🔄 Criando áreas de entrega para a filial matriz...');

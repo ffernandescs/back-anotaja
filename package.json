@@ -36,6 +36,8 @@
     "seed:migrations:prod": "dotenv -e environments/.env.prod -- tsx prisma/seed.migrations.ts",
     "db:seed:dev": "dotenv -e environments/.env.dev -- tsx prisma/seed.ts",
     "db:seed:hml": "dotenv -e environments/.env.hml -- tsx prisma/seed.ts",
+    "db:seed-check:hml": "dotenv -e environments/.env.hml -- tsx prisma/seed-check-branches.ts",
+    "db:seed-check:dev": "dotenv -e environments/.env.dev -- tsx prisma/seed-check-branches.ts",
     "db:seed:prod": "dotenv -e environments/.env.prod -- tsx prisma/seed.ts",
     "db:seed-plans:dev": "dotenv -e environments/.env.dev -- tsx prisma/seed-plans.ts",
     "db:seed-plans:hml": "dotenv -e environments/.env.hml -- tsx prisma/seed-plans.ts",
