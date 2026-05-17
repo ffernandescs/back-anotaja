@@ -75,7 +75,7 @@ export class CashSessionController {
     if (!req.user?.userId) {
       throw new UnauthorizedException('Usuário não autenticado');
     }
-    return this.cashSessionService.findLastClosedByBranch(req.user.userId);
+    return this.cashSessionService.findLastClosedByUser(req.user.userId);
   }
 
   @Get('dashboard')

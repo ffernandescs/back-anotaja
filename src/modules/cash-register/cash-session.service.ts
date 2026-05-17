@@ -69,7 +69,11 @@ export class CashSessionService {
     }
 
     const lastClosedSession = await prisma.cashSession.findFirst({
-      where: { branchId: user.branchId, status: PrismaCashSessionStatus.CLOSED },
+      where: {
+        branchId: user.branchId,
+        openedBy: userId,
+        status: PrismaCashSessionStatus.CLOSED,
+      },
       orderBy: { closedAt: 'desc' },
     });
 
@@ -495,8 +499,8 @@ private async handleTransfer(
   };
 }
 
-  // ─── ÚLTIMA SESSÃO FECHADA ────────────────────────────────────────────────────
-  async findLastClosedByBranch(userId: string) {
+  // ─── ÚLTIMA SESSÃO FECHADA (do operador na filial) ───────────────────────────
+  async findLastClosedByUser(userId: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       include: { company: true },
@@ -508,7 +512,11 @@ private async handleTransfer(
       throw new ForbiddenException('Usuário não está associado a uma filial');
 
     const lastClosedSession = await prisma.cashSession.findFirst({
-      where: { branchId: user.branchId, status: PrismaCashSessionStatus.CLOSED },
+      where: {
+        branchId: user.branchId,
+        openedBy: userId,
+        status: PrismaCashSessionStatus.CLOSED,
+      },
       orderBy: { closedAt: 'desc' },
       include: {
         openedByUser: { select: { id: true, name: true } },

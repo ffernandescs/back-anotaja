@@ -117,6 +117,14 @@ describe('CashSessionService - SaaS PDV Rules', () => {
 
       await service.openCashSession(createDto, 'user1');
 
+      expect(mockPrisma.cashSession.findFirst).toHaveBeenNthCalledWith(2, {
+        where: {
+          branchId: 'branch1',
+          openedBy: 'user1',
+          status: PrismaCashSessionStatus.CLOSED,
+        },
+        orderBy: { closedAt: 'desc' },
+      });
       expect(mockPrisma.cashSession.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
