@@ -244,6 +244,7 @@ export class CashSessionService {
       openedBy: cashSession.openedBy,
       openedByName: cashSession.openedByUser?.name ?? null,
       openingAmount: cashSession.openingAmount,
+      closingAmount: cashSession.closingAmount ?? null,
       ...calc,
       balance: {
         cash: calc.expectedAmount,

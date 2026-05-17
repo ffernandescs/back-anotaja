@@ -3412,6 +3412,138 @@ function isPrismaUniqueViolation(error: unknown): boolean {
   );
 }
 
+/** Atualiza usuário admin do seed sem violar email/telefone únicos de outro registro. */
+async function upsertSeedAdminUser(params: {
+  adminEmail: string;
+  adminPhone: string;
+  name: string;
+  hashedPassword: string;
+  companyId: string;
+  branchId: string;
+  groupId?: string | null;
+}): Promise<{ id: string }> {
+  const {
+    adminEmail,
+    adminPhone,
+    name,
+    hashedPassword,
+    companyId,
+    branchId,
+    groupId,
+  } = params;
+
+  const existing = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { email: adminEmail },
+        { phone: adminPhone },
+        { branchId, companyId },
+      ],
+    },
+  });
+
+  const buildUpdateData = async (userId: string) => {
+    const data: Record<string, unknown> = {
+      name,
+      companyId,
+      branchId,
+      groupId: groupId ?? undefined,
+      active: true,
+    };
+
+    const emailTaken = await prisma.user.findFirst({
+      where: { email: adminEmail, NOT: { id: userId } },
+    });
+    if (!emailTaken) {
+      data.email = adminEmail;
+    }
+
+    const phoneTaken = await prisma.user.findFirst({
+      where: { phone: adminPhone, NOT: { id: userId } },
+    });
+    if (!phoneTaken) {
+      data.phone = adminPhone;
+    }
+
+    return data;
+  };
+
+  if (existing) {
+    return prisma.user.update({
+      where: { id: existing.id },
+      data: await buildUpdateData(existing.id),
+    });
+  }
+
+  try {
+    return await prisma.user.create({
+      data: {
+        name,
+        email: adminEmail,
+        phone: adminPhone,
+        password: hashedPassword,
+        companyId,
+        branchId,
+        groupId: groupId ?? undefined,
+        active: true,
+      },
+    });
+  } catch (error: unknown) {
+    if (!isPrismaUniqueViolation(error)) throw error;
+
+    const conflict = await prisma.user.findFirst({
+      where: {
+        OR: [{ email: adminEmail }, { phone: adminPhone }, { branchId }],
+      },
+    });
+    if (!conflict) throw error;
+
+    console.log(
+      `⚠️ Admin já existia (constraint única), atualizando usuário ${conflict.id}...`,
+    );
+    return prisma.user.update({
+      where: { id: conflict.id },
+      data: await buildUpdateData(conflict.id),
+    });
+  }
+}
+
+/** Payload de entregador sem sobrescrever email/telefone já usados por outro. */
+async function buildDeliveryPersonUpdateData(
+  existingId: string,
+  payload: {
+    name: string;
+    email: string;
+    phone: string;
+    branchId: string;
+    companyId: string;
+    active: boolean;
+  },
+) {
+  const data: Record<string, unknown> = {
+    name: payload.name,
+    branchId: payload.branchId,
+    companyId: payload.companyId,
+    active: payload.active,
+  };
+
+  const emailTaken = await prisma.deliveryPerson.findFirst({
+    where: { email: payload.email, NOT: { id: existingId } },
+  });
+  if (!emailTaken) {
+    data.email = payload.email;
+  }
+
+  const phoneTaken = await prisma.deliveryPerson.findFirst({
+    where: { phone: payload.phone, NOT: { id: existingId } },
+  });
+  if (!phoneTaken) {
+    data.phone = payload.phone;
+  }
+
+  return data;
+}
+
 /** Variantes de telefone/documento para achar registros antigos no banco. */
 function uniqueLookupVariants(value: string): string[] {
   const digits = onlyDigits(value);
@@ -3918,69 +4050,15 @@ export async function main() {
         }
 
         const adminEmail = `seed.admin+${seedSlug(companyData.name)}+${seedSlug(branchName)}@vaidelli.com`;
-        let adminUser = {} as { id: string };
-        const existingAdmin = await prisma.user.findFirst({
-          where: {
-            OR: [{ email: adminEmail }, { branchId: branch.id, companyId: company.id }],
-          },
+        const adminUser = await upsertSeedAdminUser({
+          adminEmail,
+          adminPhone,
+          name: `Admin ${companyData.name}`,
+          hashedPassword,
+          companyId: company.id,
+          branchId: branch.id,
+          groupId: adminGroup?.id,
         });
-
-        if (existingAdmin) {
-          const adminUpdate: Record<string, unknown> = {
-            name: `Admin ${companyData.name}`,
-            email: adminEmail,
-            companyId: company.id,
-            branchId: branch.id,
-            groupId: adminGroup?.id,
-            active: true,
-          };
-          const phoneOwner = await prisma.user.findFirst({
-            where: { phone: adminPhone, NOT: { id: existingAdmin.id } },
-          });
-          if (!phoneOwner) {
-            adminUpdate.phone = adminPhone;
-          }
-          adminUser = await prisma.user.update({
-            where: { id: existingAdmin.id },
-            data: adminUpdate,
-          });
-        } else {
-          try {
-            adminUser = await prisma.user.create({
-              data: {
-                name: `Admin ${companyData.name}`,
-                email: adminEmail,
-                phone: adminPhone,
-                password: hashedPassword,
-                companyId: company.id,
-                branchId: branch.id,
-                groupId: adminGroup?.id,
-                active: true,
-              },
-            });
-          } catch (error: unknown) {
-            if (!isPrismaUniqueViolation(error)) throw error;
-
-            const conflictAdmin = await prisma.user.findFirst({
-              where: {
-                OR: [{ email: adminEmail }, { phone: adminPhone }, { branchId: branch.id }],
-              },
-            });
-            if (!conflictAdmin) throw error;
-
-            adminUser = await prisma.user.update({
-              where: { id: conflictAdmin.id },
-              data: {
-                name: `Admin ${companyData.name}`,
-                email: adminEmail,
-                companyId: company.id,
-                branchId: branch.id,
-                groupId: adminGroup?.id,
-                active: true,
-              },
-            });
-          }
-        }
        
         await seedTablesForBranch(branch.id, adminUser.id);
 
@@ -4074,7 +4152,10 @@ export async function main() {
           if (existingDelivery) {
             await prisma.deliveryPerson.update({
               where: { id: existingDelivery.id },
-              data: deliveryPayload,
+              data: await buildDeliveryPersonUpdateData(
+                existingDelivery.id,
+                deliveryPayload,
+              ),
             });
           } else {
             try {
@@ -4087,7 +4168,10 @@ export async function main() {
               if (found) {
                 await prisma.deliveryPerson.update({
                   where: { id: found.id },
-                  data: deliveryPayload,
+                  data: await buildDeliveryPersonUpdateData(found.id, {
+                    ...deliveryPayload,
+                    branchId: branch.id,
+                  }),
                 });
               } else {
                 throw error;

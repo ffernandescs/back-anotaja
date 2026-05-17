@@ -359,18 +359,22 @@ async function seed() {
   // ── Features de limite (internas, não aparecem no menu) ───────────────────
   const limitFeatureKeys = ['products', 'users', 'branches', 'monthly_orders'];
   for (const limitKey of limitFeatureKeys) {
-    const existing = await prisma.feature.findUnique({ where: { key: limitKey } });
-    if (!existing) {
-      await prisma.feature.create({
-        data: {
-          key: limitKey,
-          name: `Limite: ${limitKey}`,
-          active: false,
-          isPro: false,
-          defaultActions: JSON.stringify([]),
-        },
-      });
-    }
+    await prisma.feature.upsert({
+      where: { key: limitKey },
+      update: {
+        name: `Limite: ${limitKey}`,
+        active: false,
+        isPro: false,
+        defaultActions: JSON.stringify([]),
+      },
+      create: {
+        key: limitKey,
+        name: `Limite: ${limitKey}`,
+        active: false,
+        isPro: false,
+        defaultActions: JSON.stringify([]),
+      },
+    });
   }
   console.log('✅ Features de limite criadas (internas)');
 

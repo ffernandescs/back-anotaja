@@ -317,8 +317,12 @@ export class AuthService {
               },
             },
             branches: {
-              orderBy: { branchName: 'asc' }
-            }
+              orderBy: { branchName: 'asc' },
+              include: {
+                address: true,
+                openingHours: true,
+              },
+            },
           },
         },
         branch: {
