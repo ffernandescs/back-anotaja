@@ -147,6 +147,7 @@ export interface OrderChannelCampaignMessageListItem {
   sentAt: Date | null;
   readAt: Date | null;
   errorMessage: string | null;
+  orderCount: number;
 }
 
 /**
@@ -3572,16 +3573,72 @@ export class WhatsAppService {
     return { status: 'sent', statusLabel: 'Enviado' };
   }
 
-  private toOrderChannelCampaignMessageListItem(row: {
-    id: string;
-    customerId: string | null;
-    customerName: string | null;
-    customerPhone: string;
-    status: string;
-    sentAt: Date | null;
-    readAt: Date | null;
-    errorMessage: string | null;
-  }): OrderChannelCampaignMessageListItem {
+  private normalizeRecipientPhoneDigits(phone: string): string {
+    let digits = phone.replace(/\D/g, '');
+    if (digits.startsWith('55') && digits.length > 11) {
+      digits = digits.slice(2);
+    }
+    return digits;
+  }
+
+  private async getOrderCountsByRecipientForCampaign(
+    branchId: string,
+    campaignId: string,
+  ): Promise<{ byCustomerId: Map<string, number>; byPhone: Map<string, number> }> {
+    const orders = await prisma.order.findMany({
+      where: { branchId, orderChannelCampaignId: campaignId },
+      select: { customerId: true, customer: { select: { phone: true } } },
+    });
+
+    const byCustomerId = new Map<string, number>();
+    const byPhone = new Map<string, number>();
+
+    for (const order of orders) {
+      if (order.customerId) {
+        byCustomerId.set(
+          order.customerId,
+          (byCustomerId.get(order.customerId) ?? 0) + 1,
+        );
+      }
+      const phoneKey = order.customer?.phone
+        ? this.normalizeRecipientPhoneDigits(order.customer.phone)
+        : '';
+      if (phoneKey.length >= 10) {
+        byPhone.set(phoneKey, (byPhone.get(phoneKey) ?? 0) + 1);
+      }
+    }
+
+    return { byCustomerId, byPhone };
+  }
+
+  private resolveRecipientOrderCount(
+    recipient: { customerId: string | null; phone: string },
+    maps: { byCustomerId: Map<string, number>; byPhone: Map<string, number> },
+  ): number {
+    if (recipient.customerId) {
+      const byId = maps.byCustomerId.get(recipient.customerId);
+      if (byId !== undefined) return byId;
+    }
+    const phoneKey = this.normalizeRecipientPhoneDigits(recipient.phone);
+    if (phoneKey.length >= 10) {
+      return maps.byPhone.get(phoneKey) ?? 0;
+    }
+    return 0;
+  }
+
+  private toOrderChannelCampaignMessageListItem(
+    row: {
+      id: string;
+      customerId: string | null;
+      customerName: string | null;
+      customerPhone: string;
+      status: string;
+      sentAt: Date | null;
+      readAt: Date | null;
+      errorMessage: string | null;
+    },
+    orderCount = 0,
+  ): OrderChannelCampaignMessageListItem {
     const mapped = this.mapCampaignMessageDisplayStatus(row.status);
     return {
       id: row.id,
@@ -3593,6 +3650,7 @@ export class WhatsAppService {
       sentAt: row.sentAt,
       readAt: row.readAt,
       errorMessage: row.errorMessage,
+      orderCount,
     };
   }
 
@@ -3670,6 +3728,11 @@ export class WhatsAppService {
 
     let total = await prisma.orderChannelCampaignMessage.count({ where });
 
+    const orderCountMaps = await this.getOrderCountsByRecipientForCampaign(
+      branchId,
+      campaignId,
+    );
+
     if (total === 0 && !search) {
       const campaign = await prisma.orderChannelCampaign.findFirst({
         where: { id: campaignId, branchId },
@@ -3689,6 +3752,10 @@ export class WhatsAppService {
           sentAt: null,
           readAt: null,
           errorMessage: null,
+          orderCount: this.resolveRecipientOrderCount(
+            { customerId: r.customerId, phone: r.phone },
+            orderCountMaps,
+          ),
         }));
         return new PaginatedResponseDto(data, legacy.length, page, limit);
       }
@@ -3701,7 +3768,15 @@ export class WhatsAppService {
       take: limit,
     });
 
-    const data = rows.map((row) => this.toOrderChannelCampaignMessageListItem(row));
+    const data = rows.map((row) =>
+      this.toOrderChannelCampaignMessageListItem(
+        row,
+        this.resolveRecipientOrderCount(
+          { customerId: row.customerId, phone: row.customerPhone },
+          orderCountMaps,
+        ),
+      ),
+    );
     return new PaginatedResponseDto(data, total, page, limit);
   }
 
