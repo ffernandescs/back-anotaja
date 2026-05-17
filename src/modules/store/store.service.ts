@@ -43,13 +43,12 @@ import {
   resolveCrmOrderStatusNotifications,
 } from 'src/utils/whatsapp-crm-order-status-notifications';
 
-interface PlanLimits {
-  branches: number;
-  users: number;
-  products: number;
-  ordersPerMonth: number;
-  deliveryPersons: number;
-}
+import {
+  type PlanLimitsMap,
+  DEFAULT_PLAN_LIMITS,
+  isResourceUnlimited,
+  parsePlanLimits,
+} from '../../utils/plan-limits';
 
 interface PlanFeatures {
   delivery: boolean;
@@ -1110,7 +1109,7 @@ if (order.status !== updatedOrder.status && updatedOrder.branchId) {
    */
   private async validateSubscription(companyId: string): Promise<{
     isActive: boolean;
-    limits: PlanLimits;
+    limits: PlanLimitsMap;
     features: PlanFeatures;
   }> {
     const subscription = await prisma.subscription.findUnique({
@@ -1126,21 +1125,9 @@ if (order.status !== updatedOrder.status && updatedOrder.branchId) {
       throw new ForbiddenException('Assinatura não está ativa');
     }
 
-    // Parsear limites
-    let limits: PlanLimits = {
-      branches: 1,
-      users: 3,
-      products: 50,
-      ordersPerMonth: 100,
-      deliveryPersons: 5,
-    };
-    if (subscription.plan.limits) {
-      try {
-        limits = JSON.parse(subscription.plan.limits) as PlanLimits;
-      } catch {
-        // valores padrão permanecem
-      }
-    }
+    const limits = subscription.plan.limits
+      ? parsePlanLimits(subscription.plan.limits)
+      : { ...DEFAULT_PLAN_LIMITS };
 
     // Parsear recursos
     let features: PlanFeatures = {
@@ -1187,10 +1174,10 @@ if (order.status !== updatedOrder.status && updatedOrder.branchId) {
    */
   private async validateOrderLimit(
     companyId: string,
-    limits: PlanLimits,
+    limits: PlanLimitsMap,
   ): Promise<void> {
-    if (limits.ordersPerMonth === -1) {
-      // Ilimitado
+    const entry = limits.ordersPerMonth;
+    if (isResourceUnlimited(limits, 'ordersPerMonth')) {
       return;
     }
 
@@ -1208,9 +1195,9 @@ if (order.status !== updatedOrder.status && updatedOrder.branchId) {
       },
     });
 
-    if (ordersCount >= limits.ordersPerMonth) {
+    if (ordersCount >= entry.max) {
       throw new ForbiddenException(
-        `Limite de pedidos mensais atingido (${ordersCount}/${limits.ordersPerMonth})`,
+        `Limite de pedidos mensais atingido (${ordersCount}/${entry.max})`,
       );
     }
   }

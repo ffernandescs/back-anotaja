@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../../lib/prisma';
+import { formatLimitLabel, parsePlanLimits } from '../../utils/plan-limits';
 import { formatCurrency } from '../../utils/formatCurrency';
 import { formatFeatures } from '../../constants/features';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
@@ -250,11 +251,14 @@ export class SubscriptionService {
             key: feature,
             name: feature.charAt(0).toUpperCase() + feature.slice(1).replace(/_/g, ' ')
           })) : [],
-        formattedLimits: subscription.plan.limits ? 
-          Object.entries(JSON.parse(subscription.plan.limits)).map(([key, value]) => ({
-            key: key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()),
-            value: value
-          })) : []
+        formattedLimits: subscription.plan.limits
+          ? Object.entries(parsePlanLimits(subscription.plan.limits)).map(([key, entry]) => ({
+              key: key.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase()),
+              value: formatLimitLabel(entry),
+              unlimited: entry.unlimited,
+              max: entry.max,
+            }))
+          : []
       } : subscription.plan
     };
 
@@ -328,6 +332,10 @@ export class SubscriptionService {
       trialDaysRemaining = Math.max(0, diffDays);
     }
     
+    const limitsMap = subscription.plan?.limits
+      ? parsePlanLimits(subscription.plan.limits)
+      : undefined;
+
     const formattedSubscription = {
       ...subscription,
       // Durante trial, lastBillingAmount é 0 (nenhuma cobrança ainda)
@@ -335,6 +343,7 @@ export class SubscriptionService {
       trialDaysRemaining, // ✅ Adicionar campo calculado
       isActive: subscription.status === 'ACTIVE',
       isTrial: isTrialActive,
+      limits: limitsMap,
       plan: subscription.plan ? {
         ...subscription.plan,
         // Manter campos originais como strings JSON para compatibilidade
@@ -342,12 +351,15 @@ export class SubscriptionService {
         formattedPrice: isTrialActive ? 'Grátis' : formatCurrency(subscription.plan.price),
         formattedFeatures: subscription.plan.features ? 
           formatFeatures(JSON.parse(subscription.plan.features)) : [],
-        formattedLimits: subscription.plan.limits ? 
-          Object.entries(JSON.parse(subscription.plan.limits)).map(([key, value]) => ({
-            key: key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()),
-            value: value
-          })) : []
-      } : subscription.plan
+        formattedLimits: subscription.plan.limits
+          ? Object.entries(parsePlanLimits(subscription.plan.limits)).map(([key, entry]) => ({
+              key: key.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase()),
+              value: formatLimitLabel(entry),
+              unlimited: entry.unlimited,
+              max: entry.max,
+            }))
+          : [],
+      } : subscription.plan,
     };
 
     return formattedSubscription;
@@ -570,11 +582,14 @@ export class SubscriptionService {
         formattedPrice: updatedSubscription.trialEndsAt && updatedSubscription.trialEndsAt > new Date() ? 'Grátis' : formatCurrency(updatedSubscription.plan.price),
         formattedFeatures: updatedSubscription.plan.features ? 
           formatFeatures(JSON.parse(updatedSubscription.plan.features)) : [],
-        formattedLimits: updatedSubscription.plan.limits ? 
-          Object.entries(JSON.parse(updatedSubscription.plan.limits)).map(([key, value]) => ({
-            key: key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()),
-            value: value
-          })) : []
+        formattedLimits: updatedSubscription.plan.limits
+          ? Object.entries(parsePlanLimits(updatedSubscription.plan.limits)).map(([key, entry]) => ({
+              key: key.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase()),
+              value: formatLimitLabel(entry),
+              unlimited: entry.unlimited,
+              max: entry.max,
+            }))
+          : []
       }
     };
     // Retorno formatado pro frontend

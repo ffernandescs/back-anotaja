@@ -17,7 +17,10 @@ export interface SurveyDashboardQuery {
 
 @Injectable()
 export class StoreSurveyService {
-  private readonly isEnabled = process.env.NODE_ENV !== 'production';
+  /** HML/prod: defina STORE_SURVEY_ENABLED=true. Dev: ativo por padrão. */
+  private readonly isEnabled =
+    process.env.STORE_SURVEY_ENABLED === 'true' ||
+    process.env.NODE_ENV !== 'production';
 
   private assertEnabled() {
     if (!this.isEnabled) throw new ForbiddenException('Recurso não disponível neste ambiente.');

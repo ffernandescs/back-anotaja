@@ -9,7 +9,17 @@ import { CreatePlanDto } from './dto/create-plan.dto';
 import { CreateDynamicPlanDto } from './dto/create-dynamic-plan.dto';
 import { UpdatePlanDto } from './dto/update-plan.dto';
 import { prisma } from '../../../lib/prisma';
+import { parsePlanLimits, serializePlanLimits } from '../../utils/plan-limits';
 import { BillingPeriod, ChoosePlanDto } from './dto/choose-plan.dto';
+
+function normalizeLimitsPayload(
+  limits: string | Record<string, unknown> | undefined,
+): string | null {
+  if (limits === undefined || limits === null || limits === '') {
+    return null;
+  }
+  return serializePlanLimits(parsePlanLimits(limits));
+}
 
 @Injectable()
 export class PlansService {
@@ -20,8 +30,6 @@ export class PlansService {
 
     // Parse features e limits se forem strings JSON
     let parsedFeatures: string[] | null = null;
-    let parsedLimits: Record<string, number> | null = null;
-
     if (features) {
       try {
         parsedFeatures = typeof features === 'string' ? JSON.parse(features) : features;
@@ -30,10 +38,11 @@ export class PlansService {
       }
     }
 
+    let limitsJson: string | null = null;
     if (limits) {
       try {
-        parsedLimits = typeof limits === 'string' ? JSON.parse(limits) : limits;
-      } catch (error) {
+        limitsJson = normalizeLimitsPayload(limits);
+      } catch {
         throw new BadRequestException('Formato inválido para limits');
       }
     }
@@ -49,7 +58,7 @@ export class PlansService {
         displayOrder: createPlanDto.displayOrder ?? 0,
         trialDays: createPlanDto.trialDays ?? 7,
         features: parsedFeatures ? JSON.stringify(parsedFeatures) : null,
-        limits: parsedLimits ? JSON.stringify(parsedLimits) : null,
+        limits: limitsJson,
       },
       include: {
         _count: {
@@ -175,7 +184,6 @@ export class PlansService {
 
     // Parse features e limits se forem strings JSON
     let parsedFeatures: string[] | null = null;
-    let parsedLimits: Record<string, number> | null = null;
 
     if (features) {
       try {
@@ -185,10 +193,11 @@ export class PlansService {
       }
     }
 
-    if (limits) {
+    let limitsJson: string | undefined;
+    if (limits !== undefined) {
       try {
-        parsedLimits = typeof limits === 'string' ? JSON.parse(limits) : limits;
-      } catch (error) {
+        limitsJson = limits ? normalizeLimitsPayload(limits) ?? undefined : undefined;
+      } catch {
         throw new BadRequestException('Formato inválido para limits');
       }
     }
@@ -199,7 +208,7 @@ export class PlansService {
       data: {
         ...planData,
         features: parsedFeatures ? JSON.stringify(parsedFeatures) : undefined,
-        limits: parsedLimits ? JSON.stringify(parsedLimits) : undefined,
+        limits: limitsJson,
       },
       include: {
         _count: {
@@ -272,12 +281,9 @@ export class PlansService {
     }
 
     // Se houver limits no objeto, criar FeatureLimit entries (nova estrutura)
-    if (parsedLimits && typeof parsedLimits === 'object') {
-      // Remover limites existentes da estrutura antiga (se existir)
+    if (limits && typeof limits === 'object') {
       // TODO: Implementar quando FeatureLimit estiver disponível
-      
-      // Adicionar novos limites (nova estrutura)
-     
+      // Limites já persistidos em plan.limits via limitsJson acima
     }
 
     return this.findOne(id);
