@@ -547,6 +547,15 @@ if (order.status !== updatedOrder.status && updatedOrder.branchId) {
       where: { branchId: branch.id },
     });
 
+    const whatsappConfig = await prisma.whatsAppConfig.findUnique({
+      where: { branchId: branch.id },
+      select: { phoneNumber: true, status: true },
+    });
+    const whatsappInstancePhone =
+      whatsappConfig?.status === 'connected' && whatsappConfig.phoneNumber?.trim()
+        ? whatsappConfig.phoneNumber.trim()
+        : null;
+
     // ================================
     // Estoque atual (produtos e opções)
     // ================================
@@ -625,6 +634,7 @@ if (order.status !== updatedOrder.status && updatedOrder.branchId) {
             }
           : undefined,
         isOpen: branch.isOpen,
+        whatsappInstancePhone,
       },
       subscription: subscription ? {
         status: subscription.status,

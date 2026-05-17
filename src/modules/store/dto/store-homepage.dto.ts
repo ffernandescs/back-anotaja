@@ -46,12 +46,15 @@ export class StoreHomepageDto {
     productsCount: number;
     categoriesCount: number;
     isOpen?: boolean;
+    /** Telefone da instância WhatsApp conectada (Evolution), quando status = connected. */
+    whatsappInstancePhone?: string | null;
     generalConfig?: {
       enableDelivery?: boolean;
       enableDineIn?: boolean;
       enablePickup?: boolean;
       showPromotionsScreen?: boolean;
       customerLoginWithPassword?: boolean;
+      sendOrdersByWhatsApp?: boolean;
       pixMode?: string | null;
       pixKeyType?: string | null;
       pixKey?: string | null;
