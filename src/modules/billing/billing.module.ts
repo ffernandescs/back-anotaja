@@ -12,6 +12,7 @@ import { StripeProcessor } from './stripe.processor';
 import { JwtModule } from '@nestjs/jwt';
 import { WebSocketModule } from '../websocket/websocket.module';
 import { MasterBrandModule } from '../maste-brands/master.brands.module';
+import { SubscriptionModule } from '../subscription/subscription.module';
 import { BrandCheckoutService } from './brand-payment/brand-checkout.service';
 import { StripeBrandCheckoutService } from './brand-payment/stripe-brand-checkout.service';
 import { AsaasBrandCheckoutService } from './brand-payment/asaas-brand-checkout.service';
@@ -25,6 +26,7 @@ import { CaktoBrandCheckoutService } from './brand-payment/cakto-brand-checkout.
     JwtModule,
     WebSocketModule,
     MasterBrandModule,
+    SubscriptionModule,
   ],
   controllers: [
     BillingController,

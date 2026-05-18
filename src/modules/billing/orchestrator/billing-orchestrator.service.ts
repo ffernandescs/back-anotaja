@@ -107,6 +107,84 @@ export class BillingOrchestratorService {
     };
   }
 
+  /**
+   * Reembolso, chargeback ou cancelamento Cakto — revoga acesso ao plano pago.
+   */
+  async cancelSubscriptionAfterBillingEvent(
+    companyId: string,
+    reason: string,
+  ): Promise<{ previousStatus: SubscriptionStatus; newStatus: SubscriptionStatus } | null> {
+    const subscription = await prisma.subscription.findUnique({
+      where: { companyId },
+    });
+
+    if (!subscription) {
+      this.logger.warn(
+        `cancelSubscriptionAfterBillingEvent: subscription não encontrada (${companyId})`,
+      );
+      return null;
+    }
+
+    const previousStatus = subscription.status;
+
+    await prisma.subscription.update({
+      where: { companyId },
+      data: {
+        status: SubscriptionStatus.CANCELLED,
+        pendingPlanId: null,
+        scheduledChangeAt: null,
+        cancelAtPeriodEnd: false,
+      },
+    });
+
+    this.logger.log(
+      `🚫 Assinatura cancelada (${reason}) — company ${companyId} (${previousStatus} → CANCELLED)`,
+    );
+
+    return {
+      previousStatus,
+      newStatus: SubscriptionStatus.CANCELLED,
+    };
+  }
+
+  /**
+   * Pagamento recusado ou renovação falhou — suspende até regularizar.
+   */
+  async suspendSubscriptionAfterBillingEvent(
+    companyId: string,
+    reason: string,
+  ): Promise<{ previousStatus: SubscriptionStatus; newStatus: SubscriptionStatus } | null> {
+    const subscription = await prisma.subscription.findUnique({
+      where: { companyId },
+    });
+
+    if (!subscription) {
+      this.logger.warn(
+        `suspendSubscriptionAfterBillingEvent: subscription não encontrada (${companyId})`,
+      );
+      return null;
+    }
+
+    const previousStatus = subscription.status;
+
+    await prisma.subscription.update({
+      where: { companyId },
+      data: {
+        status: SubscriptionStatus.SUSPENDED,
+        paymentRetryCount: { increment: 1 },
+      },
+    });
+
+    this.logger.log(
+      `⏸️ Assinatura suspensa (${reason}) — company ${companyId} (${previousStatus} → SUSPENDED)`,
+    );
+
+    return {
+      previousStatus,
+      newStatus: SubscriptionStatus.SUSPENDED,
+    };
+  }
+
   async syncCompanyPermissionsFromPlan(companyId: string, planId: string) {
     const plan = await prisma.plan.findUnique({
       where: { id: planId },

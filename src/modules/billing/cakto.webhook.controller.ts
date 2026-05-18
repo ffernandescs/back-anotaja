@@ -18,13 +18,16 @@ import type {
   CaktoPaymentConfig,
   CaktoProductIntegration,
 } from '../maste-brands/subscription-payment.types';
+import { SubscriptionHistoryService } from '../subscription/subscription-history.service';
+import {
+  CAKTO_ACTIVATE_EVENTS,
+  CAKTO_AWAITING_PAYMENT_EVENTS,
+  CAKTO_CANCEL_EVENTS,
+  CAKTO_INFORMATIONAL_EVENTS,
+  CAKTO_SUSPEND_EVENTS,
+  isKnownCaktoEvent,
+} from './cakto-webhook.events';
 import { BillingOrchestratorService } from './orchestrator/billing-orchestrator.service';
-
-const ACTIVATE_EVENTS = new Set([
-  'purchase_approved',
-  'subscription_created',
-  'subscription_renewed',
-]);
 
 /**
  * Webhooks Cakto — um endpoint por produto (secret próprio) ou global.
@@ -38,6 +41,7 @@ export class CaktoWebhookController {
 
   constructor(
     private readonly billingOrchestrator: BillingOrchestratorService,
+    private readonly subscriptionHistory: SubscriptionHistoryService,
   ) {}
 
   @Public()
@@ -61,9 +65,20 @@ export class CaktoWebhookController {
     payload: Record<string, unknown>,
     integrationId?: string,
   ) {
-    const event = String(payload.event ?? '');
-    if (!ACTIVATE_EVENTS.has(event)) {
+    const event = String(payload.event ?? '').trim();
+
+    if (!event) {
+      return { received: true, skipped: 'no_event' };
+    }
+
+    if (!isKnownCaktoEvent(event)) {
+      this.logger.warn(`Cakto webhook: evento desconhecido "${event}"`);
       return { received: true, skipped: event };
+    }
+
+    if (CAKTO_INFORMATIONAL_EVENTS.has(event)) {
+      this.logger.debug(`Cakto ${event} (informativo)`);
+      return { received: true, acknowledged: true, event };
     }
 
     const data = (payload.data ?? {}) as Record<string, unknown>;
@@ -73,7 +88,7 @@ export class CaktoWebhookController {
       this.logger.warn(
         `Cakto webhook sem companyId identificável (integration=${integrationId ?? 'global'}, event=${event})`,
       );
-      return { received: true, skipped: 'no_company_id' };
+      return { received: true, skipped: 'no_company_id', event };
     }
 
     const subscription = await prisma.subscription.findUnique({
@@ -81,7 +96,7 @@ export class CaktoWebhookController {
     });
 
     if (!subscription) {
-      return { received: true, skipped: 'no_subscription' };
+      return { received: true, skipped: 'no_subscription', event };
     }
 
     const brandConfig = await this.loadBrandCaktoConfig(
@@ -89,51 +104,71 @@ export class CaktoWebhookController {
     );
 
     if (!brandConfig) {
-      return { received: true, skipped: 'no_brand_config' };
+      return { received: true, skipped: 'no_brand_config', event };
     }
 
     const { config, normalized } = brandConfig;
-
-    let product: CaktoProductIntegration | null = null;
-
-    if (integrationId) {
-      product = findCaktoProductByIntegrationId(normalized, integrationId);
-      if (!product) {
-        this.logger.warn(
-          `Cakto webhook: integrationId ${integrationId} não encontrado na brand`,
-        );
-        return { received: true, skipped: 'unknown_integration' };
-      }
-    } else {
-      const fromPayload =
-        (data.cakto_integration_id as string) ||
-        subscription.externalCheckoutId;
-      if (fromPayload) {
-        product = findCaktoProductByIntegrationId(normalized, fromPayload);
-      }
-    }
-
-    if (
-      !caktoWebhookSecretMatches(product, config, payload.secret)
-    ) {
-      this.logger.warn(
-        `Cakto webhook: secret inválido (company ${companyId}, integration ${integrationId ?? 'global'})`,
-      );
-      return { received: false };
-    }
+    const product = this.resolveProduct(
+      normalized,
+      integrationId,
+      data,
+      subscription.externalCheckoutId,
+    );
 
     if (
       integrationId &&
-      subscription.masterBrandId &&
-      product &&
-      subscription.externalCheckoutId &&
-      subscription.externalCheckoutId !== integrationId
+      !product &&
+      (CAKTO_ACTIVATE_EVENTS.has(event) ||
+        CAKTO_CANCEL_EVENTS.has(event) ||
+        CAKTO_SUSPEND_EVENTS.has(event))
     ) {
       this.logger.warn(
-        `Cakto webhook: integrationId ${integrationId} difere do checkout ${subscription.externalCheckoutId}`,
+        `Cakto webhook: integrationId ${integrationId} não encontrado na brand`,
+      );
+      return { received: true, skipped: 'unknown_integration', event };
+    }
+
+    if (!caktoWebhookSecretMatches(product, config, payload.secret)) {
+      this.logger.warn(
+        `Cakto webhook: secret inválido (company ${companyId}, integration ${integrationId ?? 'global'})`,
+      );
+      return { received: false, event };
+    }
+
+    if (CAKTO_AWAITING_PAYMENT_EVENTS.has(event)) {
+      return this.handleAwaitingPayment(companyId, event, data);
+    }
+
+    if (CAKTO_ACTIVATE_EVENTS.has(event)) {
+      return this.handleActivate(
+        companyId,
+        event,
+        subscription,
+        product,
+        integrationId,
+        data,
       );
     }
 
+    if (CAKTO_CANCEL_EVENTS.has(event)) {
+      return this.handleCancel(companyId, event, subscription.id, data);
+    }
+
+    if (CAKTO_SUSPEND_EVENTS.has(event)) {
+      return this.handleSuspend(companyId, event, subscription.id, data);
+    }
+
+    return { received: true, skipped: event };
+  }
+
+  private async handleActivate(
+    companyId: string,
+    event: string,
+    subscription: { externalCheckoutId: string | null },
+    product: CaktoProductIntegration | null,
+    integrationId: string | undefined,
+    data: Record<string, unknown>,
+  ) {
     const offer = data.offer as Record<string, unknown> | undefined;
     const productPayload = data.product as Record<string, unknown> | undefined;
 
@@ -160,9 +195,148 @@ export class CaktoWebhookController {
     return {
       received: true,
       activated: true,
+      event,
       planId: result?.planId,
       integrationId: product?.id ?? integrationId,
     };
+  }
+
+  private async handleCancel(
+    companyId: string,
+    event: string,
+    subscriptionId: string,
+    data: Record<string, unknown>,
+  ) {
+    const reason =
+      (typeof data.refund_reason === 'string' && data.refund_reason) ||
+      (typeof data.reason === 'string' && data.reason) ||
+      event;
+
+    const change =
+      await this.billingOrchestrator.cancelSubscriptionAfterBillingEvent(
+        companyId,
+        reason,
+      );
+
+    if (change) {
+      await this.subscriptionHistory.logStatusChange(
+        subscriptionId,
+        change.previousStatus,
+        change.newStatus,
+        undefined,
+        `Cakto: ${event} — ${reason}`,
+      );
+    }
+
+    this.logger.log(`Cakto ${event}: company ${companyId} → CANCELLED`);
+
+    return {
+      received: true,
+      deactivated: true,
+      event,
+      status: 'CANCELLED',
+      companyId,
+    };
+  }
+
+  private async handleSuspend(
+    companyId: string,
+    event: string,
+    subscriptionId: string,
+    data: Record<string, unknown>,
+  ) {
+    const reason =
+      (typeof data.reason === 'string' && data.reason) ||
+      (typeof data.refund_reason === 'string' && data.refund_reason) ||
+      event;
+
+    const change =
+      await this.billingOrchestrator.suspendSubscriptionAfterBillingEvent(
+        companyId,
+        reason,
+      );
+
+    if (change) {
+      await this.subscriptionHistory.logStatusChange(
+        subscriptionId,
+        change.previousStatus,
+        change.newStatus,
+        undefined,
+        `Cakto: ${event} — ${reason}`,
+      );
+    }
+
+    this.logger.log(`Cakto ${event}: company ${companyId} → SUSPENDED`);
+
+    return {
+      received: true,
+      suspended: true,
+      event,
+      status: 'SUSPENDED',
+      companyId,
+    };
+  }
+
+  private async handleAwaitingPayment(
+    companyId: string,
+    event: string,
+    data: Record<string, unknown>,
+  ) {
+    const paymentStatus = String(data.status ?? '').toLowerCase();
+    const alreadyPaid =
+      paymentStatus === 'paid' || paymentStatus === 'approved';
+
+    if (alreadyPaid) {
+      this.logger.log(
+        `Cakto ${event}: status já pago para company ${companyId}, ignorando aguardando pagamento`,
+      );
+      return {
+        received: true,
+        acknowledged: true,
+        event,
+        note: 'already_paid_in_payload',
+      };
+    }
+
+    await prisma.subscription.updateMany({
+      where: {
+        companyId,
+        status: { in: ['PENDING', 'INACTIVE'] },
+      },
+      data: {
+        paymentProvider: 'CAKTO',
+        status: 'PENDING',
+      },
+    });
+
+    this.logger.log(`Cakto ${event}: aguardando pagamento — company ${companyId}`);
+
+    return {
+      received: true,
+      acknowledged: true,
+      event,
+      awaitingPayment: true,
+    };
+  }
+
+  private resolveProduct(
+    normalized: ReturnType<typeof normalizeCaktoConfig>,
+    integrationId: string | undefined,
+    data: Record<string, unknown>,
+    externalCheckoutId: string | null,
+  ): CaktoProductIntegration | null {
+    if (integrationId) {
+      return findCaktoProductByIntegrationId(normalized, integrationId);
+    }
+
+    const fromPayload =
+      (data.cakto_integration_id as string) || externalCheckoutId;
+
+    if (fromPayload) {
+      return findCaktoProductByIntegrationId(normalized, fromPayload);
+    }
+
+    return null;
   }
 
   private async loadBrandCaktoConfig(masterBrandId: string | null) {
@@ -205,8 +379,9 @@ export class CaktoWebhookController {
     }
 
     const customer = data.customer as Record<string, unknown> | undefined;
-    const subCustomer = (data.subscription as Record<string, unknown> | undefined)
-      ?.customer as Record<string, unknown> | undefined;
+    const subCustomer = (
+      data.subscription as Record<string, unknown> | undefined
+    )?.customer as Record<string, unknown> | undefined;
     const email = this.normalizeEmail(customer?.email ?? subCustomer?.email);
     const phone = this.normalizePhone(
       customer?.phone ?? subCustomer?.phone,
@@ -242,6 +417,12 @@ export class CaktoWebhookController {
         email,
       );
       if (fromPending) return fromPending;
+
+      const fromCakto = await this.resolveCompanyByCaktoSubscription(
+        integrationKey,
+        email,
+      );
+      if (fromCakto) return fromCakto;
     }
 
     if (email) {
@@ -250,15 +431,17 @@ export class CaktoWebhookController {
         email,
       );
       if (fromPendingEmail) return fromPendingEmail;
+
+      const fromCaktoEmail = await this.resolveCompanyByCaktoSubscription(
+        undefined,
+        email,
+      );
+      if (fromCaktoEmail) return fromCaktoEmail;
     }
 
     return null;
   }
 
-  /**
-   * Checkout Cakto grava external_reference na URL, mas o webhook muitas vezes não devolve.
-   * Buscamos assinatura PENDING criada ao clicar em "escolher plano" (externalCheckoutId / pendingPlanId).
-   */
   private async resolveCompanyByPendingCheckout(
     integrationId?: string,
     email?: string | null,
@@ -304,7 +487,7 @@ export class CaktoWebhookController {
       where: where as any,
       orderBy: { updatedAt: 'desc' },
       take: 3,
-      select: { companyId: true, updatedAt: true },
+      select: { companyId: true },
     });
 
     if (pending.length === 1) {
@@ -313,10 +496,68 @@ export class CaktoWebhookController {
 
     if (pending.length > 1) {
       this.logger.warn(
-        `Cakto: ${pending.length} assinaturas PENDING para integration=${integrationId ?? 'email'}. ` +
-          'Use o mesmo e-mail do cadastro no checkout ou aguarde conflito resolver.',
+        `Cakto: ${pending.length} assinaturas PENDING para integration=${integrationId ?? 'email'}.`,
       );
       return pending[0].companyId;
+    }
+
+    return null;
+  }
+
+  /** Assinatura já ativa/cancelada vinculada à Cakto (reembolso, cancelamento, etc.). */
+  private async resolveCompanyByCaktoSubscription(
+    integrationId?: string,
+    email?: string | null,
+  ): Promise<string | null> {
+    const planId = integrationId
+      ? this.planIdFromIntegration(integrationId)
+      : null;
+
+    const orFilters: Array<Record<string, unknown>> = [];
+    if (integrationId) {
+      orFilters.push({ externalCheckoutId: integrationId });
+    }
+    if (planId) {
+      orFilters.push({ planId });
+    }
+
+    if (orFilters.length === 0 && !email) {
+      return null;
+    }
+
+    const where: Record<string, unknown> = {
+      paymentProvider: 'CAKTO',
+      ...(orFilters.length > 0 ? { OR: orFilters } : {}),
+    };
+
+    if (email) {
+      const byEmail = await prisma.subscription.findFirst({
+        where: {
+          ...where,
+          company: { email: { equals: email, mode: 'insensitive' } },
+        },
+        orderBy: { updatedAt: 'desc' },
+        select: { companyId: true },
+      });
+      if (byEmail) return byEmail.companyId;
+    }
+
+    const matches = await prisma.subscription.findMany({
+      where: where as any,
+      orderBy: { updatedAt: 'desc' },
+      take: 3,
+      select: { companyId: true },
+    });
+
+    if (matches.length === 1) {
+      return matches[0].companyId;
+    }
+
+    if (matches.length > 1) {
+      this.logger.warn(
+        `Cakto: ${matches.length} assinaturas CAKTO para integration=${integrationId ?? 'email'}.`,
+      );
+      return matches[0].companyId;
     }
 
     return null;
