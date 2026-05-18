@@ -63,6 +63,8 @@ export class CaktoBrandCheckoutService {
         : `55${input.company.phone}`;
       params.set('phone', phone);
     }
+    /** Cakto persiste e devolve no webhook apenas params documentados (sck, utm_*, src). */
+    params.set('sck', input.company.id);
     params.set('external_reference', input.company.id);
     params.set('plan_id', input.plan.id);
     params.set('plan_name', input.plan.name);

@@ -67,10 +67,12 @@ export class CaktoWebhookController {
     }
 
     const data = (payload.data ?? {}) as Record<string, unknown>;
-    const companyId = await this.resolveCompanyId(data);
+    const companyId = await this.resolveCompanyId(data, integrationId);
 
     if (!companyId) {
-      this.logger.warn('Cakto webhook sem companyId identificável');
+      this.logger.warn(
+        `Cakto webhook sem companyId identificável (integration=${integrationId ?? 'global'}, event=${event})`,
+      );
       return { received: true, skipped: 'no_company_id' };
     }
 
@@ -178,14 +180,22 @@ export class CaktoWebhookController {
 
   private async resolveCompanyId(
     data: Record<string, unknown>,
+    integrationId?: string,
   ): Promise<string | null> {
-    const direct =
-      (data.external_reference as string) ||
-      (data.externalReference as string) ||
-      (data.companyId as string);
+    const directCandidates = [
+      data.sck,
+      data.external_reference,
+      data.externalReference,
+      data.companyId,
+    ];
 
-    if (direct && typeof direct === 'string') {
-      return direct;
+    for (const candidate of directCandidates) {
+      if (typeof candidate !== 'string' || !candidate.trim()) continue;
+      const company = await prisma.company.findUnique({
+        where: { id: candidate.trim() },
+        select: { id: true },
+      });
+      if (company) return company.id;
     }
 
     const customer = data.customer as Record<string, unknown> | undefined;
@@ -198,8 +208,28 @@ export class CaktoWebhookController {
         select: { id: true },
       });
       if (company) return company.id;
+
+      const planId = this.planIdFromIntegration(integrationId);
+      if (planId) {
+        const pending = await prisma.subscription.findFirst({
+          where: {
+            pendingPlanId: planId,
+            paymentProvider: 'CAKTO',
+            status: 'PENDING',
+            company: { email: { equals: email, mode: 'insensitive' } },
+          },
+          select: { companyId: true },
+        });
+        if (pending) return pending.companyId;
+      }
     }
 
     return null;
+  }
+
+  private planIdFromIntegration(integrationId?: string): string | null {
+    if (!integrationId?.startsWith('plan-')) return null;
+    const planId = integrationId.slice(5).trim();
+    return planId || null;
   }
 }
