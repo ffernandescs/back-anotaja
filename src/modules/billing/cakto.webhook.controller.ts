@@ -20,14 +20,23 @@ import type {
 } from '../maste-brands/subscription-payment.types';
 import { SubscriptionHistoryService } from '../subscription/subscription-history.service';
 import {
+  amountToCents,
+  buildCaktoHistoryMetadata,
+  buildCaktoHistoryReason,
+  caktoExternalEventId,
+  mapCaktoEventToSubscriptionEventType,
+} from './cakto-webhook-history.util';
+import {
   CAKTO_ACTIVATE_EVENTS,
   CAKTO_AWAITING_PAYMENT_EVENTS,
   CAKTO_CANCEL_EVENTS,
   CAKTO_INFORMATIONAL_EVENTS,
   CAKTO_SUSPEND_EVENTS,
+  CAKTO_WEBHOOK_EVENTS,
   isKnownCaktoEvent,
 } from './cakto-webhook.events';
 import { BillingOrchestratorService } from './orchestrator/billing-orchestrator.service';
+import type { SubscriptionStatus } from '@prisma/client';
 
 /**
  * Webhooks Cakto — um endpoint por produto (secret próprio) ou global.
@@ -76,11 +85,6 @@ export class CaktoWebhookController {
       return { received: true, skipped: event };
     }
 
-    if (CAKTO_INFORMATIONAL_EVENTS.has(event)) {
-      this.logger.debug(`Cakto ${event} (informativo)`);
-      return { received: true, acknowledged: true, event };
-    }
-
     const data = (payload.data ?? {}) as Record<string, unknown>;
     const companyId = await this.resolveCompanyId(data, integrationId);
 
@@ -93,6 +97,10 @@ export class CaktoWebhookController {
 
     const subscription = await prisma.subscription.findUnique({
       where: { companyId },
+      include: {
+        plan: { select: { id: true, name: true } },
+        pendingPlan: { select: { id: true, name: true } },
+      },
     });
 
     if (!subscription) {
@@ -135,8 +143,26 @@ export class CaktoWebhookController {
       return { received: false, event };
     }
 
+    const historyCtx = {
+      caktoEvent: event,
+      data,
+      subscription,
+      integrationId,
+      productLabel: product?.label,
+    };
+
+    if (CAKTO_INFORMATIONAL_EVENTS.has(event)) {
+      return this.handleInformational(event, subscription, historyCtx);
+    }
+
     if (CAKTO_AWAITING_PAYMENT_EVENTS.has(event)) {
-      return this.handleAwaitingPayment(companyId, event, data);
+      return this.handleAwaitingPayment(
+        companyId,
+        event,
+        data,
+        subscription,
+        historyCtx,
+      );
     }
 
     if (CAKTO_ACTIVATE_EVENTS.has(event)) {
@@ -147,28 +173,109 @@ export class CaktoWebhookController {
         product,
         integrationId,
         data,
+        historyCtx,
       );
     }
 
     if (CAKTO_CANCEL_EVENTS.has(event)) {
-      return this.handleCancel(companyId, event, subscription.id, data);
+      return this.handleCancel(companyId, event, subscription, data, historyCtx);
     }
 
     if (CAKTO_SUSPEND_EVENTS.has(event)) {
-      return this.handleSuspend(companyId, event, subscription.id, data);
+      return this.handleSuspend(companyId, event, subscription, data, historyCtx);
     }
 
     return { received: true, skipped: event };
   }
 
+  private async handleInformational(
+    event: string,
+    subscription: {
+      id: string;
+      companyId: string;
+      planId: string;
+      pendingPlanId: string | null;
+      status: SubscriptionStatus;
+      plan: { id: string; name: string } | null;
+      pendingPlan: { id: string; name: string } | null;
+    },
+    historyCtx: Parameters<typeof buildCaktoHistoryMetadata>[0],
+  ) {
+    const metadata = buildCaktoHistoryMetadata(historyCtx);
+    await this.subscriptionHistory.logCaktoWebhook({
+      subscriptionId: subscription.id,
+      caktoEvent: event,
+      eventType: mapCaktoEventToSubscriptionEventType(event),
+      reason: buildCaktoHistoryReason(event, metadata),
+      metadata,
+      externalEventId: caktoExternalEventId(event, historyCtx.data),
+      previousStatus: subscription.status,
+      newStatus: subscription.status,
+      previousPlanId: subscription.planId,
+      newPlanId: subscription.pendingPlanId ?? subscription.planId,
+    });
+
+    this.logger.debug(`Cakto ${event} registrado no histórico`);
+
+    return { received: true, acknowledged: true, event, history: true };
+  }
+
+  private async recordCaktoHistory(
+    historyCtx: Parameters<typeof buildCaktoHistoryMetadata>[0],
+    overrides: {
+      eventType?: ReturnType<typeof mapCaktoEventToSubscriptionEventType>;
+      previousStatus?: SubscriptionStatus;
+      newStatus?: SubscriptionStatus;
+      previousPlanId?: string;
+      newPlanId?: string;
+      amount?: number;
+      extraReason?: string;
+    } = {},
+  ) {
+    const { caktoEvent, data } = historyCtx;
+    const metadata = buildCaktoHistoryMetadata(historyCtx);
+    const eventType =
+      overrides.eventType ?? mapCaktoEventToSubscriptionEventType(caktoEvent);
+
+    return this.subscriptionHistory.logCaktoWebhook({
+      subscriptionId: historyCtx.subscription.id,
+      caktoEvent,
+      eventType,
+      reason: buildCaktoHistoryReason(
+        caktoEvent,
+        metadata,
+        overrides.extraReason,
+      ),
+      metadata,
+      externalEventId: caktoExternalEventId(caktoEvent, data),
+      previousStatus: overrides.previousStatus,
+      newStatus: overrides.newStatus,
+      previousPlanId: overrides.previousPlanId,
+      newPlanId: overrides.newPlanId,
+      amount: overrides.amount,
+    });
+  }
+
   private async handleActivate(
     companyId: string,
     event: string,
-    subscription: { externalCheckoutId: string | null },
+    subscription: {
+      id: string;
+      companyId: string;
+      planId: string;
+      pendingPlanId: string | null;
+      status: SubscriptionStatus;
+      externalCheckoutId: string | null;
+      plan: { id: string; name: string } | null;
+      pendingPlan: { id: string; name: string } | null;
+    },
     product: CaktoProductIntegration | null,
     integrationId: string | undefined,
     data: Record<string, unknown>,
+    historyCtx: Parameters<typeof buildCaktoHistoryMetadata>[0],
   ) {
+    const previousPlanId = subscription.planId;
+    const previousStatus = subscription.status;
     const offer = data.offer as Record<string, unknown> | undefined;
     const productPayload = data.product as Record<string, unknown> | undefined;
 
@@ -188,6 +295,49 @@ export class CaktoWebhookController {
     const result =
       await this.billingOrchestrator.commitPendingPlanAfterPayment(companyId);
 
+    const updated = await prisma.subscription.findUnique({
+      where: { companyId },
+      include: {
+        plan: { select: { id: true, name: true } },
+        pendingPlan: { select: { id: true, name: true } },
+      },
+    });
+
+    const paymentMeta = buildCaktoHistoryMetadata({
+      ...historyCtx,
+      subscription: updated ?? subscription,
+    });
+
+    await this.subscriptionHistory.logCaktoWebhook({
+      subscriptionId: subscription.id,
+      caktoEvent: event,
+      eventType: 'PAYMENT_SUCCEEDED',
+      reason: buildCaktoHistoryReason(event, paymentMeta),
+      metadata: paymentMeta,
+      externalEventId: caktoExternalEventId(`${event}:payment`, data),
+      previousStatus,
+      newStatus: 'ACTIVE',
+      amount: amountToCents(data.amount) ?? amountToCents(data.baseAmount),
+    });
+
+    await this.recordCaktoHistory(
+      {
+        ...historyCtx,
+        subscription: updated ?? subscription,
+      },
+      {
+        eventType:
+          event === CAKTO_WEBHOOK_EVENTS.subscription_renewed
+            ? 'RENEWED'
+            : 'ACTIVATED',
+        previousStatus,
+        newStatus: 'ACTIVE',
+        previousPlanId,
+        newPlanId: result?.planId ?? subscription.planId,
+        amount: amountToCents(data.amount) ?? amountToCents(data.baseAmount),
+      },
+    );
+
     this.logger.log(
       `Cakto ${event}: company ${companyId} ativada (plano ${result?.planId}, produto ${product?.id ?? integrationId ?? 'n/a'})`,
     );
@@ -198,34 +348,48 @@ export class CaktoWebhookController {
       event,
       planId: result?.planId,
       integrationId: product?.id ?? integrationId,
+      history: true,
     };
   }
 
   private async handleCancel(
     companyId: string,
     event: string,
-    subscriptionId: string,
+    subscription: {
+      id: string;
+      companyId: string;
+      planId: string;
+      pendingPlanId: string | null;
+      status: SubscriptionStatus;
+      plan: { id: string; name: string } | null;
+      pendingPlan: { id: string; name: string } | null;
+    },
     data: Record<string, unknown>,
+    historyCtx: Parameters<typeof buildCaktoHistoryMetadata>[0],
   ) {
-    const reason =
+    const extraReason =
       (typeof data.refund_reason === 'string' && data.refund_reason) ||
       (typeof data.reason === 'string' && data.reason) ||
-      event;
+      undefined;
+
+    const previousStatus = subscription.status;
+    const planId = subscription.planId;
 
     const change =
       await this.billingOrchestrator.cancelSubscriptionAfterBillingEvent(
         companyId,
-        reason,
+        extraReason ?? event,
       );
 
     if (change) {
-      await this.subscriptionHistory.logStatusChange(
-        subscriptionId,
-        change.previousStatus,
-        change.newStatus,
-        undefined,
-        `Cakto: ${event} — ${reason}`,
-      );
+      await this.recordCaktoHistory(historyCtx, {
+        eventType: 'CANCELLED',
+        previousStatus: change.previousStatus,
+        newStatus: change.newStatus,
+        previousPlanId: planId,
+        newPlanId: planId,
+        extraReason,
+      });
     }
 
     this.logger.log(`Cakto ${event}: company ${companyId} → CANCELLED`);
@@ -236,34 +400,45 @@ export class CaktoWebhookController {
       event,
       status: 'CANCELLED',
       companyId,
+      planId,
+      history: true,
     };
   }
 
   private async handleSuspend(
     companyId: string,
     event: string,
-    subscriptionId: string,
+    subscription: {
+      id: string;
+      planId: string;
+      status: SubscriptionStatus;
+      plan: { id: string; name: string } | null;
+    },
     data: Record<string, unknown>,
+    historyCtx: Parameters<typeof buildCaktoHistoryMetadata>[0],
   ) {
-    const reason =
+    const extraReason =
       (typeof data.reason === 'string' && data.reason) ||
       (typeof data.refund_reason === 'string' && data.refund_reason) ||
-      event;
+      undefined;
+
+    const planId = subscription.planId;
 
     const change =
       await this.billingOrchestrator.suspendSubscriptionAfterBillingEvent(
         companyId,
-        reason,
+        extraReason ?? event,
       );
 
     if (change) {
-      await this.subscriptionHistory.logStatusChange(
-        subscriptionId,
-        change.previousStatus,
-        change.newStatus,
-        undefined,
-        `Cakto: ${event} — ${reason}`,
-      );
+      await this.recordCaktoHistory(historyCtx, {
+        eventType: 'SUSPENDED',
+        previousStatus: change.previousStatus,
+        newStatus: change.newStatus,
+        previousPlanId: planId,
+        newPlanId: planId,
+        extraReason,
+      });
     }
 
     this.logger.log(`Cakto ${event}: company ${companyId} → SUSPENDED`);
@@ -274,6 +449,8 @@ export class CaktoWebhookController {
       event,
       status: 'SUSPENDED',
       companyId,
+      planId,
+      history: true,
     };
   }
 
@@ -281,6 +458,13 @@ export class CaktoWebhookController {
     companyId: string,
     event: string,
     data: Record<string, unknown>,
+    subscription: {
+      id: string;
+      planId: string;
+      pendingPlanId: string | null;
+      status: SubscriptionStatus;
+    },
+    historyCtx: Parameters<typeof buildCaktoHistoryMetadata>[0],
   ) {
     const paymentStatus = String(data.status ?? '').toLowerCase();
     const alreadyPaid =
@@ -309,6 +493,15 @@ export class CaktoWebhookController {
       },
     });
 
+    await this.recordCaktoHistory(historyCtx, {
+      eventType: 'PAYMENT_SUCCEEDED',
+      previousStatus: subscription.status,
+      newStatus: 'PENDING',
+      previousPlanId: subscription.planId,
+      newPlanId: subscription.pendingPlanId ?? subscription.planId,
+      amount: amountToCents(data.amount) ?? amountToCents(data.baseAmount),
+    });
+
     this.logger.log(`Cakto ${event}: aguardando pagamento — company ${companyId}`);
 
     return {
@@ -316,6 +509,7 @@ export class CaktoWebhookController {
       acknowledged: true,
       event,
       awaitingPayment: true,
+      history: true,
     };
   }
 

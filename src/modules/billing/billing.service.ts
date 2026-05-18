@@ -14,6 +14,12 @@ import type { StripePaymentConfig } from '../maste-brands/subscription-payment.t
 import { MasterBrandPaymentService } from '../maste-brands/master.brand-payment.service';
 import { StripeService } from './stripe.service';
 import { BillingOrchestratorService } from './orchestrator/billing-orchestrator.service';
+import { SubscriptionHistoryService } from '../subscription/subscription-history.service';
+import {
+  buildCaktoHistoryMetadata,
+  buildCaktoHistoryReason,
+  mapCaktoEventToSubscriptionEventType,
+} from './cakto-webhook-history.util';
 
 function mapBillingPeriodToStripeInterval(
   period: BillingPeriod,
@@ -32,6 +38,7 @@ export class BillingService {
     private brandCheckoutService: BrandCheckoutService,
     private stripeBrandCheckout: StripeBrandCheckoutService,
     private brandPaymentService: MasterBrandPaymentService,
+    private readonly subscriptionHistory: SubscriptionHistoryService,
   ) {}
 
   private async getStripeForSubscription(
@@ -493,7 +500,7 @@ export class BillingService {
       requestHost,
     );
 
-    await prisma.subscription.upsert({
+    const upserted = await prisma.subscription.upsert({
       where: { companyId: company.id },
       update: {
         /** Plano só é aplicado após webhook / retorno de pagamento */
@@ -522,7 +529,36 @@ export class BillingService {
             : undefined,
         status: 'PENDING',
       },
+      include: {
+        plan: { select: { id: true, name: true } },
+        pendingPlan: { select: { id: true, name: true } },
+      },
     });
+
+    if (checkout.paymentProvider === 'CAKTO') {
+      const metadata = buildCaktoHistoryMetadata({
+        caktoEvent: 'checkout_intent',
+        data: {
+          checkoutUrl: checkout.checkoutUrl,
+          cakto_integration_id: checkout.externalCheckoutId,
+        },
+        subscription: upserted,
+        integrationId: checkout.externalCheckoutId,
+        productLabel: plan.name,
+      });
+
+      await this.subscriptionHistory.logCaktoWebhook({
+        subscriptionId: upserted.id,
+        caktoEvent: 'checkout_intent',
+        eventType: mapCaktoEventToSubscriptionEventType('checkout_intent'),
+        reason: buildCaktoHistoryReason('checkout_intent', metadata),
+        metadata,
+        previousStatus: upserted.status,
+        newStatus: 'PENDING',
+        previousPlanId: upserted.planId,
+        newPlanId: plan.id,
+      });
+    }
 
     const providerLabel: Record<string, string> = {
       STRIPE: 'Stripe',

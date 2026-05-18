@@ -181,6 +181,11 @@ export class SubscriptionHistoryService {
     userId?: string,
     reason?: string,
     stripeEventId?: string,
+    options?: {
+      metadata?: Record<string, unknown>;
+      previousPlanId?: string;
+      newPlanId?: string;
+    },
   ) {
     let eventType: SubscriptionEventType;
 
@@ -205,9 +210,57 @@ export class SubscriptionHistoryService {
       eventType,
       previousStatus,
       newStatus,
+      previousPlanId: options?.previousPlanId,
+      newPlanId: options?.newPlanId,
       userId,
       reason,
       stripeEventId,
+      metadata: options?.metadata,
+    });
+  }
+
+  /**
+   * Evento Cakto (webhook ou intenção de checkout) — metadados completos + idempotência.
+   */
+  async logCaktoWebhook(params: {
+    subscriptionId: string;
+    caktoEvent: string;
+    eventType: SubscriptionEventType;
+    reason: string;
+    metadata: Record<string, unknown>;
+    externalEventId?: string;
+    previousStatus?: SubscriptionStatus;
+    newStatus?: SubscriptionStatus;
+    previousPlanId?: string;
+    newPlanId?: string;
+    amount?: number;
+  }) {
+    const { externalEventId, subscriptionId, caktoEvent } = params;
+
+    if (externalEventId) {
+      const existing = await prisma.subscriptionHistory.findFirst({
+        where: { subscriptionId, stripeEventId: externalEventId },
+        select: { id: true },
+      });
+      if (existing) {
+        return existing;
+      }
+    }
+
+    return this.createHistoryEntry({
+      subscriptionId: params.subscriptionId,
+      eventType: params.eventType,
+      previousStatus: params.previousStatus,
+      newStatus: params.newStatus,
+      previousPlanId: params.previousPlanId,
+      newPlanId: params.newPlanId,
+      amount: params.amount,
+      stripeEventId: externalEventId,
+      reason: params.reason,
+      metadata: {
+        ...params.metadata,
+        caktoEvent,
+      },
     });
   }
 
