@@ -19,6 +19,7 @@ import { OrderItemsModule } from './modules/order-items/order-items.module';
 import { WebSocketModule } from './modules/websocket/websocket.module';
 import { StoreModule } from './modules/store/store.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { AdminAlertsModule } from './modules/admin-alerts/admin-alerts.module';
 import { TablesModule } from './modules/tables/tables.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { PaymentMethodsModule } from './modules/payment-methods/payment-methods.module';
@@ -90,6 +91,7 @@ import { MasterBrandModule } from './modules/maste-brands/master.brands.module';
     WebSocketModule,
     StoreModule,
     NotificationsModule,
+    AdminAlertsModule,
     TablesModule,
     CustomersModule,
     PaymentMethodsModule,

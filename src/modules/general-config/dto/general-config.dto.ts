@@ -152,6 +152,40 @@ export class CreateGeneralConfigDto {
   @IsOptional()
   @IsBoolean()
   browserNotificationsEnabled?: boolean = false;
+
+  @IsOptional()
+  @IsBoolean()
+  adminAlertsEnabled?: boolean = true;
+
+  @IsOptional()
+  @IsBoolean()
+  cashSessionStaleAlertEnabled?: boolean = true;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(90)
+  cashSessionMaxOpenDays?: number = 1;
+
+  @IsOptional()
+  @IsBoolean()
+  orderStaleAlertEnabled?: boolean = true;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(5)
+  @Max(1440)
+  orderMaxPendingMinutes?: number = 30;
+
+  @IsOptional()
+  @IsBoolean()
+  orderUnpaidStaleAlertEnabled?: boolean = true;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(90)
+  orderMaxUnpaidDays?: number = 1;
 }
 
 /** Sem defaults de classe — evita gravar showMenuFooter=true ao enviar só um campo. */

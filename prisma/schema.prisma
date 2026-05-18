@@ -1898,6 +1898,15 @@ model GeneralConfig {
   notificationSound           String? // Som de notificação selecionado (default, bell, chime, etc.)
   browserNotificationsEnabled Boolean @default(false) // Notificações push do navegador para novos pedidos
 
+  // Alertas do painel admin
+  adminAlertsEnabled              Boolean @default(true)
+  cashSessionStaleAlertEnabled    Boolean @default(true)
+  cashSessionMaxOpenDays          Int     @default(1) // Caixa OPEN há mais de N dias → alerta
+  orderStaleAlertEnabled          Boolean @default(true)
+  orderMaxPendingMinutes          Int     @default(30) // Pedido PENDING há mais de N minutos → alerta
+  orderUnpaidStaleAlertEnabled    Boolean @default(true)
+  orderMaxUnpaidDays              Int     @default(1) // Pedido aberto com pagamento pendente há mais de N dias → alerta
+
   // Configurações de PIX
   pixMode                String? // disabled | manual | automatic
   pixKeyType             String? // cpf | cnpj | phone | email | random
