@@ -22,7 +22,7 @@ import {
 import { BranchSchedule, StoreHomepageDto } from './dto/store-homepage.dto';
 import { StoreLoginDto } from './dto/store-login.dto';
 import { UpdateCustomerAddressDto } from './dto/update-customer-address.dto';
-import { CepResult, GeoData, OrderForStock } from './types';
+import { CepResult, DeliveryFeeResult, GeoData, OrderForStock } from './types';
 import { GetOrdersQueryDto } from './dto/get-orders-query.dto';
 import console from 'console';
 import { UpdateOrderDto } from '../orders/dto/update-order.dto';
@@ -562,7 +562,7 @@ if (order.status !== updatedOrder.status && updatedOrder.branchId) {
 
     const whatsappConfig = await prisma.whatsAppConfig.findUnique({
       where: { branchId: branch.id },
-      select: { phoneNumber: true, status: true },
+      select: { phoneNumber: true, status: true, crmBootBotEnabled: true },
     });
     const whatsappInstancePhone =
       whatsappConfig?.status === 'connected' && whatsappConfig.phoneNumber?.trim()
@@ -644,10 +644,15 @@ if (order.status !== updatedOrder.status && updatedOrder.branchId) {
               ...generalConfig,
               customerLoginWithPassword:
                 generalConfig.customerLoginWithPassword ?? false,
+              hideOrderStatus: generalConfig.hideOrderStatus ?? false,
+              hideStoreAddress: generalConfig.hideStoreAddress ?? false,
+              referencePointRequired: generalConfig.referencePointRequired ?? false,
+              showMenuFooter: generalConfig.showMenuFooter ?? true,
             }
           : undefined,
         isOpen: branch.isOpen,
         whatsappInstancePhone,
+        crmBootBotEnabled: !!whatsappConfig?.crmBootBotEnabled,
       },
       subscription: subscription ? {
         status: subscription.status,
@@ -1821,8 +1826,15 @@ private async validateCustomer(
           feeResult.message || 'Delivery não disponível para este endereço',
         );
 
+      if (feeResult.meetsMinOrder === false) {
+        throw new BadRequestException(
+          feeResult.minOrderMessage ||
+            'Pedido mínimo da área de entrega não atingido',
+        );
+      }
+
       deliveryFee = feeResult.deliveryFee;
-      estimatedTime = feeResult.estimatedTime || null;
+      estimatedTime = feeResult.estimatedTime ?? null;
     }
 
     // Calcular taxa de serviço
@@ -1938,6 +1950,21 @@ async createOrder(
 
   const { subtotal, itemsData } =
     this.calculateSubtotal(items, productMap, optionMap);
+
+  if (deliveryType !== DeliveryTypeDto.DELIVERY) {
+    if (
+      branch.minOrderValue != null &&
+      branch.minOrderValue > 0 &&
+      subtotal < branch.minOrderValue
+    ) {
+      throw new BadRequestException(
+        `Pedido mínimo de ${new Intl.NumberFormat('pt-BR', {
+          style: 'currency',
+          currency: 'BRL',
+        }).format(branch.minOrderValue / 100)}. Adicione mais itens ao carrinho.`,
+      );
+    }
+  }
 
   const { deliveryFee, serviceFee, estimatedTime } =
     await this.calculateOrderValues(
@@ -2272,11 +2299,58 @@ Verifique no sistema!`;
 
 }
 
+  private deliveryFeeUnavailable(message: string): DeliveryFeeResult {
+    return {
+      available: false,
+      deliveryFee: 0,
+      message,
+      meetsMinOrder: false,
+    };
+  }
+
+  private resolveDeliveryMinOrder(
+    areaMinOrderValue: number | null | undefined,
+    branchMinOrderValue: number | null | undefined,
+    subtotal: number,
+    areaName?: string | null,
+  ): {
+    minOrderValue: number | null;
+    meetsMinOrder: boolean;
+    minOrderMessage?: string;
+  } {
+    const effectiveMin =
+      areaMinOrderValue != null && areaMinOrderValue > 0 ?
+        areaMinOrderValue
+      : branchMinOrderValue != null && branchMinOrderValue > 0 ?
+        branchMinOrderValue
+      : null;
+
+    if (effectiveMin == null) {
+      return { minOrderValue: null, meetsMinOrder: true };
+    }
+
+    const meetsMinOrder = subtotal >= effectiveMin;
+    if (meetsMinOrder) {
+      return { minOrderValue: effectiveMin, meetsMinOrder: true };
+    }
+
+    const shortfall = effectiveMin - subtotal;
+    const prefix = areaName ?
+      `Pedido mínimo para ${areaName}`
+    : 'Pedido mínimo para esta área';
+
+    return {
+      minOrderValue: effectiveMin,
+      meetsMinOrder: false,
+      minOrderMessage: `${prefix}: ${formatCurrency(effectiveMin)}. Faltam ${formatCurrency(shortfall)}.`,
+    };
+  }
+
   async calculateDeliveryFee(
     calculateFeeDto: CalculateDeliveryFeeDto,
     subdomain?: string,
     branchId?: string,
-  ) {
+  ): Promise<DeliveryFeeResult> {
     let branch = await this.getBranch(subdomain, branchId);
 
     if (!branch) {
@@ -2304,11 +2378,9 @@ Verifique no sistema!`;
     // ===============================
     if (!isValidCoord(finalLat) || !isValidCoord(finalLng)) {
       if (!address || !city || !state) {
-        return {
-          available: false,
-          deliveryFee: 0,
-          message: 'Endereço incompleto para localizar no mapa',
-        };
+        return this.deliveryFeeUnavailable(
+          'Endereço incompleto para localizar no mapa',
+        );
       }
 
       try {
@@ -2341,21 +2413,13 @@ Verifique no sistema!`;
         finalLat = parseFloat(data[0].lat);
         finalLng = parseFloat(data[0].lon);
       } catch (err) {
-        return {
-          available: false,
-          deliveryFee: 0,
-          message: 'Erro ao localizar endereço',
-        };
+        return this.deliveryFeeUnavailable('Erro ao localizar endereço');
       }
     }
 
     // 🔥 GARANTIA FINAL
     if (!isValidCoord(finalLat) || !isValidCoord(finalLng)) {
-      return {
-        available: false,
-        deliveryFee: 0,
-        message: 'Coordenadas inválidas',
-      };
+      return this.deliveryFeeUnavailable('Coordenadas inválidas');
     }
 
     const point = { lat: finalLat, lng: finalLng };
@@ -2424,22 +2488,18 @@ Verifique no sistema!`;
             lng: ex.centerLng,
           }) <= ex.radius
         ) {
-          return {
-            available: false,
-            deliveryFee: 0,
-            message: 'Entrega não disponível nesta área',
-          };
+          return this.deliveryFeeUnavailable(
+            'Entrega não disponível nesta área',
+          );
         }
       }
 
       if (ex.type === 'POLYGON' && ex.polygon) {
         const poly = JSON.parse(ex.polygon) as LatLng[];
         if (isPointInPolygon(point, poly)) {
-          return {
-            available: false,
-            deliveryFee: 0,
-            message: 'Entrega não disponível nesta área',
-          };
+          return this.deliveryFeeUnavailable(
+            'Entrega não disponível nesta área',
+          );
         }
       }
     }
@@ -2490,21 +2550,21 @@ Verifique no sistema!`;
 
     if (!matched) {
 
-      return {
-        available: false,
-        deliveryFee: 0,
-        message: 'Endereço fora da área de entrega',
-      };
+      return this.deliveryFeeUnavailable('Endereço fora da área de entrega');
     }
 
     // ===============================
-    // 8️⃣ PEDIDO MÍNIMO (APENAS INFORMATIVO)
+    // 8️⃣ PEDIDO MÍNIMO DA ÁREA / ROTA (com fallback da filial)
     // ===============================
-    // Nota: Não bloqueia a seleção do endereço, apenas informa o valor mínimo
-    // A validação real do pedido mínimo acontece no createOrder
+    const minOrder = this.resolveDeliveryMinOrder(
+      matched.minOrderValue,
+      branch.minOrderValue,
+      subtotal,
+      matched.name,
+    );
 
     // ===============================
-    // 9️⃣ SUCESSO - SEMPRE DISPONÍVEL SE DENTRO DA ÁREA
+    // 9️⃣ SUCESSO — DENTRO DA ÁREA (frete + regra de mínimo)
     // ===============================
     return {
       available: true,
@@ -2513,6 +2573,7 @@ Verifique no sistema!`;
       areaName: matched.name,
       areaLevel: matched.level,
       type: matchedRoute ? 'route' : 'area',
+      ...minOrder,
     };
   }
 
@@ -3373,9 +3434,16 @@ Verifique no sistema!`;
       throw new BadRequestException(feeResult.message || 'Delivery não disponível para este endereço');
     }
 
+    if (feeResult.meetsMinOrder === false) {
+      throw new BadRequestException(
+        feeResult.minOrderMessage ||
+          'Pedido mínimo da área de entrega não atingido',
+      );
+    }
+
     return {
       deliveryFee: feeResult.deliveryFee,
-      estimatedTime: feeResult.estimatedTime || null,
+      estimatedTime: feeResult.estimatedTime ?? null,
     };
   }
 

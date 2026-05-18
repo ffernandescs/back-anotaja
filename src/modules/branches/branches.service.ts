@@ -1337,6 +1337,19 @@ export class BranchesService {
       }
     }
 
+    // Legado: sendOrdersByWhatsApp espelha o bot global do CRM
+    if (data.sendOrdersByWhatsApp !== undefined) {
+      await prisma.whatsAppConfig.upsert({
+        where: { branchId },
+        update: { crmBootBotEnabled: data.sendOrdersByWhatsApp },
+        create: {
+          branchId,
+          crmBootBotEnabled: data.sendOrdersByWhatsApp,
+          status: 'disconnected',
+        },
+      });
+    }
+
     // Atualizar ou criar GeneralConfig
     const generalConfig = await prisma.generalConfig.upsert({
       where: { branchId },

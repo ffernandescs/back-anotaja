@@ -86,6 +86,20 @@ export type CepResult = {
   erro?: boolean;
 };
 
+/** Resposta de `calculateDeliveryFee` (loja / frete por área). */
+export interface DeliveryFeeResult {
+  available: boolean;
+  deliveryFee: number;
+  message?: string;
+  estimatedTime?: number | null;
+  areaName?: string;
+  areaLevel?: number;
+  type?: 'route' | 'area';
+  minOrderValue?: number | null;
+  meetsMinOrder?: boolean;
+  minOrderMessage?: string;
+}
+
 /**
  * Payload JWT para autenticação
  */
