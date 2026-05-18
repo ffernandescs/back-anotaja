@@ -10,9 +10,12 @@ import {
   UseGuards,
   Param,
   Request,
+  Req,
   UseInterceptors,
   UploadedFile,
 } from '@nestjs/common';
+import type { Request as ExpressRequest } from 'express';
+import { getRequestHost } from '../../common/utils/request-host.util';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { MasterService } from './master.service';
 import { Public } from '../../common/decorators/public.decorator';
@@ -61,8 +64,13 @@ export class MasterController {
   @Public()
   @Get('branding/public')
   @HttpCode(HttpStatus.OK)
-  async getPublicBranding() {
-    // Retorna branding do primeiro master user (para simplificar)
+  async getPublicBranding(@Req() req: ExpressRequest) {
+    const host = getRequestHost(req);
+    const byHost = host
+      ? await this.masterService.getBrandingByHost(host)
+      : null;
+    if (byHost) return byHost;
+
     const masterUser = await this.masterService.getFirstMasterUser();
     if (!masterUser) {
       return {

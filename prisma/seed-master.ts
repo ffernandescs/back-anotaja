@@ -63,6 +63,9 @@ const BASIC_FEATURE_KEYS = new Set([
   'customers',
   'my_restaurant',
   'subscription',
+  'subscription_plans',
+  'subscription_payments',
+  'subscription_history',
   'help',
   'contact',
 ]);
@@ -77,6 +80,9 @@ const GROWTH_FEATURE_KEYS = [
   'customers',
   'my_restaurant',
   'subscription',
+  'subscription_plans',
+  'subscription_payments',
+  'subscription_history',
   'help',
   'contact',
   // Exclusivas do Growth+
@@ -291,6 +297,11 @@ async function seed() {
     // NOTIFICAÇÕES
     ['announcements',         'Avisos',         'notifications', '/admin/administration/settings/announcements',  1],
     ['notification_settings', 'Sons e Alertas', 'notifications', '/admin/administration/settings/notifications', 2],
+
+    // ASSINATURA / COBRANÇA SAAS
+    ['subscription_plans',    'Planos e assinatura',  'subscription', '/admin/administration/settings/subscription',         1],
+    ['subscription_payments', 'Pagamentos',           'subscription', '/admin/administration/settings/payments',           2],
+    ['subscription_history',  'Histórico de cobrança','subscription', '/admin/administration/settings/subscription/history', 3],
 
     // RELATÓRIO
     ['order-survey',        'Pesquisa de Pedido',    'relatorio', '/admin/performance/order-survey',   1],

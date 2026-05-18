@@ -57,11 +57,34 @@ model MasterBrand {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  masterUser MasterUser @relation(fields: [masterUserId], references: [id], onDelete: Cascade)
+  masterUser       MasterUser                @relation(fields: [masterUserId], references: [id], onDelete: Cascade)
+  paymentIntegration MasterBrandPaymentConfig?
 
   @@index([masterUserId])
   @@index([masterUserId, isDefault])
   @@map("master_brands")
+}
+
+/// Provedor de cobrança de assinaturas por brand (white-label)
+enum SubscriptionPaymentProvider {
+  STRIPE
+  CAKTO
+  ASAAS
+}
+
+model MasterBrandPaymentConfig {
+  id            String                      @id @default(cuid())
+  masterBrandId String                      @unique
+  provider      SubscriptionPaymentProvider @default(STRIPE)
+  enabled       Boolean                     @default(false)
+  /// Credenciais específicas do provedor (url, tokens, webhook secret, etc.)
+  config        Json?
+  createdAt     DateTime                    @default(now())
+  updatedAt     DateTime                    @updatedAt
+
+  masterBrand MasterBrand @relation(fields: [masterBrandId], references: [id], onDelete: Cascade)
+
+  @@map("master_brand_payment_configs")
 }
 
 enum OnboardingStep {
@@ -360,6 +383,12 @@ model Subscription {
   stripeSubscriptionId String?
   stripeCustomerId     String?
 
+  /// Provedor de cobrança da assinatura (white-label / master brand)
+  paymentProvider      SubscriptionPaymentProvider?
+  masterBrandId        String?
+  /// ID do checkout/sessão no provedor externo (Asaas, Cakto, etc.)
+  externalCheckoutId   String?
+
   notes String?
 
   createdAt DateTime @default(now())
@@ -522,7 +551,7 @@ model PasswordResetToken {
 // Configurações globais do sistema (apenas master pode editar)
 model SystemConfig {
   id        String   @id @default(cuid())
-  key       String   @unique // Ex: "strapi_url", "strapi_api_token", etc.
+  key       String   @unique // Ex: "ifood_client_id", chaves globais do master, etc.
   value     String? // Valor da configuração (pode ser JSON)
   encrypted Boolean  @default(false) // Se o valor deve ser criptografado
   createdAt DateTime @default(now())

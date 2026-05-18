@@ -43,8 +43,8 @@ export class CreateOwnerDto {
 
   @IsNotEmpty()
   @IsString()
-  @MinLength(14, { message: 'CNPJ deve ter 14 dígitos' })
-  @Matches(/^\d+$/, { message: 'CNPJ deve conter apenas números' })
+  @MinLength(11, { message: 'CPF ou CNPJ inválido' })
+  @Matches(/^\d+$/, { message: 'Documento deve conter apenas números' })
   document!: string;
 
   // Dados da primeira filial (matriz)

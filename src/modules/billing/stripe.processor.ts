@@ -101,11 +101,16 @@ export class StripeProcessor extends WorkerHost {
       }
     }
 
+    const existing = await prisma.subscription.findUnique({
+      where: { companyId },
+    });
+    const planIdToApply = existing?.pendingPlanId ?? planId;
+
     await prisma.subscription.upsert({
       where: { companyId },
       update: {
         stripeSubscriptionId: subscriptionId,
-        planId,
+        planId: planIdToApply,
         status: 'ACTIVE',
         pendingPlanId: null,
         scheduledChangeAt: null,
@@ -113,10 +118,15 @@ export class StripeProcessor extends WorkerHost {
       create: {
         companyId,
         stripeSubscriptionId: subscriptionId,
-        planId,
+        planId: planIdToApply,
         status: 'ACTIVE',
       },
     });
+
+    await this.billingOrchestrator.syncCompanyPermissionsFromPlan(
+      companyId,
+      planIdToApply,
+    );
 
     this.logger.log(`✅ Checkout aplicado${replacesSubscription ? ' (substituiu subscription anterior)' : ''}`);
   }

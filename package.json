@@ -28,6 +28,7 @@
     "reset:dev": "dotenv -e environments/.env.dev -- npm run prisma:reset:dev && npm run prisma:db:push:dev && npm run seed:master:dev",
     "reset:hml": "dotenv -e environments/.env.hml -- npm run prisma:reset:hml && npm run prisma:db:push:hml && npm run seed:master:hml",
     "reset:prod": "dotenv -e environments/.env.prod -- npm run prisma:reset:prod && npm run prisma:db:push:prod && npm run seed:master:prod",
+    "prisma:fix-brand-payment:dev": "dotenv -e environments/.env.dev -- npx prisma db execute --file scripts/fix-subscription-brand-payment.sql",
     "prisma:db:push:dev": "dotenv -e environments/.env.dev -- npx prisma db push",
     "prisma:db:push:hml": "dotenv -e environments/.env.hml -- npx prisma db push",
     "prisma:db:push:prod": "dotenv -e environments/.env.prod -- npx prisma db push",

@@ -48,6 +48,7 @@ async function bootstrap() {
       'Origin',
       'X-Requested-With',
       'X-Tenant',
+      'X-Tenant-Host',
       'X-Auth-Context',
     ],
   });

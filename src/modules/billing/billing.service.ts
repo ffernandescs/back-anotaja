@@ -1,9 +1,17 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { BillingPeriod } from '@prisma/client';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { BillingPeriod, SubscriptionPaymentProvider } from '@prisma/client';
 import Stripe from 'stripe';
 import { prisma } from '../../../lib/prisma';
 import { calculateStripeAmount } from '../../utils/calculateStripeAmount';
 import { formatCurrency } from '../../utils/formatCurrency';
+import { BrandCheckoutService } from './brand-payment/brand-checkout.service';
+import { StripeBrandCheckoutService } from './brand-payment/stripe-brand-checkout.service';
+import type { StripePaymentConfig } from '../maste-brands/subscription-payment.types';
+import { MasterBrandPaymentService } from '../maste-brands/master.brand-payment.service';
 import { StripeService } from './stripe.service';
 import { BillingOrchestratorService } from './orchestrator/billing-orchestrator.service';
 
@@ -21,13 +29,79 @@ export class BillingService {
   constructor(
     private stripeService: StripeService,
     private billingOrchestrator: BillingOrchestratorService,
+    private brandCheckoutService: BrandCheckoutService,
+    private stripeBrandCheckout: StripeBrandCheckoutService,
+    private brandPaymentService: MasterBrandPaymentService,
   ) {}
+
+  private async getStripeForSubscription(
+    subscription: { masterBrandId?: string | null; paymentProvider?: SubscriptionPaymentProvider | null },
+  ): Promise<Stripe> {
+    if (subscription.masterBrandId) {
+      try {
+        const row = await (prisma as any).masterBrandPaymentConfig.findUnique({
+          where: { masterBrandId: subscription.masterBrandId },
+        });
+        if (row?.provider === 'STRIPE' && row.config) {
+          return this.stripeBrandCheckout.getStripeInstance(
+            row.config as StripePaymentConfig,
+          );
+        }
+      } catch {
+        /* fallback env */
+      }
+    }
+    return this.stripeService.stripe;
+  }
 
   
 
   /**
    * Retorna dados completos de billing para o dashboard do frontend.
    */
+  async getPaymentContext(requestHost?: string) {
+    const ctx = await this.brandPaymentService.resolveForBilling(requestHost);
+    return {
+      brandId: ctx.brandId,
+      brandName: ctx.brandName,
+      domain: ctx.domain,
+      provider: ctx.provider,
+      enabled: ctx.enabled,
+    };
+  }
+
+  async confirmExternalReturn(userId: string, companyId: string) {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user?.companyId || user.companyId !== companyId) {
+      throw new NotFoundException('Empresa não encontrada');
+    }
+
+    const subscription = await prisma.subscription.findUnique({
+      where: { companyId },
+      include: { plan: true, company: true },
+    });
+
+    if (!subscription) {
+      throw new NotFoundException('Assinatura não encontrada');
+    }
+
+    if (subscription.status === 'ACTIVE' && !subscription.pendingPlanId) {
+      return { success: true, alreadyActive: true, subscription };
+    }
+
+    await this.billingOrchestrator.commitPendingPlanAfterPayment(companyId);
+
+    const updated = await prisma.subscription.findUnique({
+      where: { companyId },
+      include: {
+        plan: true,
+        company: { select: { id: true, name: true, email: true } },
+      },
+    });
+
+    return { success: true, subscription: updated };
+  }
+
   async getDetails(userId: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -73,7 +147,30 @@ export class BillingService {
 
     // Determinar se há mudança de plano pendente
     let pendingChange: any = null;
-    if (subscription.pendingPlan && subscription.scheduledChangeAt) {
+    if (
+      subscription.pendingPlan &&
+      subscription.status === 'PENDING' &&
+      !subscription.scheduledChangeAt
+    ) {
+      pendingChange = {
+        type: 'AWAITING_PAYMENT',
+        fromPlan: subscription.plan
+          ? {
+              id: subscription.plan.id,
+              name: subscription.plan.name,
+              price: subscription.plan.price,
+              formattedPrice: formatCurrency(subscription.plan.price),
+            }
+          : null,
+        toPlan: {
+          id: subscription.pendingPlan.id,
+          name: subscription.pendingPlan.name,
+          price: subscription.pendingPlan.price,
+          formattedPrice: formatCurrency(subscription.pendingPlan.price),
+        },
+        scheduledAt: null,
+      };
+    } else if (subscription.pendingPlan && subscription.scheduledChangeAt) {
       const isPendingUpgrade = subscription.pendingPlan.price > (subscription.plan?.price ?? 0);
       pendingChange = {
         type: isPendingUpgrade ? 'UPGRADE' : 'DOWNGRADE',
@@ -93,11 +190,17 @@ export class BillingService {
       };
     }
 
+    const isStripeProvider =
+      subscription.paymentProvider === 'STRIPE' || !subscription.paymentProvider;
+    const stripeClient = isStripeProvider
+      ? await this.getStripeForSubscription(subscription)
+      : null;
+
     // Buscar últimas invoices do Stripe
     let recentInvoices: any[] = [];
-    if (subscription.stripeSubscriptionId) {
+    if (subscription.stripeSubscriptionId && stripeClient) {
       try {
-        const stripeInvoices = await this.stripeService.stripe.invoices.list({
+        const stripeInvoices = await stripeClient.invoices.list({
           subscription: subscription.stripeSubscriptionId,
           limit: 10,
         });
@@ -124,9 +227,9 @@ export class BillingService {
 
     // Verificar se existe método de pagamento
     let hasPaymentMethod = false;
-    if (subscription.stripeCustomerId) {
+    if (subscription.stripeCustomerId && stripeClient) {
       try {
-        const paymentMethods = await this.stripeService.stripe.paymentMethods.list({
+        const paymentMethods = await stripeClient.paymentMethods.list({
           customer: subscription.stripeCustomerId,
           type: 'card',
           limit: 1,
@@ -139,9 +242,9 @@ export class BillingService {
 
     // Buscar upcoming invoice do Stripe (próxima cobrança)
     let upcomingInvoice: any = null;
-    if (subscription.stripeSubscriptionId && !isTrialActive) {
+    if (subscription.stripeSubscriptionId && !isTrialActive && stripeClient) {
       try {
-        const upcoming = await this.stripeService.stripe.invoices.createPreview({
+        const upcoming = await stripeClient.invoices.createPreview({
           subscription: subscription.stripeSubscriptionId,
         });
         upcomingInvoice = {
@@ -167,6 +270,8 @@ export class BillingService {
       subscription: {
         id: subscription.id,
         status: subscription.status,
+        paymentProvider: subscription.paymentProvider,
+        masterBrandId: subscription.masterBrandId,
         billingPeriod: subscription.billingPeriod,
         billingPeriodLabel: billingPeriodLabel[subscription.billingPeriod] || subscription.billingPeriod,
         startDate: subscription.startDate,
@@ -198,7 +303,7 @@ export class BillingService {
     };
   }
 
-  async portal(userId: string) {
+  async portal(userId: string, requestHost?: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
     });
@@ -211,20 +316,66 @@ export class BillingService {
       where: { companyId: user.companyId },
     });
 
-    if (!subscription?.stripeCustomerId) {
+    if (!subscription) {
       throw new NotFoundException('Assinatura não encontrada');
     }
 
-    const session =
-      await this.stripeService.stripe.billingPortal.sessions.create({
+    const provider =
+      subscription.paymentProvider ??
+      (await this.brandPaymentService.resolveForBilling(requestHost)).provider;
+
+    if (provider === 'STRIPE') {
+      if (!subscription.stripeCustomerId) {
+        throw new NotFoundException('Cliente de pagamento não encontrado');
+      }
+      const stripe = await this.getStripeForSubscription(subscription);
+      const session = await stripe.billingPortal.sessions.create({
         customer: subscription.stripeCustomerId,
         return_url: process.env.FRONTEND_URL,
       });
+      return { url: session.url, provider: 'STRIPE' };
+    }
 
-    return { url: session.url };
+    if (provider === 'ASAAS' && subscription.externalCheckoutId) {
+      let sandbox = true;
+      if (subscription.masterBrandId) {
+        try {
+          const row = await (prisma as any).masterBrandPaymentConfig.findUnique({
+            where: { masterBrandId: subscription.masterBrandId },
+          });
+          const env = (row?.config as { environment?: string })?.environment;
+          sandbox = env !== 'production';
+        } catch {
+          /* default sandbox */
+        }
+      }
+      const base = sandbox
+        ? 'https://sandbox.asaas.com'
+        : 'https://www.asaas.com';
+      return {
+        url: `${base}/checkoutSession/show/${subscription.externalCheckoutId}`,
+        provider: 'ASAAS',
+      };
+    }
+
+    if (provider === 'CAKTO' && subscription.externalCheckoutId) {
+      return {
+        url: `https://pay.cakto.com.br/${subscription.externalCheckoutId}`,
+        provider: 'CAKTO',
+      };
+    }
+
+    throw new BadRequestException(
+      'Portal de pagamento disponível apenas para assinaturas Stripe ou Asaas com checkout ativo.',
+    );
   }
 
-  async createCheckout(planId: string, userId: string) {
+  async createCheckout(
+    planId: string,
+    userId: string,
+    billingPeriod?: BillingPeriod,
+    requestHost?: string,
+  ) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       include: { branch: true },
@@ -256,11 +407,24 @@ export class BillingService {
     }
 
     const subscription = company.subscription;
+    const effectivePeriod = billingPeriod ?? plan.billingPeriod;
+    const brandContext = await this.brandPaymentService.resolveForBilling(
+      requestHost,
+    );
 
     /**
-     * 🔥 LÓGICA DE UPGRADE / DOWNGRADE
+     * 🔥 LÓGICA DE UPGRADE / DOWNGRADE (apenas Stripe)
      */
-    if (subscription?.stripeSubscriptionId && subscription.plan) {
+    const isStripeBilling =
+      brandContext.provider === 'STRIPE' &&
+      (!subscription?.paymentProvider ||
+        subscription.paymentProvider === 'STRIPE');
+
+    if (
+      isStripeBilling &&
+      subscription?.stripeSubscriptionId &&
+      subscription.plan
+    ) {
       const currentPlan = subscription.plan;
 
       const isUpgrade = plan.price > currentPlan.price;
@@ -310,91 +474,67 @@ export class BillingService {
     }
 
     /**
-     * 🔥 NOVA ASSINATURA (CHECKOUT)
+     * 🔥 NOVA ASSINATURA — checkout do provedor da brand (Master)
      */
-
-    let customerId = subscription?.stripeCustomerId;
-
-    if (!customerId) {
-      const customer = await this.stripeService.stripe.customers.create({
-        name: company.name,
-        email: company.email,
-        phone: company.phone,
-        metadata: {
-          companyId: company.id,
+    const checkout = await this.brandCheckoutService.createCheckout(
+      {
+        company: {
+          id: company.id,
+          name: company.name,
+          email: company.email,
+          phone: company.phone,
+          document: company.document,
         },
-      });
-
-      customerId = customer.id;
-    }
-
-    const trialEndDate = subscription?.trialEndsAt;
-    const trialEndSeconds = trialEndDate
-      ? Math.floor(new Date(trialEndDate).getTime() / 1000)
-      : null;
-
-    const nowSeconds = Math.floor(Date.now() / 1000);
-    const shouldApplyTrial = trialEndSeconds && trialEndSeconds > nowSeconds;
-
-    if (!company?.id) {
-      throw new Error('Company inválida antes do checkout');
-    }
-
-    const session = await this.stripeService.stripe.checkout.sessions.create({
-      mode: 'subscription',
-      customer: customerId,
-      payment_method_types: ['card'],
-      line_items: [
-        {
-          price_data: {
-            currency: 'brl',
-            product_data: {
-              name: plan.name,
-              ...(plan.description && { description: plan.description }),
-            },
-            unit_amount: calculateStripeAmount(
-              plan.price,
-              plan.discount,
-            ),
-            recurring: {
-              interval: mapBillingPeriodToStripeInterval(
-                plan.billingPeriod,
-              ),
-            },
-          },
-          quantity: 1,
-        },
-      ],
-      success_url: `${process.env.FRONTEND_URL}/billing/success/{CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.FRONTEND_URL}/billing/error/{CHECKOUT_SESSION_ID}`,
-      metadata: {
-        companyId: company.id,
-        planId: plan.id,
+        plan,
+        billingPeriod: effectivePeriod,
+        trialEndsAt: subscription?.trialEndsAt ?? null,
+        existingStripeCustomerId: subscription?.stripeCustomerId,
       },
-      subscription_data: shouldApplyTrial
-        ? {
-            trial_end: trialEndSeconds,
-          }
-        : undefined,
-    });
+      requestHost,
+    );
 
     await prisma.subscription.upsert({
       where: { companyId: company.id },
       update: {
-        stripeCustomerId: customerId,
+        /** Plano só é aplicado após webhook / retorno de pagamento */
+        pendingPlanId: plan.id,
+        billingPeriod: effectivePeriod,
+        paymentProvider: checkout.paymentProvider,
+        masterBrandId: checkout.brandId,
+        externalCheckoutId: checkout.externalCheckoutId ?? undefined,
+        scheduledChangeAt: null,
+        ...(checkout.paymentProvider === 'STRIPE' && checkout.externalCustomerId
+          ? { stripeCustomerId: checkout.externalCustomerId }
+          : {}),
+        status: 'PENDING',
       },
       create: {
         companyId: company.id,
-        stripeCustomerId: customerId,
-        planId: plan.id,
+        planId: subscription?.planId ?? plan.id,
+        pendingPlanId: plan.id,
+        billingPeriod: effectivePeriod,
+        paymentProvider: checkout.paymentProvider,
+        masterBrandId: checkout.brandId,
+        externalCheckoutId: checkout.externalCheckoutId ?? undefined,
+        stripeCustomerId:
+          checkout.paymentProvider === 'STRIPE'
+            ? checkout.externalCustomerId
+            : undefined,
         status: 'PENDING',
       },
     });
 
+    const providerLabel: Record<string, string> = {
+      STRIPE: 'Stripe',
+      CAKTO: 'Cakto',
+      ASAAS: 'Asaas',
+    };
+
     return {
-      checkoutUrl: session.url,
-      message:
-        'Checkout criado. O plano será ativado após confirmação do pagamento.',
+      checkoutUrl: checkout.checkoutUrl,
+      paymentProvider: checkout.paymentProvider,
+      pendingPlanId: plan.id,
+      message: `Checkout ${providerLabel[checkout.paymentProvider] ?? checkout.paymentProvider} criado. O plano ${plan.name} só será aplicado após a confirmação do pagamento.`,
     };
   }
 

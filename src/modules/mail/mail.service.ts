@@ -135,10 +135,6 @@ export class MailService {
               ifood_client_id: null,
               ifood_client_secret: null,
               ninetynine_food_api_key: null,
-              strapi_url: null,
-              strapi_api_token: null,
-              strapi_webhook_secret: null,
-              strapi_enabled: false,
             },
           };
         }

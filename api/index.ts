@@ -45,7 +45,9 @@ async function bootstrap() {
       'Accept',
       'Origin',
       'X-Requested-With',
-      'x-tenant',
+      'X-Tenant',
+      'X-Tenant-Host',
+      'X-Auth-Context',
     ],
     optionsSuccessStatus: 204,
   });

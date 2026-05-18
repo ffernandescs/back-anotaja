@@ -17,6 +17,8 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { MasterBrandService, CreateBrandDto, UpdateBrandDto } from './master.brands.service';
+import { MasterBrandPaymentService } from './master.brand-payment.service';
+import type { BrandPaymentIntegrationDto } from './subscription-payment.types';
 import { JwtOwnerAuthGuard } from 'src/common/guards/jwt-owner.guard';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { Public } from '../../common/decorators/public.decorator';
@@ -26,6 +28,7 @@ import { UploadService } from '../upload/upload.service';
 export class MasterBrandController {
   constructor(
     private readonly brandService: MasterBrandService,
+    private readonly brandPaymentService: MasterBrandPaymentService,
     private readonly uploadService: UploadService,
   ) {}
 
@@ -49,6 +52,37 @@ export class MasterBrandController {
   @HttpCode(HttpStatus.OK)
   async resolveByHost(@Query('host') host: string) {
     return this.brandService.resolvePublicByHost(host ?? '');
+  }
+
+  // ─── Integração de pagamento (assinaturas) por brand ─────────────────────────
+
+  @Public()
+  @Get(':brandId/payment-integration')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  @HttpCode(HttpStatus.OK)
+  async getPaymentIntegration(
+    @Param('brandId') brandId: string,
+    @Request() req,
+  ) {
+    return this.brandPaymentService.getIntegration(brandId, req.user.userId);
+  }
+
+  @Public()
+  @Put(':brandId/payment-integration')
+  @UseGuards(JwtOwnerAuthGuard)
+  @Roles('master')
+  @HttpCode(HttpStatus.OK)
+  async upsertPaymentIntegration(
+    @Param('brandId') brandId: string,
+    @Request() req,
+    @Body() dto: BrandPaymentIntegrationDto,
+  ) {
+    return this.brandPaymentService.upsertIntegration(
+      brandId,
+      req.user.userId,
+      dto,
+    );
   }
 
   // ─── Single ───────────────────────────────────────────────────────────────────

@@ -104,8 +104,8 @@ export class SubscriptionService {
           ? new Date(createSubscriptionDto.lastBillingDate)
           : null,
         stripeSubscriptionId:
-          createSubscriptionDto.strapiSubscriptionId || null,
-        stripeCustomerId: createSubscriptionDto.strapiCustomerId || null,
+          createSubscriptionDto.stripeSubscriptionId || null,
+        stripeCustomerId: createSubscriptionDto.stripeCustomerId || null,
         notes: createSubscriptionDto.notes || null,
       },
       include: {

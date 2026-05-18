@@ -15,10 +15,6 @@ export class MasterService {
           ifood_client_id: null,
           ifood_client_secret: null,
           ninetynine_food_api_key: null,
-          strapi_url: null,
-          strapi_api_token: null,
-          strapi_webhook_secret: null,
-          strapi_enabled: false,
         },
       };
     }
@@ -30,10 +26,6 @@ export class MasterService {
         ifood_client_id: null,
         ifood_client_secret: null,
         ninetynine_food_api_key: null,
-        strapi_url: null,
-        strapi_api_token: null,
-        strapi_webhook_secret: null,
-        strapi_enabled: false,
       },
       branding,
     };
@@ -46,14 +38,6 @@ export class MasterService {
     const masterUser = await this.getFirstMasterUser();
     if (!masterUser) {
       throw new NotFoundException('Master user não encontrado');
-    }
-
-    // Por enquanto, apenas atualizamos o branding
-    // As configs globais podem ser expandidas no futuro
-    if (configs.strapi_url || configs.strapi_api_token || configs.strapi_webhook_secret !== undefined) {
-      // Aqui poderíamos salvar configs em uma tabela separada
-      // Por enquanto, apenas logamos
-      console.log('Configurações do Strapi recebidas:', configs);
     }
 
     return { success: true };
@@ -119,6 +103,15 @@ async getProfile(masterUserId: string) {
   /**
    * Busca o branding do master (logos, favicon, cores)
    */
+  async getBrandingByHost(host: string) {
+    const normalized = host.trim().toLowerCase().split(':')[0];
+    const branding = await prisma.masterBrand.findFirst({
+      where: { domain: normalized },
+    });
+    if (!branding) return null;
+    return branding;
+  }
+
  async getBranding(masterUserId: string) {
     const branding = await prisma.masterBrand.findFirst({
       where: { masterUserId, isDefault: true },

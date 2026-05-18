@@ -9,12 +9,14 @@ import { prisma } from '../../../lib/prisma';
 import { Prisma, User, Company, Branch, Plan, PlanType, OnboardingStep } from '@prisma/client';
 import { GeocodingService } from '../geocoding/geocoding.service';
 import { MailService } from '../mail/mail.service';
+import { AuthService } from '../auth/auth.service';
 
 @Injectable()
-export class OwnerService {
+export class CompanyOwnerService {
   constructor(
     private readonly geocodingService: GeocodingService,
     private readonly mailService: MailService,
+    private readonly authService: AuthService,
   ) {}
 
   /**
@@ -100,6 +102,8 @@ export class OwnerService {
           email,
           document: 'MATRIZ-' + company.id,
           active: true,
+          onboardingStep: OnboardingStep.PLAN,
+          onboardingCompleted: false,
         },
       });
 
@@ -133,6 +137,11 @@ export class OwnerService {
       // 7. Criar contadores de uso iniciais
       await this.createInitialUsageCounters(tx, company.id);
 
+      const subscription = await tx.subscription.findUnique({
+        where: { companyId: company.id },
+        include: { plan: true },
+      });
+
       return {
         company,
         branch,
@@ -142,36 +151,24 @@ export class OwnerService {
           email: owner.email,
           phone: owner.phone,
         },
-        subscription: {
-          plan: trialPlan,
-          trialEndsAt: result.company.subscription?.trialEndsAt,
-        },
+        subscription,
+        trialPlan,
       };
     });
 
-    // ✅ Enviar email de boas-vindas
-    try {
-      // Email opcional - não falha se não implementado
-     
-    } catch (error) {
-      console.error('Erro ao enviar email de boas-vindas:', error);
-      // Não falhar o cadastro se o email falhar
-    }
+    const login = await this.authService.login({
+      email: dto.email,
+      password: dto.password,
+    });
 
     return {
       success: true,
-      message: 'Empresa e usuário dono criados com sucesso!',
-      data: {
-        companyId: result.company.id,
-        ownerId: result.owner.id,
-        trialEndsAt: result.subscription.trialEndsAt,
-        nextSteps: [
-          'Complete seu cadastro básico',
-          'Configure seus produtos',
-          'Cadastre seus métodos de pagamento',
-          'Comece a vender!',
-        ],
-      },
+      message: 'Conta criada com sucesso! Trial de 7 dias ativado.',
+      access_token: login.access_token,
+      refresh_token: login.refresh_token,
+      user: login.user,
+      trialEndsAt: result.subscription?.trialEndsAt ?? null,
+      companyId: result.company.id,
     };
   }
 

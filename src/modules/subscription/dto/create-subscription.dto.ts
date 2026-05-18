@@ -61,11 +61,11 @@ export class CreateSubscriptionDto {
 
   @IsOptional()
   @IsString()
-  strapiSubscriptionId?: string;
+  stripeSubscriptionId?: string;
 
   @IsOptional()
   @IsString()
-  strapiCustomerId?: string;
+  stripeCustomerId?: string;
 
   @IsOptional()
   @IsString()
