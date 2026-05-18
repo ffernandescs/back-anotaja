@@ -70,7 +70,7 @@ export class MasterBrandPaymentService {
     await this.assertBrandOwnership(brandId, masterUserId);
     this.assertValidProvider(dto.provider);
 
-    const configToSave = this.prepareConfigForSave(dto);
+    const configToSave = await this.prepareConfigForSave(dto);
 
     const row = await paymentConfigDb().upsert({
       where: { masterBrandId: brandId },
