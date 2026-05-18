@@ -237,15 +237,17 @@ export class CaktoWebhookController {
     const eventType =
       overrides.eventType ?? mapCaktoEventToSubscriptionEventType(caktoEvent);
 
+    const reason = buildCaktoHistoryReason(
+      caktoEvent,
+      metadata,
+      overrides.extraReason,
+    );
+
     return this.subscriptionHistory.logCaktoWebhook({
       subscriptionId: historyCtx.subscription.id,
       caktoEvent,
       eventType,
-      reason: buildCaktoHistoryReason(
-        caktoEvent,
-        metadata,
-        overrides.extraReason,
-      ),
+      reason,
       metadata,
       externalEventId: caktoExternalEventId(caktoEvent, data),
       previousStatus: overrides.previousStatus,
@@ -301,23 +303,6 @@ export class CaktoWebhookController {
         plan: { select: { id: true, name: true } },
         pendingPlan: { select: { id: true, name: true } },
       },
-    });
-
-    const paymentMeta = buildCaktoHistoryMetadata({
-      ...historyCtx,
-      subscription: updated ?? subscription,
-    });
-
-    await this.subscriptionHistory.logCaktoWebhook({
-      subscriptionId: subscription.id,
-      caktoEvent: event,
-      eventType: 'PAYMENT_SUCCEEDED',
-      reason: buildCaktoHistoryReason(event, paymentMeta),
-      metadata: paymentMeta,
-      externalEventId: caktoExternalEventId(`${event}:payment`, data),
-      previousStatus,
-      newStatus: 'ACTIVE',
-      amount: amountToCents(data.amount) ?? amountToCents(data.baseAmount),
     });
 
     await this.recordCaktoHistory(
@@ -494,7 +479,6 @@ export class CaktoWebhookController {
     });
 
     await this.recordCaktoHistory(historyCtx, {
-      eventType: 'PAYMENT_SUCCEEDED',
       previousStatus: subscription.status,
       newStatus: 'PENDING',
       previousPlanId: subscription.planId,

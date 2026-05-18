@@ -226,7 +226,7 @@ export class SubscriptionHistoryService {
     subscriptionId: string;
     caktoEvent: string;
     eventType: SubscriptionEventType;
-    reason: string;
+    reason?: string;
     metadata: Record<string, unknown>;
     externalEventId?: string;
     previousStatus?: SubscriptionStatus;
@@ -256,7 +256,7 @@ export class SubscriptionHistoryService {
       newPlanId: params.newPlanId,
       amount: params.amount,
       stripeEventId: externalEventId,
-      reason: params.reason,
+      reason: params.reason ?? undefined,
       metadata: {
         ...params.metadata,
         caktoEvent,
