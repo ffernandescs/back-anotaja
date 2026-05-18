@@ -20,6 +20,8 @@ import {
   buildCaktoHistoryReason,
   mapCaktoEventToSubscriptionEventType,
 } from './cakto-webhook-history.util';
+import { BillingInvoicesService } from './billing-invoices.service';
+import { BillingCycleService } from './billing-cycle.service';
 
 function mapBillingPeriodToStripeInterval(
   period: BillingPeriod,
@@ -39,6 +41,8 @@ export class BillingService {
     private stripeBrandCheckout: StripeBrandCheckoutService,
     private brandPaymentService: MasterBrandPaymentService,
     private readonly subscriptionHistory: SubscriptionHistoryService,
+    private readonly billingInvoices: BillingInvoicesService,
+    private readonly billingCycle: BillingCycleService,
   ) {}
 
   private async getStripeForSubscription(
@@ -198,39 +202,29 @@ export class BillingService {
     }
 
     const isStripeProvider =
-      subscription.paymentProvider === 'STRIPE' || !subscription.paymentProvider;
+      subscription.paymentProvider === 'STRIPE' ||
+      (!subscription.paymentProvider &&
+        Boolean(
+          subscription.stripeSubscriptionId || subscription.stripeCustomerId,
+        ));
+    const isIntegrationBilling =
+      subscription.paymentProvider === 'CAKTO' ||
+      subscription.paymentProvider === 'ASAAS' ||
+      (!subscription.paymentProvider &&
+        !subscription.stripeSubscriptionId &&
+        Boolean(subscription.externalCheckoutId));
     const stripeClient = isStripeProvider
       ? await this.getStripeForSubscription(subscription)
       : null;
 
-    // Buscar últimas invoices do Stripe
-    let recentInvoices: any[] = [];
-    if (subscription.stripeSubscriptionId && stripeClient) {
-      try {
-        const stripeInvoices = await stripeClient.invoices.list({
-          subscription: subscription.stripeSubscriptionId,
-          limit: 10,
-        });
-
-        recentInvoices = stripeInvoices.data
-          .filter(inv => inv.status === 'paid' || inv.status === 'open')
-          .map(inv => ({
-            id: inv.id,
-            number: inv.number || `INV-${inv.id.slice(-8)}`,
-            amount: inv.amount_paid || inv.amount_due || 0,
-            formattedAmount: formatCurrency(inv.amount_paid || inv.amount_due || 0),
-            status: inv.status === 'paid' ? 'PAID' : 'PENDING',
-            date: new Date(inv.created * 1000),
-            periodStart: inv.period_start ? new Date(inv.period_start * 1000) : null,
-            periodEnd: inv.period_end ? new Date(inv.period_end * 1000) : null,
-            description: inv.description || `${subscription.plan?.name ?? 'Assinatura'} - ${new Date(inv.created * 1000).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}`,
-            pdfUrl: inv.invoice_pdf || null,
-            hostedUrl: inv.hosted_invoice_url || null,
-          }));
-      } catch (error) {
-        console.warn('Erro ao buscar invoices do Stripe:', error);
-      }
-    }
+    const recentInvoices = await this.billingInvoices.listForSubscription({
+      subscriptionId: subscription.id,
+      paymentProvider: subscription.paymentProvider,
+      stripeClient,
+      stripeSubscriptionId: subscription.stripeSubscriptionId,
+      planName: subscription.plan?.name,
+      planEffectivePriceCents: effectivePrice,
+    });
 
     // Verificar se existe método de pagamento
     let hasPaymentMethod = false;
@@ -266,6 +260,32 @@ export class BillingService {
       }
     }
 
+    const displayCycle =
+      isIntegrationBilling || !isStripeProvider
+        ? await this.billingCycle.inferCycleForDisplay(
+            subscription.id,
+            subscription.billingPeriod,
+          )
+        : {};
+
+    // Cakto, Asaas e outros: próxima cobrança a partir do ciclo persistido ou inferido
+    if (!upcomingInvoice && !isTrialActive && (isIntegrationBilling || !isStripeProvider)) {
+      const nextChargeDate =
+        subscription.nextBillingDate ??
+        displayCycle.nextBillingDate ??
+        subscription.currentPeriodEnd ??
+        displayCycle.currentPeriodEnd;
+
+      if (nextChargeDate) {
+        const amount = effectivePrice > 0 ? effectivePrice : (subscription.plan?.price ?? 0);
+        upcomingInvoice = {
+          amount,
+          formattedAmount: formatCurrency(amount),
+          date: nextChargeDate,
+        };
+      }
+    }
+
     const billingPeriodLabel: Record<string, string> = {
       MONTHLY: 'Mensal',
       SEMESTRAL: 'Semestral',
@@ -282,9 +302,12 @@ export class BillingService {
         billingPeriod: subscription.billingPeriod,
         billingPeriodLabel: billingPeriodLabel[subscription.billingPeriod] || subscription.billingPeriod,
         startDate: subscription.startDate,
-        nextBillingDate: subscription.nextBillingDate,
-        currentPeriodStart: subscription.currentPeriodStart,
-        currentPeriodEnd: subscription.currentPeriodEnd,
+        nextBillingDate:
+          subscription.nextBillingDate ?? displayCycle.nextBillingDate ?? null,
+        currentPeriodStart:
+          subscription.currentPeriodStart ?? displayCycle.currentPeriodStart ?? null,
+        currentPeriodEnd:
+          subscription.currentPeriodEnd ?? displayCycle.currentPeriodEnd ?? null,
         cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
       },
       plan: subscription.plan ? {

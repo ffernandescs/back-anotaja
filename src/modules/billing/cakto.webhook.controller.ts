@@ -36,6 +36,7 @@ import {
   isKnownCaktoEvent,
 } from './cakto-webhook.events';
 import { BillingOrchestratorService } from './orchestrator/billing-orchestrator.service';
+import { BillingCycleService } from './billing-cycle.service';
 import type { SubscriptionStatus } from '@prisma/client';
 
 /**
@@ -51,6 +52,7 @@ export class CaktoWebhookController {
   constructor(
     private readonly billingOrchestrator: BillingOrchestratorService,
     private readonly subscriptionHistory: SubscriptionHistoryService,
+    private readonly billingCycle: BillingCycleService,
   ) {}
 
   @Public()
@@ -303,6 +305,18 @@ export class CaktoWebhookController {
         plan: { select: { id: true, name: true } },
         pendingPlan: { select: { id: true, name: true } },
       },
+    });
+
+    const activeSub = updated ?? subscription;
+    const billingPeriod =
+      (await prisma.subscription.findUnique({
+        where: { companyId },
+        select: { billingPeriod: true },
+      }))?.billingPeriod ?? 'MONTHLY';
+
+    await this.billingCycle.applyCycleFromPayment(activeSub.id, billingPeriod, {
+      webhookData: data,
+      referenceDate: new Date(),
     });
 
     await this.recordCaktoHistory(

@@ -10,6 +10,22 @@ import {
 import { Public } from '../../common/decorators/public.decorator';
 import { prisma } from '../../../lib/prisma';
 import { BillingOrchestratorService } from './orchestrator/billing-orchestrator.service';
+import { SubscriptionHistoryService } from '../subscription/subscription-history.service';
+import { amountToCents } from './cakto-webhook-history.util';
+import { BillingCycleService } from './billing-cycle.service';
+import { parseBillingDate } from './billing-cycle.util';
+
+function parseBillingDateFromAsaas(
+  payment?: Record<string, unknown>,
+): Date | undefined {
+  if (!payment) return undefined;
+  return (
+    parseBillingDate(payment.confirmedDate) ??
+    parseBillingDate(payment.paymentDate) ??
+    parseBillingDate(payment.clientPaymentDate) ??
+    parseBillingDate(payment.dateCreated)
+  );
+}
 
 /**
  * Webhook Asaas — aplica plano pendente quando checkout/pagamento confirmado.
@@ -21,6 +37,8 @@ export class AsaasWebhookController {
 
   constructor(
     private readonly billingOrchestrator: BillingOrchestratorService,
+    private readonly subscriptionHistory: SubscriptionHistoryService,
+    private readonly billingCycle: BillingCycleService,
   ) {}
 
   @Public()
@@ -61,6 +79,11 @@ export class AsaasWebhookController {
 
     const subscription = await prisma.subscription.findUnique({
       where: { companyId },
+      select: {
+        id: true,
+        billingPeriod: true,
+        externalCheckoutId: true,
+      },
     });
 
     if (!subscription) {
@@ -81,6 +104,46 @@ export class AsaasWebhookController {
 
     const result =
       await this.billingOrchestrator.commitPendingPlanAfterPayment(companyId);
+
+    const amountCents =
+      amountToCents(payment?.value) ??
+      amountToCents(payment?.netValue) ??
+      undefined;
+
+    const paymentId =
+      (typeof payment?.id === 'string' && payment.id) ||
+      (typeof checkout?.id === 'string' && checkout.id);
+
+    await this.subscriptionHistory.logPayment(
+      subscription.id,
+      amountCents ?? 0,
+      true,
+      paymentId ? `asaas:${paymentId}:${event}` : undefined,
+      {
+        provider: 'ASAAS',
+        asaasEvent: event,
+        asaasPaymentId: payment?.id,
+        asaasCheckoutId: checkout?.id,
+        paymentMethod:
+          typeof payment?.billingType === 'string' ? payment.billingType : undefined,
+        dueDate: payment?.dueDate,
+        paymentDate: payment?.paymentDate,
+        confirmedDate: payment?.confirmedDate,
+      },
+    );
+
+    const asaasReference = parseBillingDateFromAsaas(payment);
+    await this.billingCycle.applyCycleFromPayment(
+      subscription.id,
+      subscription.billingPeriod,
+      {
+        webhookData: {
+          paidAt: asaasReference,
+          next_billing_date: payment?.dueDate,
+        },
+        referenceDate: asaasReference ?? new Date(),
+      },
+    );
 
     this.logger.log(
       `Assinatura ativada via Asaas para company ${companyId} — plano ${result?.planId}`,

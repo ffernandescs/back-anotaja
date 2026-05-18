@@ -17,6 +17,8 @@ import { BrandCheckoutService } from './brand-payment/brand-checkout.service';
 import { StripeBrandCheckoutService } from './brand-payment/stripe-brand-checkout.service';
 import { AsaasBrandCheckoutService } from './brand-payment/asaas-brand-checkout.service';
 import { CaktoBrandCheckoutService } from './brand-payment/cakto-brand-checkout.service';
+import { BillingInvoicesService } from './billing-invoices.service';
+import { BillingCycleService } from './billing-cycle.service';
 
 @Module({
   imports: [
@@ -44,6 +46,8 @@ import { CaktoBrandCheckoutService } from './brand-payment/cakto-brand-checkout.
     StripeBrandCheckoutService,
     AsaasBrandCheckoutService,
     CaktoBrandCheckoutService,
+    BillingInvoicesService,
+    BillingCycleService,
   ],
   exports: [BrandCheckoutService, StripeBrandCheckoutService],
 })
