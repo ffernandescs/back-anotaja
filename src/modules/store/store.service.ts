@@ -9,6 +9,7 @@ import { JwtService } from '@nestjs/jwt';
 import { CashMovementType, Customer, CustomerType, DeliveryType, DispatchStatus, OrderChannel, OrderStatus, PaymentMethodType, PaymentStatus, PreparationStatus, Prisma, ServiceType, StockMovement } from '@prisma/client';
 import { prisma } from '../../../lib/prisma';
 import { CouponsService } from '../coupons/coupons.service';
+import { AnnouncementsService } from '../announcements/announcements.service';
 import { ValidateCouponDto } from './dto/validate-coupon.dto';
 import { SubscriptionStatusDto } from '../subscription/dto/create-subscription.dto';
 import { OrdersWebSocketGateway } from '../websocket/websocket.gateway';
@@ -84,6 +85,7 @@ export class StoreService {
     private whatsappService: WhatsAppService,
     private readonly surveySvc: StoreSurveyService,
     private readonly orderSurveyService: OrderSurveyService,
+    private readonly announcementsService: AnnouncementsService,
   ) {}
 
    private async notifyCustomer(branchId: string, order: any, status: OrderStatus,surveyUrl?: string,
@@ -3213,87 +3215,7 @@ Verifique no sistema!`;
       );
     }
 
-    const now = new Date();
-    const currentDay = now
-      .toLocaleDateString('en-US', { weekday: 'long' })
-      .toLowerCase();
-
-    const announcements = await prisma.announcement.findMany({
-      where: {
-        branchId: branch.id,
-        active: true,
-      },
-      orderBy: [{ displayOrder: 'asc' }, { createdAt: 'desc' }],
-    });
-
-    const activeAnnouncements = announcements.filter((announcement) => {
-      // Verificar período de exibição
-      if (announcement.displayPeriod) {
-        try {
-          const rawPeriod: unknown = JSON.parse(announcement.displayPeriod);
-
-          // Validar estrutura esperada
-          if (
-            rawPeriod &&
-            typeof rawPeriod === 'object' &&
-            'startDate' in rawPeriod &&
-            'endDate' in rawPeriod &&
-            'startTime' in rawPeriod &&
-            'endTime' in rawPeriod
-          ) {
-            const period = rawPeriod as {
-              startDate?: string;
-              endDate?: string;
-              startTime?: string;
-              endTime?: string;
-            };
-
-            const startDate = period.startDate
-              ? new Date(period.startDate)
-              : null;
-            const endDate = period.endDate ? new Date(period.endDate) : null;
-
-            if (startDate && now < startDate) return false;
-            if (endDate && now > endDate) return false;
-
-            if (period.startTime && period.endTime) {
-              const currentTime = now.toTimeString().slice(0, 5); // HH:MM
-              if (
-                currentTime < period.startTime ||
-                currentTime > period.endTime
-              ) {
-                return false;
-              }
-            }
-          }
-        } catch (e) {
-          console.error('Erro ao parsear displayPeriod:', e);
-        }
-      }
-
-      // Verificar dias da semana
-      if (announcement.displayDays) {
-        try {
-          const rawDays: unknown = JSON.parse(announcement.displayDays);
-
-          if (
-            Array.isArray(rawDays) &&
-            rawDays.every((d) => typeof d === 'string')
-          ) {
-            const days = rawDays;
-            if (days.length > 0 && !days.includes(currentDay)) {
-              return false;
-            }
-          }
-        } catch (e) {
-          console.error('Erro ao parsear displayDays:', e);
-        }
-      }
-
-      return true;
-    });
-
-    return { announcements: activeAnnouncements };
+    return this.announcementsService.findActiveForBranch(branch.id);
   }
 
   /**

@@ -91,6 +91,31 @@ export class UploadController {
     };
   }
 
+  @Post('announcement-image')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadAnnouncementImage(@UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('File is required');
+    }
+
+    const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowedMimeTypes.includes(file.mimetype)) {
+      throw new BadRequestException('Only image files are allowed');
+    }
+
+    const maxSize = 5 * 1024 * 1024;
+    if (file.size > maxSize) {
+      throw new BadRequestException('File size must be less than 5MB');
+    }
+
+    const url = await this.uploadService.uploadFile(file, 'announcements');
+
+    return {
+      url,
+      message: 'Announcement image uploaded successfully',
+    };
+  }
+
   @Post('person-image')
   
   @UseInterceptors(FileInterceptor('file'))

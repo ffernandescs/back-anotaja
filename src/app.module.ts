@@ -34,6 +34,7 @@ import { DeliveryAssignmentsModule } from './modules/delivery-assignments/delive
 import { AutoRouteConfigModule } from './modules/auto-route-config/auto-route-config.module';
 import { DeliveryModule } from './modules/delivery/delivery.module';
 import { CouponsModule } from './modules/coupons/coupons.module';
+import { AnnouncementsModule } from './modules/announcements/announcements.module';
 import { UploadModule } from './modules/upload/upload.module';
 import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { CronModule } from './modules/cron/cron.module';
@@ -105,6 +106,7 @@ import { MasterBrandModule } from './modules/maste-brands/master.brands.module';
     AutoRouteConfigModule,
     DeliveryModule,
     CouponsModule,
+    AnnouncementsModule,
     UploadModule,
     OnboardingModule,
     CronModule,

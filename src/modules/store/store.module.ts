@@ -7,6 +7,7 @@ import { AuthModule } from '../auth/auth.module';
 import { JwtCustomerStrategy } from '../customers/strategies/jwt.strategy.customer';
 import { WebSocketModule } from '../websocket/websocket.module';
 import { CouponsModule } from '../coupons/coupons.module';
+import { AnnouncementsModule } from '../announcements/announcements.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { StoreController } from './store.controller';
 import { StoreService } from './store.service';
@@ -19,6 +20,7 @@ import { OrderSurveyService } from '../order-survey/order-survey.service';
     WebSocketModule,
     AuthModule,
     CouponsModule,
+    AnnouncementsModule,
     WhatsAppModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],

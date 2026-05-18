@@ -724,6 +724,7 @@ model Announcement {
   id            String   @id @default(cuid())
   title         String
   message       String
+  imageUrl      String?
   type          String   @default("INFO") // INFO, WARNING, SUCCESS, PROMOTION
   active        Boolean  @default(true)
   // Período de exibição (JSON: { startDate: "2024-01-01", endDate: "2024-01-31", startTime: "08:00", endTime: "22:00" })
