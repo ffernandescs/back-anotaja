@@ -565,7 +565,7 @@ export class StoreController {
     });
   }
 
-  @CustomerAuth()
+  @Public()
   @Post('cross-sell')
   async getCrossSellProducts(
     @Req() req: RequestWithUser,
