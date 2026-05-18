@@ -53,6 +53,9 @@ model MasterBrand {
   secondaryColor String?
   accentColor    String?
 
+  /// Pesquisa de satisfação do cardápio digital (botão após pedido na loja)
+  menuSurveyEnabled Boolean @default(false)
+
   isDefault Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

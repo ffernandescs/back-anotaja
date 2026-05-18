@@ -18,6 +18,7 @@ export interface CreateBrandDto {
   secondaryColor?: string;
   accentColor?: string;
   isDefault?: boolean;
+  menuSurveyEnabled?: boolean;
 }
 
 export type UpdateBrandDto = Partial<CreateBrandDto>;
@@ -68,6 +69,7 @@ export class MasterBrandService {
         primaryColor: true,
         secondaryColor: true,
         accentColor: true,
+        menuSurveyEnabled: true,
         updatedAt: true,
       },
     });
@@ -143,6 +145,9 @@ export class MasterBrandService {
           ...(dto.secondaryColor !== undefined && { secondaryColor: dto.secondaryColor }),
           ...(dto.accentColor !== undefined && { accentColor: dto.accentColor }),
           ...(dto.isDefault !== undefined && { isDefault: dto.isDefault }),
+          ...(dto.menuSurveyEnabled !== undefined && {
+            menuSurveyEnabled: dto.menuSurveyEnabled,
+          }),
         },
       }),
     );

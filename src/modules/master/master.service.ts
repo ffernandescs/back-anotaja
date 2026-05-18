@@ -126,6 +126,7 @@ async getProfile(masterUserId: string) {
         secondaryColor: null,
         accentColor: null,
         appName: null,
+        menuSurveyEnabled: true,
       };
     }
 
@@ -144,6 +145,7 @@ async getProfile(masterUserId: string) {
   secondaryColor?: string;
   accentColor?: string;
   appName?: string;
+  menuSurveyEnabled?: boolean;
 }) {
   const existing = await prisma.masterBrand.findFirst({
     where: { masterUserId, isDefault: true },

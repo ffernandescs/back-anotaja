@@ -3,6 +3,7 @@
 
 import { Injectable, NotFoundException, GoneException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { prisma } from 'lib/prisma';
+import { isMenuSurveyEnabledForBranch } from '../maste-brands/master-brand-menu-survey.util';
 import { CreateSurveyResponseDto } from './dto/create-survey-response.dto';
 
 // ─── DTO de query ─────────────────────────────────────────────────────────────
@@ -30,6 +31,7 @@ export class StoreSurveyService {
 
   async createTokenForOrder(orderId: string, branchId: string): Promise<string | null> {
     if (!this.isEnabled) return null;
+    if (!(await isMenuSurveyEnabledForBranch(branchId))) return null;
     const existing = await prisma.surveyToken.findFirst({ where: { orderId } });
     if (existing) return existing.token;
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
@@ -48,6 +50,9 @@ export class StoreSurveyService {
       },
     });
     if (!record) throw new NotFoundException('Link de pesquisa inválido.');
+    if (!(await isMenuSurveyEnabledForBranch(record.branchId))) {
+      throw new ForbiddenException('Pesquisa de cardápio desativada para esta plataforma.');
+    }
     if (record.usedAt || record.response) throw new ConflictException('Esta pesquisa já foi respondida. Obrigado pelo feedback!');
     if (new Date() > record.expiresAt) throw new GoneException('Este link expirou. Ele é válido por apenas 1 hora após o pedido.');
     return { valid: true, expiresAt: record.expiresAt, orderNumber: record.order?.orderNumber, branch: record.branch };

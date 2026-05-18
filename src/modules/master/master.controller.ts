@@ -80,6 +80,7 @@ export class MasterController {
         secondaryColor: null,
         accentColor: null,
         appName: null,
+        menuSurveyEnabled: true,
       };
     }
     return this.masterService.getBranding(masterUser.id);
@@ -108,6 +109,7 @@ export class MasterController {
     secondaryColor?: string;
     accentColor?: string;
     appName?: string;
+    menuSurveyEnabled?: boolean;
   }) {
     return this.masterService.updateBranding(req.user.userId, data);
   }

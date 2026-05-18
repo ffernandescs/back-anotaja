@@ -568,14 +568,11 @@ export class StoreController {
   @Public()
   @Post('cross-sell')
   async getCrossSellProducts(
-    @Req() req: RequestWithUser,
+    @Req() req: Request,
     @Body() body: { productIds: string[] },
     @Query('branchId') branchId?: string,
     @Headers('x-tenant') xTenant?: string,
   ) {
-    if (!req.user?.userId) {
-      throw new UnauthorizedException('Cliente não autenticado');
-    }
     const hostname = req?.headers?.host || '';
     const { subdomain, branchId: headerBranchId } = this.extractSubdomain(
       hostname,
