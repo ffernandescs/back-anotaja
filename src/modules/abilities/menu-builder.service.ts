@@ -1,11 +1,14 @@
-import { Injectable } from "@nestjs/common";
-import { prisma } from "lib/prisma";
+import { Injectable } from '@nestjs/common';
+import { prisma } from 'lib/prisma';
+import {
+  restrictMenuToBillingAccess,
+  shouldRestrictMenuForSubscription,
+  type MenuGroupDto,
+} from '../billing/subscription-menu.util';
 
 @Injectable()
 export class MenuBuilderService {
-  constructor() {}
-
-  async build(user: any, abilities: any) {
+  async build(user: any, abilities: any): Promise<MenuGroupDto[]> {
     const allowedFeatures = new Set(abilities?.features || []);
     const allowedActions = abilities?.actions || {};
 
@@ -30,14 +33,12 @@ export class MenuBuilderService {
 
     const canAccess = (feature: any) => {
       if (!feature?.key) return false;
-
       if (!allowedFeatures.has(feature.key)) return false;
-
       const actions = allowedActions[feature.key];
       return actions && actions.length > 0;
     };
 
-    return menuGroups
+    const menu = menuGroups
       .map((group) => {
         const items = group.featureMenuGroups
           .map((fm) => fm.feature)
@@ -45,7 +46,6 @@ export class MenuBuilderService {
           .map((feature) => {
             const children = (feature.children || []).filter(canAccess);
 
-            // 🔥 submenu
             if (children.length > 0) {
               return {
                 id: feature.id,
@@ -64,7 +64,6 @@ export class MenuBuilderService {
               };
             }
 
-            // 🔥 item simples
             if (!canAccess(feature)) return null;
 
             return {
@@ -85,6 +84,21 @@ export class MenuBuilderService {
           items,
         };
       })
-      .filter(Boolean);
+      .filter(Boolean) as MenuGroupDto[];
+
+    if (!user?.companyId) {
+      return menu;
+    }
+
+    const subscription = await prisma.subscription.findUnique({
+      where: { companyId: user.companyId },
+      include: { plan: { select: { type: true } } },
+    });
+
+    if (shouldRestrictMenuForSubscription(subscription)) {
+      return restrictMenuToBillingAccess(menu);
+    }
+
+    return menu;
   }
 }

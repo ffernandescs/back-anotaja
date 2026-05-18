@@ -441,13 +441,25 @@ if (order.status !== updatedOrder.status && updatedOrder.branchId) {
     });
 
     let canReceiveOrders = true;
-    let subscriptionReason: 'SUSPENDED' | 'TRIAL_EXPIRED' | null = null;
+    let subscriptionReason: 'SUSPENDED' | 'TRIAL_EXPIRED' | 'CANCELLED' | null = null;
 
     if (subscription) {
-      // Verificar se está suspensa
       if (subscription.status === 'SUSPENDED') {
         canReceiveOrders = false;
         subscriptionReason = 'SUSPENDED';
+      }
+
+      if (subscription.status === 'CANCELLED') {
+        canReceiveOrders = false;
+        subscriptionReason = 'CANCELLED';
+      }
+
+      if (
+        subscription.status === 'PENDING' ||
+        subscription.status === 'INACTIVE' ||
+        subscription.status === 'EXPIRED'
+      ) {
+        canReceiveOrders = false;
       }
 
       // Verificar se trial expirou

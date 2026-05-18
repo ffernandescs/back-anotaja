@@ -64,7 +64,7 @@ export class StoreHomepageDto {
   subscription?: {
     status: string;
     canReceiveOrders: boolean;
-    reason?: 'SUSPENDED' | 'TRIAL_EXPIRED' | null;
+    reason?: 'SUSPENDED' | 'TRIAL_EXPIRED' | 'CANCELLED' | null;
   };
   categories!: Array<{
     id: string;
